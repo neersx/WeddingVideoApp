@@ -18,19 +18,46 @@ export const TemplatePicker = ({ value, onChange }) => {
       text: "#E7D9F2",
       font: "'Cormorant Garamond', serif",
     },
+    {
+      id: "heartbeat",
+      name: "Heartbeat",
+      desc: "Beating heart intro, blush photobook with floating date bar, romantic invitation.",
+      swatch: ["#B4405F", "#F5D0D8", "#C7A365", "#FFF7F0"],
+      bg: "#FFF7F0",
+      text: "#7A1E3A",
+      font: "'Dancing Script', cursive",
+    },
+    {
+      id: "story",
+      name: "Story",
+      desc: "Editorial full-bleed photos, huge bold date reveal, chapter-by-chapter invitation.",
+      swatch: ["#7A9B76", "#F4EFE6", "#A67B39", "#1F1F1F"],
+      bg: "#1F1F1F",
+      text: "#F4EFE6",
+      font: "'Cormorant Garamond', serif",
+    },
+    {
+      id: "poster",
+      name: "Poster",
+      desc: "Bauhaus-modern. Bold monogram, geometric mosaic, red/yellow accents, editorial punch.",
+      swatch: ["#E63946", "#F4C542", "#264653", "#F2EEE5"],
+      bg: "#F2EEE5",
+      text: "#0A0A0A",
+      font: "'Archivo Black', sans-serif",
+    },
   ];
 
   return (
     <section>
       <h2 className="section-label mb-4 text-left">01 — Template</h2>
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
         {templates.map((t) => (
           <button
             key={t.id}
             type="button"
             data-testid={`template-selector-${t.id}`}
             onClick={() => onChange(t.id)}
-            className={`tactile-card overflow-hidden p-0 text-left ${
+            className={`tactile-card overflow-hidden p-0 text-left transition ${
               value === t.id ? "ring-2 ring-black border-black" : ""
             }`}
           >

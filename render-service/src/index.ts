@@ -38,7 +38,14 @@ const jobs = new Map<string, Job>();
 
 const buildInputProps = (body: any) => {
   const template = String(body.template || 'marigold').toLowerCase();
-  const compositionId = template === 'midnight' ? 'Midnight' : 'Marigold';
+  const compMap: Record<string, string> = {
+    marigold: 'Marigold',
+    midnight: 'Midnight',
+    heartbeat: 'Heartbeat',
+    story: 'Story',
+    poster: 'Poster',
+  };
+  const compositionId = compMap[template] || 'Marigold';
   const inputProps = {
     couple: body.couple,
     eventDate: body.eventDate || '',

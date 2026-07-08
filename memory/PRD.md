@@ -18,7 +18,7 @@ Build a template rendering engine: a small, isolated Node.js Remotion microservi
   - `GET /jobs/:id` → `{status, progress 0..1, error?}`
   - `GET /jobs/:id/video` → mp4 stream (once done)
   - `POST /render` legacy sync endpoint kept
-  - `src/templates/Marigold.tsx`, `src/templates/Midnight.tsx`
+  - Templates: Marigold, Midnight, Heartbeat, Story, Poster (all 1080×1920 @30fps, 5-60s)
 - FastAPI backend (port 8001)
   - `POST /api/renders` creates Mongo job doc `{status:"queued", progress:0}`, spawns BackgroundTask worker; returns `{jobId, status, poll_url, video_url}`
   - Background worker calls render-service `/render-async`, polls `/jobs/:id` every 2s, mirrors progress into Mongo, downloads mp4 into `/app/backend/renders/{jobId}.mp4` on completion
@@ -64,6 +64,7 @@ Names reveal (18%) → message/quote (18%) → Ken Burns photo slideshow (30%) �
 - 2026-06 — Backend proxy + upload + history, frontend dashboard (testing iteration_1: 100% pass)
 - 2026-02 — **Async job queue** with MongoDB-backed status, live progress polling (2s interval), BackgroundTasks worker (testing iteration_2: 100% pass, 12/12 backend + full frontend e2e)
 - 2026-02 — **Bundled music picker** with 5 real royalty-free tracks (Tere Sang default), play-preview in UI, musicId payload field, credit attribution shown per card
+- 2026-02 — **3 new templates**: Heartbeat (beating heart intro + photobook w/ floating date bar), Story (editorial full-bleed chapters with huge bold date reveal), Poster (Bauhaus monogram + geometric mosaic). Total 5 templates.
 
 ## Backlog
 - P1: Render history panel in UI (API exists, needs component)
