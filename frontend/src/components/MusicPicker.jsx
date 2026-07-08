@@ -97,6 +97,9 @@ export const MusicPicker = ({ value, onChange }) => {
                   <div className={`text-xs ${selected ? "text-neutral-300" : "text-neutral-500"}`}>
                     {t.mood} · {t.duration}s
                   </div>
+                  <div className={`mt-0.5 text-[10px] uppercase tracking-[0.12em] ${selected ? "text-neutral-400" : "text-neutral-400"}`}>
+                    {t.credit}
+                  </div>
                 </button>
                 <button
                   type="button"
@@ -116,7 +119,7 @@ export const MusicPicker = ({ value, onChange }) => {
           })}
         </div>
         <p className="mt-4 text-[11px] leading-relaxed text-neutral-400">
-          Tracks are bundled royalty-free demo tones. Replace files in <code>/app/backend/music/</code> with real CC0 audio for production.
+          Royalty-free tracks — credits shown on each card. Audio fades in/out over the render.
         </p>
       </div>
     </section>

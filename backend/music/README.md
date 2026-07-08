@@ -1,11 +1,13 @@
 # Bundled Royalty-Free Music Library
 
-The three files in this folder are **placeholder demo tracks** generated with ffmpeg sine-wave chords so the music picker can be demoed end-to-end without external assets. They are simple ambient tones (C-major, A-minor, F-major triads) and are intentionally low volume.
+Five real royalty-free tracks are bundled with DreamWedds. Metadata (title, mood, credit, duration) is defined in `MUSIC_LIBRARY` inside `/app/backend/server.py`. Track ids are stable — the frontend and payload use them.
 
-To ship a production experience, replace each `.mp3` with a real CC0 / royalty-free instrumental loop of ~30s at 128 kbps. Keep the same filenames so the API keeps working:
+| id                     | title                    | mood                     | length | credit                  |
+|------------------------|--------------------------|--------------------------|--------|-------------------------|
+| tere-sang (default)    | Tere Sang (With You)     | Hindi · Romantic ballad  | 2:00   | Selectric Music & Lyrics|
+| wedding-romantic       | Wedding Romantic         | Cinematic · Ceremony     | 1:26   | Leberch                 |
+| romantic-adventure     | Romantic Adventure       | Uplifting · Cinematic    | 2:20   | Paul Yudin              |
+| romantic               | Romantic                 | Soft · Intimate          | 0:35   | PrettyJohn1             |
+| hindi-love-rap         | Hindi Love Rap           | Trap · Hip-hop duet      | 3:30   | Rahul Sapkal            |
 
-- `serenity.mp3`       — soft, dawn-like piano (C major)
-- `twilight.mp3`       — warm, evening strings (A minor)
-- `marigold-bloom.mp3` — bright, celebratory chords (F major)
-
-The track metadata (title, mood, length, credit) is defined in `/app/backend/server.py` inside the `MUSIC_LIBRARY` constant. Update credit/attribution strings when swapping files.
+To swap or add tracks: drop the mp3 in this folder, update `MUSIC_LIBRARY` in `server.py`, and (optionally) change the default in `/app/frontend/src/App.js` (`useState("tere-sang")`).

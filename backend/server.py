@@ -30,32 +30,47 @@ RENDERS_DIR.mkdir(exist_ok=True)
 
 ALLOWED_IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.webp'}
 
-# Bundled royalty-free music library. Replace the mp3 files at /app/backend/music/
-# to swap in real CC0 tracks while keeping this metadata in sync.
+# Bundled royalty-free music library. Files live in /app/backend/music/.
 MUSIC_LIBRARY = [
     {
-        "id": "serenity",
-        "title": "Serenity",
-        "mood": "Soft · Dawn piano",
-        "filename": "serenity.mp3",
-        "duration": 32,
-        "credit": "Demo tone (replace with CC0 track)",
+        "id": "tere-sang",
+        "title": "Tere Sang (With You)",
+        "mood": "Hindi · Romantic ballad",
+        "filename": "tere-sang.mp3",
+        "duration": 120,
+        "credit": "Selectric Music & Lyrics",
     },
     {
-        "id": "twilight",
-        "title": "Twilight",
-        "mood": "Warm · Evening strings",
-        "filename": "twilight.mp3",
-        "duration": 32,
-        "credit": "Demo tone (replace with CC0 track)",
+        "id": "wedding-romantic",
+        "title": "Wedding Romantic",
+        "mood": "Cinematic · Ceremony",
+        "filename": "wedding-romantic.mp3",
+        "duration": 86,
+        "credit": "Leberch",
     },
     {
-        "id": "marigold-bloom",
-        "title": "Marigold Bloom",
-        "mood": "Bright · Celebratory",
-        "filename": "marigold-bloom.mp3",
-        "duration": 32,
-        "credit": "Demo tone (replace with CC0 track)",
+        "id": "romantic-adventure",
+        "title": "Romantic Adventure",
+        "mood": "Uplifting · Cinematic",
+        "filename": "romantic-adventure.mp3",
+        "duration": 140,
+        "credit": "Paul Yudin",
+    },
+    {
+        "id": "romantic",
+        "title": "Romantic",
+        "mood": "Soft · Intimate",
+        "filename": "romantic.mp3",
+        "duration": 35,
+        "credit": "PrettyJohn1",
+    },
+    {
+        "id": "hindi-love-rap",
+        "title": "Hindi Love Rap",
+        "mood": "Trap · Hip-hop duet",
+        "filename": "hindi-love-rap.mp3",
+        "duration": 210,
+        "credit": "Rahul Sapkal",
     },
 ]
 MUSIC_BY_ID = {t["id"]: t for t in MUSIC_LIBRARY}

@@ -33,7 +33,7 @@ function App() {
     { name: "Wedding", time: "11:30 AM" },
   ]);
   const [photos, setPhotos] = useState([]);
-  const [musicId, setMusicId] = useState("serenity");
+  const [musicId, setMusicId] = useState("tere-sang");
   const [jobStatus, setJobStatus] = useState("idle"); // idle | queued | rendering | done | failed
   const [jobProgress, setJobProgress] = useState(0);
   const [jobId, setJobId] = useState(null);

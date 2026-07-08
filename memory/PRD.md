@@ -29,10 +29,11 @@ Build a template rendering engine: a small, isolated Node.js Remotion microservi
   - `GET /api/music/{id}` → mp3 stream from `/app/backend/music/`
   - `/api/upload`, `/api/uploads/{f}`, `/api/health`
 - Bundled music library (`/app/backend/music/`)
-  - `serenity.mp3` (Soft · Dawn piano — C major)
-  - `twilight.mp3` (Warm · Evening strings — A minor)
-  - `marigold-bloom.mp3` (Bright · Celebratory — F major)
-  - Placeholder ffmpeg-generated sine chords; swap files to ship real CC0 audio
+  - `tere-sang.mp3` — Tere Sang (With You) · Selectric Music & Lyrics (default)
+  - `wedding-romantic.mp3` — Wedding Romantic · Leberch
+  - `romantic-adventure.mp3` — Romantic Adventure · Paul Yudin
+  - `romantic.mp3` — Romantic · PrettyJohn1
+  - `hindi-love-rap.mp3` — Hindi Love Rap · Rahul Sapkal
 - React frontend: DreamWedds Render Studio — template picker, couple/event form, schedule builder, photo uploader, MusicPicker with play-preview, sticky 9:16 preview with live progress bar + download.
 
 ## Render JSON schema
@@ -62,7 +63,7 @@ Names reveal (18%) → message/quote (18%) → Ken Burns photo slideshow (30%) �
 - 2026-06 — Render-service with Marigold + Midnight templates, sync render, Dockerfile
 - 2026-06 — Backend proxy + upload + history, frontend dashboard (testing iteration_1: 100% pass)
 - 2026-02 — **Async job queue** with MongoDB-backed status, live progress polling (2s interval), BackgroundTasks worker (testing iteration_2: 100% pass, 12/12 backend + full frontend e2e)
-- 2026-02 — **Bundled music picker** with 3 demo tracks, play-preview in UI, musicId payload field
+- 2026-02 — **Bundled music picker** with 5 real royalty-free tracks (Tere Sang default), play-preview in UI, musicId payload field, credit attribution shown per card
 
 ## Backlog
 - P1: Render history panel in UI (API exists, needs component)
