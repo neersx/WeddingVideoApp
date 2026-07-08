@@ -44,6 +44,7 @@ const buildInputProps = (body: any) => {
     heartbeat: 'Heartbeat',
     story: 'Story',
     poster: 'Poster',
+    showcase: 'Showcase',
   };
   const compositionId = compMap[template] || 'Marigold';
   const inputProps = {

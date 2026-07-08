@@ -65,6 +65,7 @@ Names reveal (18%) → message/quote (18%) → Ken Burns photo slideshow (30%) �
 - 2026-02 — **Async job queue** with MongoDB-backed status, live progress polling (2s interval), BackgroundTasks worker (testing iteration_2: 100% pass, 12/12 backend + full frontend e2e)
 - 2026-02 — **Bundled music picker** with 5 real royalty-free tracks (Tere Sang default), play-preview in UI, musicId payload field, credit attribution shown per card
 - 2026-02 — **3 new templates**: Heartbeat (beating heart intro + photobook w/ floating date bar), Story (editorial full-bleed chapters with huge bold date reveal), Poster (Bauhaus monogram + geometric mosaic). Total 5 templates.
+- 2026-06 — **Showcase template** (premium promo): intro → 3 animated mock wedding-website heroes in a browser frame (Classic Ivory w/ cursor-click RSVP, Botanical w/ live countdown, Editorial Dark w/ self-typing RSVP form) each with distinct cinematic camera moves (dolly-in / pan-up / tilt-drift) → DreamWedds.com interlocking-rings logo outro + "Create Your Wedding Website in Minutes". Personalized via same WeddingProps (names, date, venue, photos, music). Total 6 templates. Verified end-to-end (API render 30s/1080x1920/audio, frame-by-frame visual check, UI card).
 
 ## Backlog
 - P1: Render history panel in UI (API exists, needs component)

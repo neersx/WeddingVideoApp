@@ -45,6 +45,15 @@ export const TemplatePicker = ({ value, onChange }) => {
       text: "#0A0A0A",
       font: "'Archivo Black', sans-serif",
     },
+    {
+      id: "showcase",
+      name: "Showcase",
+      desc: "Premium promo. Three animated wedding-website heroes with cinematic camera moves, live RSVP & countdown, DreamWedds logo outro.",
+      swatch: ["#0E0D0B", "#B08D57", "#7A9B76", "#F5EFE2"],
+      bg: "#0E0D0B",
+      text: "#B08D57",
+      font: "'Playfair Display', serif",
+    },
   ];
 
   return (

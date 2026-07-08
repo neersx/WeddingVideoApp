@@ -5,6 +5,7 @@ import {Midnight} from '../templates/Midnight';
 import {Heartbeat} from '../templates/Heartbeat';
 import {Story} from '../templates/Story';
 import {Poster} from '../templates/Poster';
+import {Showcase} from '../templates/Showcase';
 import {defaultProps, FPS, WeddingProps} from '../templates/types';
 
 const meta = ({props}: {props: WeddingProps}) => ({
@@ -17,6 +18,7 @@ const compositions: {id: string; component: React.FC<WeddingProps>}[] = [
   {id: 'Heartbeat', component: Heartbeat},
   {id: 'Story', component: Story},
   {id: 'Poster', component: Poster},
+  {id: 'Showcase', component: Showcase},
 ];
 
 export const Root: React.FC = () => (
