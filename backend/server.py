@@ -20,6 +20,7 @@ client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
 RENDER_SERVICE_URL = os.environ['RENDER_SERVICE_URL']
+INTERNAL_BASE_URL = os.environ['INTERNAL_BASE_URL']
 UPLOADS_DIR = ROOT_DIR / 'uploads'
 RENDERS_DIR = ROOT_DIR / 'renders'
 UPLOADS_DIR.mkdir(exist_ok=True)
@@ -99,7 +100,7 @@ async def get_upload(filename: str):
 async def create_render(req: RenderRequest):
     payload = req.model_dump()
     payload['photos'] = [
-        f"http://localhost:8001{p}" if p.startswith('/api/uploads/') else p
+        f"{INTERNAL_BASE_URL}{p}" if p.startswith('/api/uploads/') else p
         for p in payload['photos']
     ]
     render_id = uuid.uuid4().hex
