@@ -66,17 +66,6 @@ export const DetailsForm = ({ details, onChange }) => {
             />
           </Field>
         </div>
-        <div className="sm:col-span-2">
-          <Field label="Music URL (optional, .mp3)">
-            <Input
-              data-testid="music-url-input"
-              value={details.musicUrl}
-              onChange={set("musicUrl")}
-              placeholder="https://example.com/track.mp3"
-              className="py-5"
-            />
-          </Field>
-        </div>
       </div>
     </section>
   );

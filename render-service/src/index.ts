@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
+import crypto from 'crypto';
 import {bundle} from '@remotion/bundler';
 import {renderMedia, selectComposition} from '@remotion/renderer';
 
@@ -23,19 +24,21 @@ const bundling = bundle({
   return url;
 });
 
-app.get('/health', (_req, res) => {
-  res.json({status: 'ok', bundled: serveUrl !== null});
-});
+type JobStatus = 'queued' | 'rendering' | 'done' | 'failed';
+type Job = {
+  id: string;
+  status: JobStatus;
+  progress: number;
+  error?: string;
+  outputPath?: string;
+  createdAt: number;
+  finishedAt?: number;
+};
+const jobs = new Map<string, Job>();
 
-app.post('/render', async (req, res) => {
-  const body = req.body || {};
+const buildInputProps = (body: any) => {
   const template = String(body.template || 'marigold').toLowerCase();
   const compositionId = template === 'midnight' ? 'Midnight' : 'Marigold';
-
-  if (!body?.couple?.partnerOne || !body?.couple?.partnerTwo) {
-    return res.status(400).json({error: 'couple.partnerOne and couple.partnerTwo are required'});
-  }
-
   const inputProps = {
     couple: body.couple,
     eventDate: body.eventDate || '',
@@ -46,14 +49,18 @@ app.post('/render', async (req, res) => {
     schedule: Array.isArray(body.schedule) ? body.schedule.slice(0, 6) : [],
     durationInSeconds: Math.min(60, Math.max(5, Number(body.durationInSeconds) || 30)),
   };
+  return {compositionId, inputProps};
+};
 
-  const outPath = path.join(os.tmpdir(), `render-${Date.now()}-${Math.random().toString(36).slice(2)}.mp4`);
-
+const runRender = async (job: Job, body: any) => {
+  const outPath = path.join(os.tmpdir(), `render-${job.id}.mp4`);
+  job.outputPath = outPath;
   try {
     const url = await bundling;
-    console.log(`[render] ${compositionId} for ${inputProps.couple.partnerOne} & ${inputProps.couple.partnerTwo}`);
+    const {compositionId, inputProps} = buildInputProps(body);
+    console.log(`[job ${job.id}] ${compositionId} for ${inputProps.couple.partnerOne} & ${inputProps.couple.partnerTwo}`);
+    job.status = 'rendering';
     const composition = await selectComposition({serveUrl: url, id: compositionId, inputProps});
-
     await renderMedia({
       composition,
       serveUrl: url,
@@ -64,24 +71,91 @@ app.post('/render', async (req, res) => {
       x264Preset: 'veryfast',
       timeoutInMilliseconds: 120000,
       onProgress: ({progress}) => {
+        job.progress = progress;
         const pct = Math.round(progress * 100);
-        if (pct % 10 === 0) console.log(`[render] ${pct}%`);
+        if (pct % 10 === 0) console.log(`[job ${job.id}] ${pct}%`);
       },
     });
-
-    const stat = fs.statSync(outPath);
-    res.setHeader('Content-Type', 'video/mp4');
-    res.setHeader('Content-Length', stat.size);
-    const stream = fs.createReadStream(outPath);
-    stream.pipe(res);
-    stream.on('close', () => fs.unlink(outPath, () => {}));
+    job.status = 'done';
+    job.progress = 1;
+    job.finishedAt = Date.now();
+    console.log(`[job ${job.id}] done`);
   } catch (err: any) {
-    console.error('[render] failed:', err);
-    fs.unlink(outPath, () => {});
-    if (!res.headersSent) {
-      res.status(500).json({error: err?.message || 'render failed'});
+    console.error(`[job ${job.id}] failed:`, err);
+    job.status = 'failed';
+    job.error = err?.message || 'render failed';
+    job.finishedAt = Date.now();
+  }
+};
+
+// Sweep finished jobs older than 30 minutes.
+setInterval(() => {
+  const cutoff = Date.now() - 30 * 60 * 1000;
+  for (const [id, j] of jobs) {
+    if (j.finishedAt && j.finishedAt < cutoff) {
+      if (j.outputPath) fs.unlink(j.outputPath, () => {});
+      jobs.delete(id);
     }
   }
+}, 5 * 60 * 1000);
+
+app.get('/health', (_req, res) => {
+  res.json({status: 'ok', bundled: serveUrl !== null, jobs: jobs.size});
+});
+
+// Legacy synchronous endpoint - kept for backwards compatibility.
+app.post('/render', async (req, res) => {
+  const body = req.body || {};
+  if (!body?.couple?.partnerOne || !body?.couple?.partnerTwo) {
+    return res.status(400).json({error: 'couple.partnerOne and couple.partnerTwo are required'});
+  }
+  const job: Job = {id: crypto.randomBytes(8).toString('hex'), status: 'queued', progress: 0, createdAt: Date.now()};
+  jobs.set(job.id, job);
+  await runRender(job, body);
+  if (job.status === 'failed' || !job.outputPath) {
+    return res.status(500).json({error: job.error || 'render failed'});
+  }
+  const stat = fs.statSync(job.outputPath);
+  res.setHeader('Content-Type', 'video/mp4');
+  res.setHeader('Content-Length', stat.size);
+  const stream = fs.createReadStream(job.outputPath);
+  stream.pipe(res);
+});
+
+// Async: start job, return id immediately.
+app.post('/render-async', (req, res) => {
+  const body = req.body || {};
+  if (!body?.couple?.partnerOne || !body?.couple?.partnerTwo) {
+    return res.status(400).json({error: 'couple.partnerOne and couple.partnerTwo are required'});
+  }
+  const job: Job = {id: crypto.randomBytes(8).toString('hex'), status: 'queued', progress: 0, createdAt: Date.now()};
+  jobs.set(job.id, job);
+  // fire and forget
+  runRender(job, body).catch((e) => console.error(`[job ${job.id}] unexpected:`, e));
+  res.json({jobId: job.id, status: job.status});
+});
+
+app.get('/jobs/:id', (req, res) => {
+  const job = jobs.get(req.params.id);
+  if (!job) return res.status(404).json({error: 'job not found'});
+  res.json({
+    jobId: job.id,
+    status: job.status,
+    progress: job.progress,
+    error: job.error || null,
+  });
+});
+
+app.get('/jobs/:id/video', (req, res) => {
+  const job = jobs.get(req.params.id);
+  if (!job) return res.status(404).json({error: 'job not found'});
+  if (job.status !== 'done' || !job.outputPath || !fs.existsSync(job.outputPath)) {
+    return res.status(409).json({error: `job not ready (${job.status})`});
+  }
+  const stat = fs.statSync(job.outputPath);
+  res.setHeader('Content-Type', 'video/mp4');
+  res.setHeader('Content-Length', stat.size);
+  fs.createReadStream(job.outputPath).pipe(res);
 });
 
 app.listen(PORT, '0.0.0.0', () => console.log(`render-service listening on ${PORT}`));

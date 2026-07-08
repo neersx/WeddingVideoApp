@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "@/App.css";
 import { Toaster, toast } from "sonner";
 import axios from "axios";
@@ -8,6 +8,7 @@ import { DetailsForm } from "@/components/DetailsForm";
 import { ScheduleBuilder } from "@/components/ScheduleBuilder";
 import { PhotoUploader } from "@/components/PhotoUploader";
 import { PreviewPane } from "@/components/PreviewPane";
+import { MusicPicker } from "@/components/MusicPicker";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 export const API = `${BACKEND_URL}/api`;
@@ -20,7 +21,6 @@ const initialDetails = {
   venueCity: "Udaipur",
   message:
     "Together with their families, they invite you to celebrate the beginning of their forever.",
-  musicUrl: "",
   durationInSeconds: 30,
 };
 
@@ -33,16 +33,47 @@ function App() {
     { name: "Wedding", time: "11:30 AM" },
   ]);
   const [photos, setPhotos] = useState([]);
-  const [rendering, setRendering] = useState(false);
+  const [musicId, setMusicId] = useState("serenity");
+  const [jobStatus, setJobStatus] = useState("idle"); // idle | queued | rendering | done | failed
+  const [jobProgress, setJobProgress] = useState(0);
+  const [jobId, setJobId] = useState(null);
   const [videoUrl, setVideoUrl] = useState(null);
+  const pollRef = useRef(null);
+
+  const rendering = jobStatus === "queued" || jobStatus === "rendering";
+
+  useEffect(() => () => clearInterval(pollRef.current), []);
+
+  const pollJob = (id) => {
+    clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      try {
+        const r = await axios.get(`${API}/renders/${id}`);
+        const { status, progress, error } = r.data;
+        setJobStatus(status);
+        setJobProgress(Number(progress) || 0);
+        if (status === "done") {
+          clearInterval(pollRef.current);
+          setVideoUrl(`${BACKEND_URL}${r.data.video_url}?t=${Date.now()}`);
+          toast.success("Your invitation video is ready");
+        } else if (status === "failed") {
+          clearInterval(pollRef.current);
+          toast.error(error || "Render failed");
+        }
+      } catch {
+        // transient errors ignored; keep polling
+      }
+    }, 2000);
+  };
 
   const handleRender = async () => {
     if (!details.partnerOne.trim() || !details.partnerTwo.trim()) {
       toast.error("Both partner names are required");
       return;
     }
-    setRendering(true);
     setVideoUrl(null);
+    setJobProgress(0);
+    setJobStatus("queued");
     try {
       const payload = {
         template,
@@ -51,17 +82,17 @@ function App() {
         venue: { name: details.venueName, city: details.venueCity },
         message: details.message,
         photos,
-        musicUrl: details.musicUrl || null,
+        musicId: musicId || null,
         schedule,
         durationInSeconds: Number(details.durationInSeconds) || 30,
       };
-      const res = await axios.post(`${API}/renders`, payload, { timeout: 900000 });
-      setVideoUrl(`${BACKEND_URL}${res.data.video_url}`);
-      toast.success("Your invitation video is ready");
+      const res = await axios.post(`${API}/renders`, payload);
+      setJobId(res.data.jobId);
+      toast.info("Render queued — this can take a couple of minutes");
+      pollJob(res.data.jobId);
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Render failed. Check the render service.");
-    } finally {
-      setRendering(false);
+      setJobStatus("failed");
+      toast.error(e?.response?.data?.detail || "Failed to queue render");
     }
   };
 
@@ -95,11 +126,15 @@ function App() {
           <DetailsForm details={details} onChange={setDetails} />
           <ScheduleBuilder schedule={schedule} onChange={setSchedule} />
           <PhotoUploader photos={photos} onChange={setPhotos} />
+          <MusicPicker value={musicId} onChange={setMusicId} />
         </div>
         <div className="lg:col-span-4">
           <PreviewPane
             template={template}
             rendering={rendering}
+            status={jobStatus}
+            progress={jobProgress}
+            jobId={jobId}
             videoUrl={videoUrl}
             onRender={handleRender}
           />
