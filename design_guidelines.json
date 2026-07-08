@@ -1,0 +1,154 @@
+{
+  "theme_and_tone": {
+    "web_ui": "High-Contrast Functional SaaS - 'Swiss Brutalist' precision mixed with 'Old Money Tech' elegance to frame the luxury templates. Neutral, clear, and highly focused on the video render output. The interface serves as a sophisticated command center.",
+    "template_marigold": "Rustic-Luxe Traditional Indian - Warm, earthy, festive. Burnt orange and gold dominant with sage and butter yellow accents.",
+    "template_midnight": "Dark Romance Luxury - Cinematic, mysterious, high-fashion. Deep midnight shades, true black, with striking white and metallic gold typography."
+  },
+  "typography": {
+    "web_ui": {
+      "headings": {
+        "font_family": "Cabinet Grotesk, sans-serif",
+        "weights": ["400", "800"],
+        "usage": "Dashboard titles, form section headers. High tension, bold presence."
+      },
+      "body": {
+        "font_family": "IBM Plex Sans, sans-serif",
+        "weights": ["400", "500"],
+        "usage": "Form inputs, labels, standard dashboard text. Clean and technical."
+      },
+      "scale": {
+        "h1": "text-4xl tracking-tighter font-extrabold",
+        "h2": "text-2xl tracking-tight font-bold",
+        "h3": "text-lg tracking-tight font-medium",
+        "body": "text-sm leading-relaxed",
+        "labels": "text-xs tracking-[0.1em] uppercase font-medium text-muted-foreground"
+      }
+    },
+    "template_marigold": {
+      "headings": {
+        "font_family": "Playfair Display, serif",
+        "weights": ["600", "700"],
+        "style": "Elegant, traditional serif for the couple's names and event titles."
+      },
+      "body": {
+        "font_family": "Montserrat, sans-serif",
+        "weights": ["400", "500"],
+        "style": "Clean sans-serif for dates, venues, and schedule details."
+      }
+    },
+    "template_midnight": {
+      "headings": {
+        "font_family": "Cormorant Garamond, serif",
+        "weights": ["500", "600"],
+        "style": "Editorial, high-fashion serif with sharp contrast for names and quotes."
+      },
+      "body": {
+        "font_family": "Outfit, sans-serif",
+        "weights": ["300", "400"],
+        "style": "Modern geometric sans for secondary event details."
+      }
+    }
+  },
+  "colors": {
+    "web_ui": {
+      "mode": "light",
+      "background": "#FDFBF7",
+      "surface": "#FFFFFF",
+      "border": "#E5E5E5",
+      "primary": "#0A0A0A",
+      "text_main": "#171717",
+      "text_muted": "#737373",
+      "accent": "#D4AF37"
+    },
+    "template_marigold": {
+      "primary_rust": "#C55A36",
+      "secondary_orange": "#E07A5F",
+      "accent_gold": "#D4AF37",
+      "accent_yellow": "#F8AB5B",
+      "neutral_sage": "#81B29A",
+      "background": "#FFF8F0",
+      "text_dark": "#4A2545"
+    },
+    "template_midnight": {
+      "primary_midnight": "#120B1A",
+      "secondary_shade": "#2B1B3D",
+      "accent_gold": "#D4AF37",
+      "accent_orchid": "#7A5C9E",
+      "background_black": "#0B0B0F",
+      "text_white": "#E7D9F2",
+      "text_muted": "#8A6F3A"
+    }
+  },
+  "visual_enhancers": {
+    "dashboard_surfaces": "Use 'Neumorphism (Tactile Variant)' for the form controls. Flat background with a sharp 1px border (border-black/10). Add a 4px soft shadow on hover.",
+    "glassmorphism": "For the sticky dashboard header or video preview floating actions, use backdrop-blur-xl bg-white/70 with a border-b border-black/5. DO NOT use complete transparent backgrounds.",
+    "buttons": "Pill-shaped or rounded-md solid black primary buttons (bg-primary text-primary-foreground) with a subtle hover:-translate-y-0.5 transform and shadow-md.",
+    "video_player_container": "Give the video preview pane a 'Grid Borders' technical look. A deep dark wrapper that creates a strong frame, making the vertical 9:16 video pop."
+  },
+  "component_name_and_styles": {
+    "TemplatePicker": "Bento grid style cards (col-span-1 each). Active state needs a heavy border-black ring-1 ring-black selection state. Embed visual swatches (Marigold vs Midnight) in the cards.",
+    "CoupleDetailsForm": "Shadcn based forms. Use generous spacing (gap-6 or gap-8). Labels must be uppercase and widely tracked (tracking-[0.1em] text-xs). Use full width inputs.",
+    "EventScheduleBuilder": "Dynamic list with Framer Motion. Add/Remove buttons should be subdued icons to avoid clutter. Wrap each event item in a p-4 border border-border rounded-md card.",
+    "VideoPreviewPane": "Sticky on desktop (sticky top-8). Centered 9:16 aspect ratio container (aspect-[9/16] w-full max-w-[320px]). Includes a 'Render Video' highly visible CTA button.",
+    "ProgressIndicator": "Since renders take minutes, use a highly visual animated progress state. A 'Tracing Beam' border or shimmering loading overlay over the video pane keeps the user engaged."
+  },
+  "grids_and_layouts": {
+    "main_dashboard": "The 'Bento' Grid Protocol (High Density). Use grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12. Form column: lg:col-span-8. Preview column: lg:col-span-4.",
+    "spacing_system": "Generous spacing. p-8 for sections. gap-8 between logical form blocks. Inputs have py-3 px-4 for tactile clicking."
+  },
+  "motion_and_interactions": {
+    "web_ui": "Use framer-motion for schedule items (entrance opacity-0 y-4, exit opacity-0 scale-95). Button clicks should have a satisfying scale-95 tap state. The render button must show an active spinner/morphing loader.",
+    "video_motion_marigold": "For the Remotion template: Smooth, flowing transitions. Floating particles (like marigold petals). Text reveals via slow mask-image wipes or elegant upwards fade-ins.",
+    "video_motion_midnight": "For the Remotion template: Dramatic, cinematic motion. Slow scale-ins (Ken Burns effect) on dark photos. High-contrast text flashes or sharp tracking-in animations (letters expanding)."
+  },
+  "accessibility_and_testing": {
+    "contrast": "Ensure form labels vs inputs meet 4.5:1. Primary black buttons with white text pass easily. Dark text on light backgrounds for the web UI.",
+    "testing_ids": "Apply data-testid attributes extensively: template-selector-marigold, template-selector-midnight, partner1-input, partner2-input, render-video-btn, add-event-btn, event-name-input."
+  },
+  "media": {
+    "marigold_theme_dummies": [
+      {
+        "url": "https://images.pexels.com/photos/35069916/pexels-photo-35069916.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Indian couple in traditional attire posing outdoors",
+        "category": "couple_photo"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1620005807545-2e08850d6591?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Nzh8MHwxfHNlYXJjaHwxfHxtYXJpZ29sZCUyMGZsb3dlcnMlMjB0ZXh0dXJlfGVufDB8fHx8MTc4MzUxMjU2MHww&ixlib=rb-4.1.0&q=85",
+        "description": "Marigold flowers texture",
+        "category": "background_texture"
+      }
+    ],
+    "midnight_theme_dummies": [
+      {
+        "url": "https://images.unsplash.com/photo-1701027650719-26d223876edc?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NDh8MHwxfHNlYXJjaHwyfHxsdXh1cnklMjBtb2Rlcm4lMjB3ZWRkaW5nJTIwY291cGxlJTIwZGFya3xlbnwwfHx8fDE3ODM1MTI1NjB8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Bride and groom standing in a dark room",
+        "category": "couple_photo"
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Build a React frontend representing the 'DreamWedds' SaaS internal demo dashboard.",
+    "Use Shadcn UI for forms, inputs, tabs, and buttons. Heavily customize the spacing and typography to match the 'Swiss Brutalist' and 'Old Money Tech' aesthetic.",
+    "Implement the two-column grid layout (Form on left 8-cols, Sticky Preview/Render on right 4-cols).",
+    "Include a complex form with dynamic fields for the 'Event Schedule Builder' (allowing adding/removing Haldi, Sangeet, etc.).",
+    "Mock the video rendering API call with a long-running Promise (e.g., 3-5 seconds for demo purposes) and display a sophisticated loading state on the 'Render' button.",
+    "For the Video Preview player placeholder, ensure it's locked to a vertical 9:16 aspect ratio (e.g., aspect-[9/16]).",
+    "Make sure to embed structural hints for the two video themes (Marigold vs Midnight) in the UI state so that the backend gets the exact requested template.",
+    "Use lucide-react for all iconography in the dashboard."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "You tend to converge toward generic, 'on distribution' outputs. In frontend design, this creates what users call the 'AI slop' aesthetic. Avoid this: make creative, distinctive frontends that surprise and delight.",
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy.",
+    "Use glass-morphism effects with backdrop filters (12-24px blur).",
+    "You MUST NOT apply universal transition. Eg: transition: all. Always add transitions for specific interactive elements.",
+    "You MUST NOT center align the app container, ie do not add .App { text-align: center; } in the css file.",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style.",
+    "NEVER: use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯 etc for icons.",
+    "Every interaction needs micro-animations - hover states, transitions, entrance animations. Static = dead.",
+    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
+    "All interactive and key informational elements MUST include a data-testid attribute.",
+    "Use sonner for toast notifications."
+  ]
+}
