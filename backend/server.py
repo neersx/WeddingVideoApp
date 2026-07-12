@@ -18,6 +18,9 @@ load_dotenv(ROOT_DIR / '.env')
 
 mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
 db_name = os.environ.get('DB_NAME', 'dreamwedds')
+storage_backend = os.environ.get('STORAGE_BACKEND', 'memory').strip().lower()
+if storage_backend not in {'memory', 'mongodb'}:
+    raise RuntimeError("STORAGE_BACKEND must be either 'memory' or 'mongodb'")
 RENDER_SERVICE_URL = os.environ.get('RENDER_SERVICE_URL', 'http://localhost:4001')
 INTERNAL_BASE_URL = os.environ.get('INTERNAL_BASE_URL', 'http://localhost:8001')
 UPLOADS_DIR = ROOT_DIR / 'uploads'
@@ -176,7 +179,7 @@ async def health():
             render_status = r.json()
     except Exception:
         render_status = {"status": "unreachable"}
-    return {"api": "ok", "render_service": render_status}
+    return {"api": "ok", "storage_backend": storage_backend, "render_service": render_status}
 
 
 @api_router.post("/upload")
@@ -400,14 +403,21 @@ logger = logging.getLogger(__name__)
 @app.on_event("startup")
 async def initialize_storage():
     global client, db
+    if storage_backend == 'memory':
+        db = _InMemoryDB()
+        logger.info("Using in-memory storage")
+        return
+
     try:
         client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=1000)
         await client.admin.command("ping")
         db = client[db_name]
         logger.info("Connected to MongoDB at %s", mongo_url)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("MongoDB unavailable, using in-memory storage: %s", exc)
-        db = _InMemoryDB()
+        if client is not None:
+            client.close()
+            client = None
+        raise RuntimeError(f"STORAGE_BACKEND=mongodb but MongoDB is unavailable: {exc}") from exc
 
 
 @app.on_event("shutdown")

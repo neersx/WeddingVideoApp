@@ -101,6 +101,7 @@ pip install -r requirements.txt
 Create `.env`:
 ```bash
 cat > .env <<'EOF'
+STORAGE_BACKEND="memory" # Use "mongodb" when MongoDB is configured
 MONGO_URL="mongodb://localhost:27017"
 DB_NAME="dreamwedds"
 CORS_ORIGINS="http://localhost:3000"
@@ -295,6 +296,7 @@ pip install gunicorn uvicorn[standard]
 
 Create `/opt/dreamwedds/app/backend/.env`:
 ```bash
+STORAGE_BACKEND="mongodb"
 MONGO_URL="mongodb://dreamwedds_app:CHANGE_ME_STRONG_APP_PW@127.0.0.1:27017/dreamwedds?authSource=dreamwedds"
 DB_NAME="dreamwedds"
 CORS_ORIGINS="https://dreamwedds.example.com"
@@ -646,10 +648,10 @@ curl -s http://127.0.0.1:4001/health           # from the VPS itself
 |-----------|---------------|-------------------|-----------|
 | MongoDB | 27017 | No (bound to 127.0.0.1) | — |
 | render-service | 4001 | No (Nginx does not proxy it) | `PORT`, optional `BROWSER_EXECUTABLE` |
-| backend (FastAPI) | 8001 | Only via Nginx `/api/*` | `MONGO_URL`, `DB_NAME`, `CORS_ORIGINS`, `RENDER_SERVICE_URL`, `INTERNAL_BASE_URL` |
+| backend (FastAPI) | 8001 | Only via Nginx `/api/*` | `STORAGE_BACKEND`, `MONGO_URL`, `DB_NAME`, `CORS_ORIGINS`, `RENDER_SERVICE_URL`, `INTERNAL_BASE_URL` |
 | frontend (static) | — | Yes (Nginx serves `/opt/dreamwedds/app/frontend/build`) | `REACT_APP_BACKEND_URL` (build-time only) |
 
-Always set env values with **no default fallbacks in code**; missing config must fail fast.
+`STORAGE_BACKEND` defaults to `memory` for local development. Set it to `mongodb` in deployments that require persistent database storage; MongoDB connection failures then stop the backend instead of silently switching modes.
 
 ---
 
