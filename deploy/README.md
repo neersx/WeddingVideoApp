@@ -30,11 +30,11 @@ sudo DOMAIN=invitawedds.com CERTBOT_EMAIL=admin@example.com \
 If the application files and dependencies are already installed, copy the provided service and Nginx files:
 
 ```bash
-sudo cp deploy/systemd/dreamwedds-video-backend.service /etc/systemd/system/
-sudo cp deploy/systemd/dreamwedds-video-render.service /etc/systemd/system/
+sudo cp deploy/systemd/instawedds-backend.service /etc/systemd/system/
+sudo cp deploy/systemd/instawedds-render.service /etc/systemd/system/
 sudo cp deploy/nginx/invitawedds.com.conf /etc/nginx/conf.d/
 sudo systemctl daemon-reload
-sudo systemctl enable --now dreamwedds-video-render dreamwedds-video-backend
+sudo systemctl enable --now instawedds-render instawedds-backend
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
@@ -65,14 +65,14 @@ The script writes:
 
 - `/etc/invitawedds/backend.env`
 - `/etc/invitawedds/render.env`
-- `/etc/systemd/system/invitawedds-backend.service`
-- `/etc/systemd/system/invitawedds-render.service`
+- `/etc/systemd/system/instawedds-backend.service`
+- `/etc/systemd/system/instawedds-render.service`
 - `/etc/nginx/conf.d/invitawedds.conf`
 
 Useful commands:
 
 ```bash
-sudo systemctl status dreamwedds-video-backend dreamwedds-video-render
-sudo journalctl -u dreamwedds-video-backend -u dreamwedds-video-render -f
+sudo systemctl status instawedds-backend instawedds-render
+sudo journalctl -u instawedds-backend -u instawedds-render -f
 sudo nginx -t && sudo systemctl reload nginx
 ```

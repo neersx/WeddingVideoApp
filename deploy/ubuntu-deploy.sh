@@ -5,6 +5,7 @@ set -Eeuo pipefail
 # Run as root on the VPS. Override the variables below through the environment.
 
 APP_NAME="${APP_NAME:-invitawedds}"
+SERVICE_NAME="${SERVICE_NAME:-instawedds}"
 APP_USER="${APP_USER:-invitawedds}"
 APP_DIR="${APP_DIR:-/var/www/invitawedds/WeddingVideoApp}"
 DOMAIN="${DOMAIN:-invitawedds.com}"
@@ -100,7 +101,7 @@ chown root:"$APP_USER" "$ENV_FILE" "$RENDER_ENV_FILE"
 chmod 640 "$ENV_FILE" "$RENDER_ENV_FILE"
 
 log "Writing systemd services"
-cat > "/etc/systemd/system/${APP_NAME}-backend.service" <<EOF
+cat > "/etc/systemd/system/${SERVICE_NAME}-backend.service" <<EOF
 [Unit]
 Description=DreamWedds Wedding Video API
 After=network-online.target
@@ -122,7 +123,7 @@ PrivateTmp=true
 WantedBy=multi-user.target
 EOF
 
-cat > "/etc/systemd/system/${APP_NAME}-render.service" <<EOF
+cat > "/etc/systemd/system/${SERVICE_NAME}-render.service" <<EOF
 [Unit]
 Description=DreamWedds Remotion Render Service
 After=network-online.target
@@ -181,8 +182,8 @@ EOF
 
 nginx -t
 systemctl daemon-reload
-systemctl enable --now "${APP_NAME}-render.service" "${APP_NAME}-backend.service"
-systemctl restart "${APP_NAME}-render.service" "${APP_NAME}-backend.service"
+systemctl enable --now "${SERVICE_NAME}-render.service" "${SERVICE_NAME}-backend.service"
+systemctl restart "${SERVICE_NAME}-render.service" "${SERVICE_NAME}-backend.service"
 
 if [[ "$ENABLE_TLS" == "true" ]]; then
   if [[ -z "$CERTBOT_EMAIL" ]]; then
@@ -199,4 +200,4 @@ log "Deployment complete"
 printf 'Web URL:       https://%s\n' "$DOMAIN"
 printf 'Storage mode:  %s\n' "$STORAGE_BACKEND"
 printf 'Health check:  curl -fsS http://127.0.0.1:%s/api/health\n' "$BACKEND_PORT"
-printf 'Logs:          journalctl -u %s-backend -u %s-render -f\n' "$APP_NAME" "$APP_NAME"
+printf 'Logs:          journalctl -u %s-backend -u %s-render -f\n' "$SERVICE_NAME" "$SERVICE_NAME"
