@@ -4,9 +4,9 @@ set -Eeuo pipefail
 # DreamWedds Wedding Video App deployment for Ubuntu 22.04/24.04.
 # Run as root on the VPS. Override the variables below through the environment.
 
-APP_NAME="${APP_NAME:-dreamwedds-video}"
-APP_USER="${APP_USER:-dreamwedds-video}"
-APP_DIR="${APP_DIR:-/opt/${APP_NAME}/app}"
+APP_NAME="${APP_NAME:-invitawedds}"
+APP_USER="${APP_USER:-invitawedds}"
+APP_DIR="${APP_DIR:-/var/www/invitawedds/WeddingVideoApp}"
 DOMAIN="${DOMAIN:-invitawedds.com}"
 SOURCE_DIR="${SOURCE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 REPO_URL="${REPO_URL:-}"
@@ -19,7 +19,7 @@ ENABLE_TLS="${ENABLE_TLS:-true}"
 
 BACKEND_PORT="${BACKEND_PORT:-8001}"
 RENDER_PORT="${RENDER_PORT:-4001}"
-WEB_ROOT="/var/www/${APP_NAME}/frontend/build"
+WEB_ROOT="${WEB_ROOT:-/var/www/invitawedds/web/build}"
 ENV_FILE="/etc/${APP_NAME}/backend.env"
 RENDER_ENV_FILE="/etc/${APP_NAME}/render.env"
 
@@ -50,9 +50,13 @@ if [[ -n "$REPO_URL" ]]; then
     git clone --branch "$BRANCH" "$REPO_URL" "$APP_DIR"
   fi
 else
-  log "Syncing source from $SOURCE_DIR"
-  mkdir -p "$APP_DIR"
-  rsync -a --exclude '.git' --exclude 'backend/.venv' --exclude 'frontend/node_modules' --exclude 'render-service/node_modules' "$SOURCE_DIR/" "$APP_DIR/"
+  if [[ "$(realpath -m "$SOURCE_DIR")" == "$(realpath -m "$APP_DIR")" ]]; then
+    log "Using application source already present at $APP_DIR"
+  else
+    log "Syncing source from $SOURCE_DIR"
+    mkdir -p "$APP_DIR"
+    rsync -a --exclude '.git' --exclude 'backend/.venv' --exclude 'frontend/node_modules' --exclude 'render-service/node_modules' "$SOURCE_DIR/" "$APP_DIR/"
+  fi
 fi
 
 log "Creating service account and directories"
@@ -73,7 +77,7 @@ runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/frontend' && npm install --omit
 rm -rf "$WEB_ROOT"
 mkdir -p "$WEB_ROOT"
 cp -a "$APP_DIR/frontend/build/." "$WEB_ROOT/"
-chown -R "$APP_USER:$APP_USER" "/var/www/${APP_NAME}"
+chown -R "$APP_USER:$APP_USER" "$(dirname "$WEB_ROOT")"
 
 log "Writing backend configuration"
 cat > "$ENV_FILE" <<EOF

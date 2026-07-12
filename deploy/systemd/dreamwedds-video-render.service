@@ -5,10 +5,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=dreamwedds-video
-Group=dreamwedds-video
-WorkingDirectory=/opt/dreamwedds-video/app/render-service
-EnvironmentFile=/etc/dreamwedds-video/render.env
+User=invitawedds
+Group=invitawedds
+WorkingDirectory=/var/www/invitawedds/WeddingVideoApp/render-service
+EnvironmentFile=/etc/invitawedds/render.env
 ExecStart=/usr/bin/npm run start
 Restart=always
 RestartSec=5

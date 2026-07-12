@@ -2,6 +2,8 @@
 
 The deployment script is designed to run beside the existing Nginx applications. It uses local ports `8001` and `4001` for this app. The ready-made Nginx and systemd files target `invitawedds.com`.
 
+By default, the repository is installed at `/var/www/invitawedds/WeddingVideoApp`, and the built frontend is copied to and served from `/var/www/invitawedds/web/build`.
+
 ## Before running
 
 1. Point the DNS `A` records for `invitawedds.com` and `www.invitawedds.com` to the VPS.
@@ -61,11 +63,11 @@ sudo STORAGE_BACKEND=mongodb \
 
 The script writes:
 
-- `/etc/dreamwedds-video/backend.env`
-- `/etc/dreamwedds-video/render.env`
-- `/etc/systemd/system/dreamwedds-video-backend.service`
-- `/etc/systemd/system/dreamwedds-video-render.service`
-- `/etc/nginx/conf.d/dreamwedds-video.conf`
+- `/etc/invitawedds/backend.env`
+- `/etc/invitawedds/render.env`
+- `/etc/systemd/system/invitawedds-backend.service`
+- `/etc/systemd/system/invitawedds-render.service`
+- `/etc/nginx/conf.d/invitawedds.conf`
 
 Useful commands:
 
