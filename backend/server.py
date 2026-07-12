@@ -155,6 +155,7 @@ class RenderRequest(BaseModel):
     eventDate: str = ""
     venue: Venue = Field(default_factory=Venue)
     message: str = ""
+    displayMessage: str = ""
     photos: List[str] = Field(default_factory=list)
     musicUrl: Optional[str] = None
     musicId: Optional[str] = None
@@ -314,6 +315,7 @@ async def create_render(req: RenderRequest, background: BackgroundTasks):
         "couple": req.couple.model_dump(),
         "eventDate": req.eventDate,
         "venue": req.venue.model_dump(),
+        "displayMessage": req.displayMessage,
         "durationInSeconds": req.durationInSeconds,
         "musicId": req.musicId,
         "status": "queued",
@@ -341,6 +343,7 @@ async def list_renders():
             "template": d.get("template"),
             "couple": d.get("couple"),
             "eventDate": d.get("eventDate"),
+            "displayMessage": d.get("displayMessage"),
             "status": d.get("status", "done"),
             "progress": d.get("progress", 0.0),
             "created_at": d.get("created_at"),
@@ -362,6 +365,7 @@ async def get_render(render_id: str):
         "couple": d.get("couple"),
         "eventDate": d.get("eventDate"),
         "venue": d.get("venue"),
+        "displayMessage": d.get("displayMessage"),
         "status": d.get("status", "done"),
         "progress": d.get("progress", 0.0),
         "error": d.get("error"),

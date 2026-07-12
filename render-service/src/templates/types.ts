@@ -7,6 +7,7 @@ export type WeddingProps = {
   eventDate: string;
   venue: {name: string; city: string};
   message?: string;
+  displayMessage?: string;
   photos?: string[];
   musicUrl?: string | null;
   schedule?: ScheduleItem[];
@@ -18,6 +19,8 @@ export const defaultProps: WeddingProps = {
   eventDate: 'November 21, 2026',
   venue: {name: 'The Leela Palace', city: 'Udaipur'},
   message: 'Together with their families, they invite you to celebrate the beginning of their forever.',
+  displayMessage:
+    "The moment we've all been waiting for — {{brideFirstName}} & {{groomFirstName}} invite you to witness their wedding vows{{#weddingDate}} on {{weddingDate}}{{/weddingDate}}{{#location}} in {{location}}{{/location}}.",
   photos: [],
   musicUrl: null,
   schedule: [

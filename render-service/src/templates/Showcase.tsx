@@ -6,6 +6,7 @@ import {
   Sequence,
   interpolate,
   spring,
+  staticFile,
   useCurrentFrame,
   useVideoConfig,
 } from 'remotion';
@@ -17,6 +18,9 @@ import {WeddingProps} from './types';
 const {fontFamily: playfair} = loadPlayfair();
 const {fontFamily: inter} = loadInter();
 const {fontFamily: cormorant} = loadCormorant();
+
+const DEFAULT_DISPLAY_MESSAGE =
+  "The moment we've all been waiting for — {{brideFirstName}} & {{groomFirstName}} invite you to witness their wedding vows{{#weddingDate}} on {{weddingDate}}{{/weddingDate}}{{#location}} in {{location}}{{/location}}.";
 
 const plan = (df: number) => {
   const intro = Math.round(df * 0.1);
@@ -616,73 +620,208 @@ const Intro: React.FC<{duration: number}> = ({duration}) => {
   );
 };
 
-// ---------- Outro: DreamWedds logo reveal ----------
-const Outro: React.FC<{duration: number}> = ({duration}) => {
+const firstName = (name: string) => (name || '').trim().split(/\s+/)[0] || name || '';
+
+const locationText = (venue: WeddingProps['venue']) =>
+  [venue?.name, venue?.city].filter(Boolean).join(', ');
+
+const resolveDisplayMessage = (props: WeddingProps) => {
+  const values: Record<string, string> = {
+    brideFirstName: firstName(props.couple.partnerOne),
+    groomFirstName: firstName(props.couple.partnerTwo),
+    weddingDate: props.eventDate || '',
+    location: locationText(props.venue),
+  };
+  const template = props.displayMessage?.trim() || DEFAULT_DISPLAY_MESSAGE;
+  return template
+    .replace(/\{\{#(\w+)\}\}([\s\S]*?)\{\{\/\1\}\}/g, (_match, key, content) =>
+      values[key] ? content : ''
+    )
+    .replace(/\{\{(\w+)\}\}/g, (_match, key) => values[key] || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+// ---------- Outro: typed message + DreamWedds logo ----------
+const Outro: React.FC<{duration: number; props: WeddingProps}> = ({duration, props}) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
-  const ring1 = spring({frame: frame - 4, fps, config: {damping: 200}});
-  const ring2 = spring({frame: frame - 10, fps, config: {damping: 200}});
+  const message = resolveDisplayMessage(props);
+  const typedChars = Math.floor(
+    interpolate(frame, [8, Math.max(24, duration - 82)], [0, message.length], {
+      extrapolateLeft: 'clamp',
+      extrapolateRight: 'clamp',
+    })
+  );
+  const visibleMessage = message.slice(0, typedChars);
+  const showCursor = typedChars < message.length || frame % 18 < 9;
+  const coupleName = `${firstName(props.couple.partnerOne)} & ${firstName(props.couple.partnerTwo)}`;
+  const accentReveal = spring({frame: frame - 2, fps, config: {damping: 180}});
+  const glowDrift = interpolate(frame, [0, duration], [-18, 18], {extrapolateRight: 'clamp'});
+  const footerReveal = spring({frame: frame - Math.max(18, duration - 76), fps, config: {damping: 200}});
+  const backgroundPhoto = props.photos?.[0];
+  const backgroundScale = 1.06 + interpolate(frame, [0, duration], [0, 0.08], {extrapolateRight: 'clamp'});
   return (
-    <AbsoluteFill style={{backgroundColor: '#0E0D0B', justifyContent: 'center', alignItems: 'center', textAlign: 'center', padding: 80}}>
-      {/* Interlocking rings logo */}
-      <div style={{position: 'relative', width: 380, height: 240}}>
-        <div
+    <AbsoluteFill
+      style={{
+        background:
+          'radial-gradient(circle at 18% 12%, rgba(232,178,157,0.24), transparent 30%), radial-gradient(circle at 86% 82%, rgba(176,141,87,0.18), transparent 34%), linear-gradient(135deg, #171312 0%, #0E0D0B 48%, #211718 100%)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        textAlign: 'center',
+        padding: '78px 86px 70px',
+        overflow: 'hidden',
+      }}
+    >
+      {backgroundPhoto ? (
+        <Img
+          src={backgroundPhoto}
+          pauseWhenLoading
           style={{
             position: 'absolute',
-            left: 40,
-            top: 20,
-            width: 200,
-            height: 200,
-            borderRadius: '50%',
-            border: '10px solid #B08D57',
-            opacity: ring1,
-            transform: `scale(${0.4 + ring1 * 0.6}) rotate(${(1 - ring1) * -90}deg)`,
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            transform: `scale(${backgroundScale})`,
+            filter: 'saturate(0.8) contrast(0.92)',
+            opacity: 0.72,
           }}
         />
-        <div
-          style={{
-            position: 'absolute',
-            left: 150,
-            top: 20,
-            width: 200,
-            height: 200,
-            borderRadius: '50%',
-            border: '10px solid #F5EFE2',
-            opacity: ring2,
-            transform: `scale(${0.4 + ring2 * 0.6}) rotate(${(1 - ring2) * 90}deg)`,
-          }}
-        />
+      ) : null}
+      <AbsoluteFill
+        style={{
+          zIndex: 1,
+          background:
+            'linear-gradient(180deg, rgba(16,10,12,0.58) 0%, rgba(18,11,13,0.3) 35%, rgba(12,9,10,0.78) 100%), linear-gradient(90deg, rgba(28,13,17,0.45), rgba(20,12,13,0.08) 50%, rgba(24,14,12,0.5))',
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          zIndex: 1,
+          width: 860,
+          height: 860,
+          borderRadius: '50%',
+          border: '1px solid rgba(242,208,171,0.18)',
+          transform: `translate(${glowDrift}px, -24px) rotate(${frame * 0.025}deg)`,
+          boxShadow: '0 0 0 34px rgba(242,208,171,0.025), 0 0 120px rgba(218,151,128,0.12)',
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          zIndex: 1,
+          top: 66,
+          left: 74,
+          width: 170,
+          height: 170,
+          borderRadius: '50%',
+          border: '1px solid rgba(212,175,55,0.5)',
+          opacity: accentReveal,
+          transform: `rotate(${frame * -0.12}deg) scale(${0.9 + accentReveal * 0.1})`,
+        }}
+      >
+        <div style={{position: 'absolute', top: -3, left: '50%', width: 6, height: 6, borderRadius: '50%', backgroundColor: '#D4AF37'}} />
       </div>
-      <Rise delay={16}>
-        <div style={{marginTop: 40}}>
-          <div style={{fontFamily: playfair, fontSize: 108, color: '#F5EFE2', letterSpacing: 1}}>
-            Dream<span style={{fontStyle: 'italic', color: '#B08D57'}}>Wedds</span>
-            <span style={{fontFamily: inter, fontSize: 46, color: 'rgba(245,239,226,0.6)'}}>.com</span>
+      <div
+        style={{
+          position: 'absolute',
+          zIndex: 1,
+          right: 82,
+          bottom: 92,
+          width: 120,
+          height: 120,
+          borderRadius: '50%',
+          background: 'rgba(220,158,137,0.11)',
+          filter: 'blur(2px)',
+        }}
+      />
+
+      <Rise delay={4} style={{width: '100%', maxWidth: 1030, zIndex: 2}}>
+        <div
+          style={{
+            position: 'relative',
+            minHeight: 570,
+            padding: '66px 78px 72px',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            alignItems: 'center',
+            border: '1px solid rgba(245,239,226,0.2)',
+            borderRadius: 36,
+            background: 'linear-gradient(145deg, rgba(255,255,255,0.11), rgba(255,255,255,0.035))',
+            boxShadow: '0 34px 100px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.12)',
+            backdropFilter: 'blur(12px)',
+          }}
+        >
+          <div style={{fontFamily: inter, fontSize: 21, fontWeight: 700, letterSpacing: 7, textTransform: 'uppercase', color: '#D4AF37', marginBottom: 38}}>
+            A new chapter begins
+          </div>
+          <div style={{width: 88, height: 1, backgroundColor: '#D4AF37', marginBottom: 42, opacity: accentReveal}} />
+          <div
+            style={{
+              maxWidth: 860,
+              color: '#FFF8ED',
+              fontFamily: playfair,
+              fontSize: 66,
+              fontWeight: 700,
+              lineHeight: 1.22,
+              letterSpacing: -0.5,
+              textShadow: '0 12px 40px rgba(0,0,0,0.32)',
+            }}
+          >
+            {visibleMessage}
+            <span style={{color: '#E4B955', opacity: showCursor ? 1 : 0, fontFamily: inter, fontWeight: 400}}>|</span>
+          </div>
+          <div style={{fontFamily: cormorant, fontSize: 30, fontStyle: 'italic', color: 'rgba(255,248,237,0.65)', marginTop: 42}}>
+            with love, laughter, and a lifetime ahead
           </div>
         </div>
       </Rise>
-      <Rise delay={26}>
-        <div style={{fontFamily: cormorant, fontSize: 44, color: '#B08D57', marginTop: 34, letterSpacing: 2}}>
-          Create Your Wedding Website in Minutes
+
+      <div
+        style={{
+          position: 'absolute',
+          bottom: 48,
+          left: 86,
+          right: 86,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 34,
+          opacity: footerReveal,
+          transform: `translateY(${(1 - footerReveal) * 18}px)`,
+          zIndex: 3,
+        }}
+      >
+        <div style={{height: 1, width: 160, background: 'linear-gradient(90deg, transparent, rgba(212,175,55,0.7))'}} />
+        <div style={{display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 7}}>
+          <Img
+            src={staticFile('logo.png')}
+            style={{
+              width: 205,
+              height: 78,
+              objectFit: 'contain',
+              filter: 'drop-shadow(0 10px 24px rgba(0,0,0,0.36))',
+            }}
+          />
+          <div
+            style={{
+              color: 'rgba(255,248,237,0.78)',
+              fontFamily: inter,
+              fontSize: 17,
+              fontWeight: 600,
+              letterSpacing: 2.2,
+              lineHeight: 1.3,
+              textTransform: 'uppercase',
+            }}
+          >
+            Created with love by DreamWedds for {coupleName}
+          </div>
         </div>
-      </Rise>
-      <Rise delay={34}>
-        <div
-          style={{
-            marginTop: 52,
-            padding: '22px 78px',
-            borderRadius: 999,
-            border: '2px solid #B08D57',
-            color: '#F5EFE2',
-            fontFamily: inter,
-            fontSize: 26,
-            letterSpacing: 8,
-            textTransform: 'uppercase',
-          }}
-        >
-          Get Started Free
-        </div>
-      </Rise>
+        <div style={{height: 1, width: 160, background: 'linear-gradient(90deg, rgba(212,175,55,0.7), transparent)'}} />
+      </div>
     </AbsoluteFill>
   );
 };
@@ -748,7 +887,7 @@ export const Showcase: React.FC<WeddingProps> = (props) => {
 
       <Sequence from={p.intro + p.site1 + p.site2 + p.site3} durationInFrames={p.outro}>
         <SectionFade duration={p.outro}>
-          <Outro duration={p.outro} />
+          <Outro duration={p.outro} props={props} />
         </SectionFade>
       </Sequence>
     </AbsoluteFill>

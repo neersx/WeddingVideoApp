@@ -52,6 +52,7 @@ const buildInputProps = (body: any) => {
     eventDate: body.eventDate || '',
     venue: body.venue || {name: '', city: ''},
     message: body.message || '',
+    displayMessage: body.displayMessage || '',
     photos: Array.isArray(body.photos) ? body.photos.slice(0, 6) : [],
     musicUrl: body.musicUrl || null,
     schedule: Array.isArray(body.schedule) ? body.schedule.slice(0, 6) : [],

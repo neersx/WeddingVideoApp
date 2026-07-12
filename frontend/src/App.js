@@ -13,6 +13,9 @@ import { MusicPicker } from "@/components/MusicPicker";
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "http://localhost:8001";
 export const API = `${BACKEND_URL}/api`;
 
+const defaultDisplayMessage =
+  "The moment we've all been waiting for — {{brideFirstName}} & {{groomFirstName}} invite you to witness their wedding vows{{#weddingDate}} on {{weddingDate}}{{/weddingDate}}{{#location}} in {{location}}{{/location}}.";
+
 const initialDetails = {
   partnerOne: "Aisha",
   partnerTwo: "Rohan",
@@ -21,6 +24,7 @@ const initialDetails = {
   venueCity: "Udaipur",
   message:
     "Together with their families, they invite you to celebrate the beginning of their forever.",
+  displayMessage: defaultDisplayMessage,
   durationInSeconds: 30,
 };
 
@@ -81,6 +85,7 @@ function App() {
         eventDate: details.eventDate,
         venue: { name: details.venueName, city: details.venueCity },
         message: details.message,
+        displayMessage: details.displayMessage,
         photos,
         musicId: musicId || null,
         schedule,

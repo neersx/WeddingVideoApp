@@ -66,6 +66,17 @@ export const DetailsForm = ({ details, onChange }) => {
             />
           </Field>
         </div>
+        <div className="sm:col-span-2">
+          <Field label="Showcase Final Screen Message">
+            <Textarea
+              data-testid="display-message-input"
+              value={details.displayMessage}
+              onChange={set("displayMessage")}
+              rows={4}
+              placeholder="The moment we've all been waiting for..."
+            />
+          </Field>
+        </div>
       </div>
     </section>
   );
