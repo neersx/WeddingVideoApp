@@ -34,7 +34,11 @@ export DEBIAN_FRONTEND=noninteractive
 
 log "Installing OS packages"
 apt-get update
-apt-get install -y git nginx python3 python3-venv python3-pip nodejs npm rsync curl
+apt-get install -y git nginx python3 python3-venv python3-pip nodejs rsync curl
+
+command -v node >/dev/null 2>&1 || fail "Node.js is not installed"
+command -v npm >/dev/null 2>&1 || fail "npm is not available with the installed Node.js package"
+log "Using Node.js $(node --version) and npm $(npm --version)"
 
 if [[ -n "$REPO_URL" ]]; then
   log "Syncing source from $REPO_URL"
@@ -70,10 +74,10 @@ log "Installing backend dependencies"
 runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/backend' && python3 -m venv .venv && .venv/bin/pip install --upgrade pip && .venv/bin/pip install -r requirements.txt"
 
 log "Installing renderer dependencies"
-runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/render-service' && npm install --omit=dev"
+runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/render-service' && npm install"
 
 log "Building frontend"
-runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/frontend' && npm install --omit=dev && REACT_APP_BACKEND_URL='https://${DOMAIN}' npm run build"
+runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/frontend' && npm install && REACT_APP_BACKEND_URL='https://${DOMAIN}' npm run build"
 rm -rf "$WEB_ROOT"
 mkdir -p "$WEB_ROOT"
 cp -a "$APP_DIR/frontend/build/." "$WEB_ROOT/"
