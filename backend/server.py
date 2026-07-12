@@ -16,12 +16,10 @@ from datetime import datetime, timezone
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
-
-RENDER_SERVICE_URL = os.environ['RENDER_SERVICE_URL']
-INTERNAL_BASE_URL = os.environ['INTERNAL_BASE_URL']
+mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
+db_name = os.environ.get('DB_NAME', 'dreamwedds')
+RENDER_SERVICE_URL = os.environ.get('RENDER_SERVICE_URL', 'http://localhost:4001')
+INTERNAL_BASE_URL = os.environ.get('INTERNAL_BASE_URL', 'http://localhost:8001')
 UPLOADS_DIR = ROOT_DIR / 'uploads'
 RENDERS_DIR = ROOT_DIR / 'renders'
 MUSIC_DIR = ROOT_DIR / 'music'
@@ -77,6 +75,63 @@ MUSIC_BY_ID = {t["id"]: t for t in MUSIC_LIBRARY}
 
 app = FastAPI(title="DreamWedds Render API")
 api_router = APIRouter(prefix="/api")
+
+
+class _InMemoryInsertResult:
+    def __init__(self, inserted_id: str):
+        self.inserted_id = inserted_id
+
+
+class _InMemoryUpdateResult:
+    def __init__(self, matched_count: int):
+        self.matched_count = matched_count
+
+
+class _InMemoryCursor:
+    def __init__(self, documents):
+        self._documents = list(documents)
+
+    def sort(self, key: str, direction: int):
+        reverse = direction < 0
+        self._documents.sort(key=lambda doc: doc.get(key), reverse=reverse)
+        return self
+
+    async def to_list(self, length: int):
+        return self._documents[:length]
+
+
+class _InMemoryCollection:
+    def __init__(self):
+        self._documents = {}
+
+    async def insert_one(self, document):
+        self._documents[document["_id"]] = dict(document)
+        return _InMemoryInsertResult(document["_id"])
+
+    async def update_one(self, filter_query, update):
+        document = self._documents.get(filter_query.get("_id"))
+        if not document:
+            return _InMemoryUpdateResult(0)
+        if "$set" in update:
+            document.update(update["$set"])
+        self._documents[document["_id"]] = document
+        return _InMemoryUpdateResult(1)
+
+    async def find_one(self, filter_query):
+        document = self._documents.get(filter_query.get("_id"))
+        return dict(document) if document else None
+
+    def find(self):
+        return _InMemoryCursor(self._documents.values())
+
+
+class _InMemoryDB:
+    def __init__(self):
+        self.renders = _InMemoryCollection()
+
+
+client = None
+db = _InMemoryDB()
 
 
 class Couple(BaseModel):
@@ -173,14 +228,15 @@ async def get_music(music_id: str):
 async def _run_render_job(job_id: str, payload: dict):
     """Background worker: dispatch to render-service, poll progress, download mp4, update Mongo doc."""
     try:
+        current_db = db
         async with httpx.AsyncClient(timeout=httpx.Timeout(30, connect=10)) as hc:
             start = await hc.post(f"{RENDER_SERVICE_URL}/render-async", json=payload)
         if start.status_code != 200:
             detail = start.json().get('error', 'render service rejected job') if start.headers.get('content-type', '').startswith('application/json') else 'render service rejected job'
-            await db.renders.update_one({"_id": job_id}, {"$set": {"status": "failed", "error": detail}})
+            await current_db.renders.update_one({"_id": job_id}, {"$set": {"status": "failed", "error": detail}})
             return
         internal_id = start.json()["jobId"]
-        await db.renders.update_one({"_id": job_id}, {"$set": {"status": "rendering", "internal_id": internal_id}})
+        await current_db.renders.update_one({"_id": job_id}, {"$set": {"status": "rendering", "internal_id": internal_id}})
 
         # Poll every 2s, up to 15 min.
         deadline = asyncio.get_event_loop().time() + 15 * 60
@@ -188,7 +244,7 @@ async def _run_render_job(job_id: str, payload: dict):
         async with httpx.AsyncClient(timeout=httpx.Timeout(20, connect=5)) as hc:
             while True:
                 if asyncio.get_event_loop().time() > deadline:
-                    await db.renders.update_one({"_id": job_id}, {"$set": {"status": "failed", "error": "timeout"}})
+                    await current_db.renders.update_one({"_id": job_id}, {"$set": {"status": "failed", "error": "timeout"}})
                     return
                 await asyncio.sleep(2)
                 try:
@@ -202,7 +258,7 @@ async def _run_render_job(job_id: str, payload: dict):
                 status = data.get("status")
                 if abs(progress - last_progress) >= 0.02 or status != "rendering":
                     last_progress = progress
-                    await db.renders.update_one(
+                    await current_db.renders.update_one(
                         {"_id": job_id},
                         {"$set": {"status": status, "progress": progress}},
                     )
@@ -210,11 +266,11 @@ async def _run_render_job(job_id: str, payload: dict):
                     # download the mp4
                     dl = await hc.get(f"{RENDER_SERVICE_URL}/jobs/{internal_id}/video", timeout=httpx.Timeout(120, connect=10))
                     if dl.status_code != 200:
-                        await db.renders.update_one({"_id": job_id}, {"$set": {"status": "failed", "error": "download failed"}})
+                        await current_db.renders.update_one({"_id": job_id}, {"$set": {"status": "failed", "error": "download failed"}})
                         return
                     out_path = RENDERS_DIR / f"{job_id}.mp4"
                     out_path.write_bytes(dl.content)
-                    await db.renders.update_one(
+                    await current_db.renders.update_one(
                         {"_id": job_id},
                         {"$set": {
                             "status": "done",
@@ -225,7 +281,7 @@ async def _run_render_job(job_id: str, payload: dict):
                     )
                     return
                 if status == "failed":
-                    await db.renders.update_one(
+                    await current_db.renders.update_one(
                         {"_id": job_id},
                         {"$set": {"status": "failed", "error": data.get("error") or "render failed"}},
                     )
@@ -337,6 +393,20 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 
+@app.on_event("startup")
+async def initialize_storage():
+    global client, db
+    try:
+        client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=1000)
+        await client.admin.command("ping")
+        db = client[db_name]
+        logger.info("Connected to MongoDB at %s", mongo_url)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("MongoDB unavailable, using in-memory storage: %s", exc)
+        db = _InMemoryDB()
+
+
 @app.on_event("shutdown")
 async def shutdown_db_client():
-    client.close()
+    if client is not None:
+        client.close()
