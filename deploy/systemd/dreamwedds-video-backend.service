@@ -1,0 +1,19 @@
+[Unit]
+Description=InvitaWedds Wedding Video API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dreamwedds-video
+Group=dreamwedds-video
+WorkingDirectory=/opt/dreamwedds-video/app/backend
+EnvironmentFile=/etc/dreamwedds-video/backend.env
+ExecStart=/opt/dreamwedds-video/app/backend/.venv/bin/uvicorn server:app --host 127.0.0.1 --port 8001
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

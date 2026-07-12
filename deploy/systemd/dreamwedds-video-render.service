@@ -1,0 +1,19 @@
+[Unit]
+Description=InvitaWedds Remotion Render Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dreamwedds-video
+Group=dreamwedds-video
+WorkingDirectory=/opt/dreamwedds-video/app/render-service
+EnvironmentFile=/etc/dreamwedds-video/render.env
+ExecStart=/usr/bin/npm run start
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=false
+
+[Install]
+WantedBy=multi-user.target

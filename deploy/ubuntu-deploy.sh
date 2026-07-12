@@ -7,7 +7,7 @@ set -Eeuo pipefail
 APP_NAME="${APP_NAME:-dreamwedds-video}"
 APP_USER="${APP_USER:-dreamwedds-video}"
 APP_DIR="${APP_DIR:-/opt/${APP_NAME}/app}"
-DOMAIN="${DOMAIN:-video.dreamwedds.com}"
+DOMAIN="${DOMAIN:-invitawedds.com}"
 SOURCE_DIR="${SOURCE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 REPO_URL="${REPO_URL:-}"
 BRANCH="${BRANCH:-main}"
