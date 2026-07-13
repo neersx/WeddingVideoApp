@@ -168,6 +168,16 @@ cd /var/www/invitawedds/WeddingVideoApp
 sudo GOOGLE_CLIENT_ID="YOUR_GOOGLE_WEB_CLIENT_ID" bash deploy/redeploy-app.sh
 ```
 
+With MongoDB env updates:
+
+```bash
+cd /var/www/invitawedds/WeddingVideoApp
+sudo STORAGE_BACKEND=mongodb \
+  MONGO_URL='mongodb://invitavideo_app:YOUR_ENCODED_PASSWORD@127.0.0.1:27017/invitavideodb?authSource=invitavideodb' \
+  DB_NAME=invitavideodb \
+  bash deploy/redeploy-app.sh
+```
+
 The safe redeploy script:
 
 - pulls latest code when the repo is a Git checkout
@@ -175,7 +185,8 @@ The safe redeploy script:
 - installs frontend dependencies
 - builds React with `REACT_APP_BACKEND_URL`
 - copies the build to `/var/www/invitawedds/web/build`
-- updates `GOOGLE_CLIENT_ID` in `/etc/invitawedds/backend.env` when supplied
+- reuses the existing `GOOGLE_CLIENT_ID` from `/etc/invitawedds/backend.env` when you do not pass one
+- updates supplied backend env values such as `GOOGLE_CLIENT_ID`, `STORAGE_BACKEND`, `MONGO_URL`, `DB_NAME`, `CORS_ORIGINS`, `RENDER_SERVICE_URL`, and `INTERNAL_BASE_URL`
 - restarts backend and render services
 - does not change nginx or SSL
 
