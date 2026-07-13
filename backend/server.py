@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, BackgroundTasks, Header, Depends
+from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, BackgroundTasks, Header, Depends, Request
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -26,6 +26,12 @@ if storage_backend not in {'memory', 'mongodb'}:
 RENDER_SERVICE_URL = os.environ.get('RENDER_SERVICE_URL', 'http://localhost:4001')
 INTERNAL_BASE_URL = os.environ.get('INTERNAL_BASE_URL', 'http://localhost:8001')
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '').strip()
+RECAPTCHA_SECRET_KEY = os.environ.get('RECAPTCHA_SECRET_KEY', '').strip()
+RECAPTCHA_EXPECTED_ACTION = os.environ.get('RECAPTCHA_EXPECTED_ACTION', 'render_video').strip()
+try:
+    RECAPTCHA_SCORE_THRESHOLD = float(os.environ.get('RECAPTCHA_SCORE_THRESHOLD', '0.5') or '0.5')
+except ValueError:
+    RECAPTCHA_SCORE_THRESHOLD = 0.5
 UPLOADS_DIR = ROOT_DIR / 'uploads'
 RENDERS_DIR = ROOT_DIR / 'renders'
 MUSIC_DIR = ROOT_DIR / 'music'
@@ -175,6 +181,7 @@ class RenderRequest(BaseModel):
     musicId: Optional[str] = None
     schedule: List[ScheduleItem] = Field(default_factory=list)
     durationInSeconds: int = 30
+    recaptchaToken: Optional[str] = None
 
 
 class GoogleLoginRequest(BaseModel):
@@ -252,6 +259,37 @@ async def require_google_user(authorization: str = Header(default="")) -> Google
     user = _verify_google_credential(token)
     await _save_google_user(user)
     return user
+
+
+async def verify_recaptcha_token(token: Optional[str], remote_ip: Optional[str] = None):
+    if not RECAPTCHA_SECRET_KEY:
+        return None
+    if not token:
+        raise HTTPException(status_code=403, detail="reCAPTCHA verification is required")
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as hc:
+            form = {"secret": RECAPTCHA_SECRET_KEY, "response": token}
+            if remote_ip:
+                form["remoteip"] = remote_ip
+            response = await hc.post(
+                "https://www.google.com/recaptcha/api/siteverify",
+                data=form,
+            )
+            result = response.json()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("reCAPTCHA verification request failed: %s", exc)
+        raise HTTPException(status_code=503, detail="Could not verify reCAPTCHA") from exc
+
+    score = float(result.get("score") or 0)
+    action = result.get("action")
+    if not result.get("success"):
+        raise HTTPException(status_code=403, detail="reCAPTCHA verification failed")
+    if RECAPTCHA_EXPECTED_ACTION and action != RECAPTCHA_EXPECTED_ACTION:
+        raise HTTPException(status_code=403, detail="Invalid reCAPTCHA action")
+    if score < RECAPTCHA_SCORE_THRESHOLD:
+        raise HTTPException(status_code=403, detail="reCAPTCHA score was too low")
+    return result
 
 
 @api_router.get("/")
@@ -391,8 +429,14 @@ async def _run_render_job(job_id: str, payload: dict):
 
 
 @api_router.post("/renders")
-async def create_render(req: RenderRequest, background: BackgroundTasks, user: GoogleUser = Depends(require_google_user)):
-    payload = req.model_dump()
+async def create_render(
+    req: RenderRequest,
+    background: BackgroundTasks,
+    request: Request,
+    user: GoogleUser = Depends(require_google_user),
+):
+    recaptcha_result = await verify_recaptcha_token(req.recaptchaToken, request.client.host if request.client else None)
+    payload = req.model_dump(exclude={"recaptchaToken"})
 
     # Resolve bundled music id -> served url (takes precedence over musicUrl).
     if req.musicId:
@@ -422,6 +466,12 @@ async def create_render(req: RenderRequest, background: BackgroundTasks, user: G
         "progress": 0.0,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
+    if recaptcha_result is not None:
+        doc["recaptcha"] = {
+            "score": recaptcha_result.get("score"),
+            "action": recaptcha_result.get("action"),
+            "hostname": recaptcha_result.get("hostname"),
+        }
     await db.renders.insert_one(doc)
 
     background.add_task(_run_render_job, render_id, payload)

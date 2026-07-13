@@ -13,7 +13,6 @@ import {
   Music,
   Palette,
   PartyPopper,
-  PlayCircle,
   Sparkles,
   Users,
   Volume2,
@@ -39,9 +38,12 @@ import {
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "http://localhost:8001";
 const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || "";
+const RECAPTCHA_SITE_KEY = process.env.REACT_APP_RECAPTCHA_SITE_KEY || "";
+const RECAPTCHA_ACTION = "render_video";
 export const API = `${BACKEND_URL}/api`;
 const AUTH_STORAGE_KEY = "invitavideos.googleUser";
 const AUTH_CREDENTIAL_STORAGE_KEY = "invitavideos.googleCredential";
+let recaptchaScriptPromise = null;
 
 const defaultDisplayMessage =
   "The moment we've all been waiting for — {{brideFirstName}} & {{groomFirstName}} invite you to witness their wedding vows{{#weddingDate}} on {{weddingDate}}{{/weddingDate}}{{#location}} in {{location}}{{/location}}.";
@@ -57,6 +59,49 @@ const initialDetails = {
   displayMessage: defaultDisplayMessage,
   durationInSeconds: 30,
 };
+
+function loadRecaptchaScript() {
+  if (!RECAPTCHA_SITE_KEY) return Promise.resolve();
+  if (window.grecaptcha?.execute) return Promise.resolve();
+  if (recaptchaScriptPromise) return recaptchaScriptPromise;
+
+  recaptchaScriptPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector("script[data-recaptcha-v3]");
+    if (existing) {
+      existing.addEventListener("load", resolve, { once: true });
+      existing.addEventListener("error", reject, { once: true });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = `https://www.google.com/recaptcha/api.js?render=${encodeURIComponent(RECAPTCHA_SITE_KEY)}`;
+    script.async = true;
+    script.defer = true;
+    script.dataset.recaptchaV3 = "true";
+    script.onload = resolve;
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+
+  return recaptchaScriptPromise;
+}
+
+async function executeRecaptcha() {
+  if (!RECAPTCHA_SITE_KEY) return "";
+  await loadRecaptchaScript();
+  if (!window.grecaptcha?.ready || !window.grecaptcha?.execute) {
+    throw new Error("reCAPTCHA is not ready");
+  }
+
+  return new Promise((resolve, reject) => {
+    window.grecaptcha.ready(() => {
+      window.grecaptcha
+        .execute(RECAPTCHA_SITE_KEY, { action: RECAPTCHA_ACTION })
+        .then(resolve)
+        .catch(reject);
+    });
+  });
+}
 
 const AuthContext = createContext(null);
 
@@ -659,6 +704,7 @@ function CreateVideoPage() {
     setJobProgress(0);
     setJobStatus("queued");
     try {
+      const recaptchaToken = await executeRecaptcha();
       const payload = {
         template,
         couple: { partnerOne: details.partnerOne, partnerTwo: details.partnerTwo },
@@ -670,6 +716,7 @@ function CreateVideoPage() {
         musicId: musicId || null,
         schedule,
         durationInSeconds: Number(details.durationInSeconds) || 30,
+        recaptchaToken,
       };
       const response = await axios.post(`${API}/renders`, payload, {
         headers: { Authorization: `Bearer ${credential}` },
@@ -683,6 +730,8 @@ function CreateVideoPage() {
         setLoginPromptOpen(true);
         setResumeRenderAfterLogin(true);
         toast.error("Please sign in again to render your video");
+      } else if (!error?.response && error?.message?.includes("reCAPTCHA")) {
+        toast.error("Security check could not be completed. Please refresh and try again.");
       } else {
         toast.error(error?.response?.data?.detail || "Failed to queue render");
       }
