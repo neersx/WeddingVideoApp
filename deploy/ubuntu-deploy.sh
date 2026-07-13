@@ -20,6 +20,7 @@ ENABLE_TLS="${ENABLE_TLS:-true}"
 CERTBOT_DOMAINS="${CERTBOT_DOMAINS:-$DOMAIN}"
 FRONTEND_BACKEND_URL="${FRONTEND_BACKEND_URL:-}"
 CORS_ORIGINS="${CORS_ORIGINS:-}"
+GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-}"
 
 BACKEND_PORT="${BACKEND_PORT:-8001}"
 RENDER_PORT="${RENDER_PORT:-4001}"
@@ -97,7 +98,7 @@ log "Installing renderer dependencies"
 runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/render-service' && npm install --legacy-peer-deps"
 
 log "Building frontend"
-runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/frontend' && npm install --legacy-peer-deps && REACT_APP_BACKEND_URL='$FRONTEND_BACKEND_URL' npm run build"
+runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/frontend' && npm install --legacy-peer-deps && REACT_APP_BACKEND_URL='$FRONTEND_BACKEND_URL' REACT_APP_GOOGLE_CLIENT_ID='$GOOGLE_CLIENT_ID' npm run build"
 rm -rf "$WEB_ROOT"
 mkdir -p "$WEB_ROOT"
 cp -a "$APP_DIR/frontend/build/." "$WEB_ROOT/"
@@ -111,6 +112,7 @@ DB_NAME=$DB_NAME
 RENDER_SERVICE_URL=http://127.0.0.1:$RENDER_PORT
 INTERNAL_BASE_URL=http://127.0.0.1:$BACKEND_PORT
 CORS_ORIGINS=$CORS_ORIGINS
+GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID
 EOF
 
 cat > "$RENDER_ENV_FILE" <<EOF

@@ -11,12 +11,14 @@ APP_DIR="${APP_DIR:-/var/www/invitawedds/WeddingVideoApp}"
 BRANCH="${BRANCH:-main}"
 FRONTEND_BACKEND_URL="${FRONTEND_BACKEND_URL:-https://invitawedds.com}"
 WEB_ROOT="${WEB_ROOT:-/var/www/invitawedds/web/build}"
+ENV_FILE="${ENV_FILE:-/etc/invitawedds/backend.env}"
 BACKEND_SERVICE="${BACKEND_SERVICE:-instawedds-backend.service}"
 RENDER_SERVICE="${RENDER_SERVICE:-instawedds-render.service}"
 PULL_LATEST="${PULL_LATEST:-true}"
 INSTALL_DEPS="${INSTALL_DEPS:-true}"
 RESTART_SERVICES="${RESTART_SERVICES:-true}"
 NPM_CACHE_DIR="${NPM_CACHE_DIR:-/var/lib/${APP_USER}/.npm}"
+GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-}"
 
 log() { printf '\n[%s] %s\n' "$(date '+%H:%M:%S')" "$*"; }
 fail() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
@@ -46,13 +48,22 @@ if [[ "$INSTALL_DEPS" == "true" ]]; then
 fi
 
 log "Building frontend"
-runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/frontend' && npm_config_cache='$NPM_CACHE_DIR' REACT_APP_BACKEND_URL='$FRONTEND_BACKEND_URL' npm run build"
+runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/frontend' && npm_config_cache='$NPM_CACHE_DIR' REACT_APP_BACKEND_URL='$FRONTEND_BACKEND_URL' REACT_APP_GOOGLE_CLIENT_ID='$GOOGLE_CLIENT_ID' npm run build"
 
 log "Publishing frontend build to $WEB_ROOT"
 rm -rf "$WEB_ROOT"
 mkdir -p "$WEB_ROOT"
 cp -a "$APP_DIR/frontend/build/." "$WEB_ROOT/"
 chown -R "$APP_USER:$APP_USER" "$WEB_ROOT"
+
+if [[ -n "$GOOGLE_CLIENT_ID" && -f "$ENV_FILE" ]]; then
+  log "Updating backend Google login configuration"
+  if grep -q '^GOOGLE_CLIENT_ID=' "$ENV_FILE"; then
+    sed -i "s|^GOOGLE_CLIENT_ID=.*|GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID|" "$ENV_FILE"
+  else
+    printf '\nGOOGLE_CLIENT_ID=%s\n' "$GOOGLE_CLIENT_ID" >> "$ENV_FILE"
+  fi
+fi
 
 if [[ "$RESTART_SERVICES" == "true" ]]; then
   log "Restarting application services"

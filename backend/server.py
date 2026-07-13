@@ -3,6 +3,8 @@ from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token
 import os
 import logging
 import httpx
@@ -23,6 +25,7 @@ if storage_backend not in {'memory', 'mongodb'}:
     raise RuntimeError("STORAGE_BACKEND must be either 'memory' or 'mongodb'")
 RENDER_SERVICE_URL = os.environ.get('RENDER_SERVICE_URL', 'http://localhost:4001')
 INTERNAL_BASE_URL = os.environ.get('INTERNAL_BASE_URL', 'http://localhost:8001')
+GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '').strip()
 UPLOADS_DIR = ROOT_DIR / 'uploads'
 RENDERS_DIR = ROOT_DIR / 'renders'
 MUSIC_DIR = ROOT_DIR / 'music'
@@ -166,6 +169,18 @@ class RenderRequest(BaseModel):
     durationInSeconds: int = 30
 
 
+class GoogleLoginRequest(BaseModel):
+    credential: str
+
+
+class GoogleUser(BaseModel):
+    sub: str
+    email: str
+    name: str = ""
+    picture: str = ""
+    email_verified: bool = False
+
+
 @api_router.get("/")
 async def root():
     return {"message": "DreamWedds Render API"}
@@ -180,6 +195,37 @@ async def health():
     except Exception:
         render_status = {"status": "unreachable"}
     return {"api": "ok", "storage_backend": storage_backend, "render_service": render_status}
+
+
+@api_router.post("/auth/google")
+async def google_login(req: GoogleLoginRequest):
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(status_code=503, detail="Google login is not configured")
+
+    try:
+        payload = id_token.verify_oauth2_token(
+            req.credential,
+            google_requests.Request(),
+            GOOGLE_CLIENT_ID,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail="Invalid Google credential") from exc
+
+    if payload.get("iss") not in {"accounts.google.com", "https://accounts.google.com"}:
+        raise HTTPException(status_code=401, detail="Invalid Google issuer")
+
+    user = GoogleUser(
+        sub=str(payload.get("sub", "")),
+        email=str(payload.get("email", "")),
+        name=str(payload.get("name", "")),
+        picture=str(payload.get("picture", "")),
+        email_verified=bool(payload.get("email_verified", False)),
+    )
+
+    if not user.sub or not user.email:
+        raise HTTPException(status_code=401, detail="Google credential missing account details")
+
+    return {"user": user.model_dump()}
 
 
 @api_router.post("/upload")

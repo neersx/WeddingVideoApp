@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import {
   ArrowRight,
@@ -8,6 +8,7 @@ import {
   Clock,
   Gift,
   Heart,
+  LogOut,
   Mail,
   Music,
   Palette,
@@ -30,7 +31,9 @@ import { PreviewPane } from "@/components/PreviewPane";
 import { MusicPicker } from "@/components/MusicPicker";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "http://localhost:8001";
+const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || "";
 export const API = `${BACKEND_URL}/api`;
+const AUTH_STORAGE_KEY = "invitawedds.googleUser";
 
 const defaultDisplayMessage =
   "The moment we've all been waiting for — {{brideFirstName}} & {{groomFirstName}} invite you to witness their wedding vows{{#weddingDate}} on {{weddingDate}}{{/weddingDate}}{{#location}} in {{location}}{{/location}}.";
@@ -46,6 +49,137 @@ const initialDetails = {
   displayMessage: defaultDisplayMessage,
   durationInSeconds: 30,
 };
+
+const AuthContext = createContext(null);
+
+function AuthProvider({ children }) {
+  const [user, setUser] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem(AUTH_STORAGE_KEY) || "null");
+    } catch {
+      return null;
+    }
+  });
+
+  const signInWithGoogle = useCallback(async (credential) => {
+    const response = await axios.post(`${API}/auth/google`, { credential });
+    const nextUser = response.data.user;
+    setUser(nextUser);
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(nextUser));
+    toast.success(`Welcome ${nextUser.name || nextUser.email}`);
+  }, []);
+
+  const signOut = useCallback(() => {
+    setUser(null);
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+    if (window.google?.accounts?.id) {
+      window.google.accounts.id.disableAutoSelect();
+    }
+    toast.info("Signed out");
+  }, []);
+
+  const value = useMemo(() => ({ user, signInWithGoogle, signOut }), [user, signInWithGoogle, signOut]);
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+function useAuth() {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error("useAuth must be used within AuthProvider");
+  }
+  return context;
+}
+
+function GoogleSignInButton({ className = "", text = "signin_with" }) {
+  const buttonRef = useRef(null);
+  const { signInWithGoogle } = useAuth();
+  const [scriptReady, setScriptReady] = useState(Boolean(window.google?.accounts?.id));
+
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID) return undefined;
+    if (window.google?.accounts?.id) {
+      setScriptReady(true);
+      return undefined;
+    }
+
+    const check = window.setInterval(() => {
+      if (window.google?.accounts?.id) {
+        setScriptReady(true);
+        window.clearInterval(check);
+      }
+    }, 200);
+
+    return () => window.clearInterval(check);
+  }, []);
+
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID || !scriptReady || !buttonRef.current || !window.google?.accounts?.id) {
+      return;
+    }
+
+    buttonRef.current.innerHTML = "";
+    window.google.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback: async (response) => {
+        try {
+          await signInWithGoogle(response.credential);
+        } catch (error) {
+          toast.error(error?.response?.data?.detail || "Google sign-in failed");
+        }
+      },
+      use_fedcm_for_prompt: true,
+    });
+    window.google.accounts.id.renderButton(buttonRef.current, {
+      theme: "outline",
+      size: "large",
+      shape: "pill",
+      text,
+    });
+  }, [scriptReady, signInWithGoogle, text]);
+
+  if (!GOOGLE_CLIENT_ID) {
+    return (
+      <span className={`inline-flex rounded-full border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 ${className}`}>
+        Google login not configured
+      </span>
+    );
+  }
+
+  return <div ref={buttonRef} className={className} />;
+}
+
+function UserMenu() {
+  const { user, signOut } = useAuth();
+
+  if (!user) {
+    return <GoogleSignInButton className="min-h-[40px]" />;
+  }
+
+  return (
+    <div className="flex items-center gap-2 rounded-full border border-[#EBD3E0] bg-white px-2 py-1 shadow-sm">
+      {user.picture ? (
+        <img src={user.picture} alt="" className="h-8 w-8 rounded-full object-cover" referrerPolicy="no-referrer" />
+      ) : (
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#F8EAF2] text-xs font-bold text-[#A4176D]">
+          {(user.name || user.email || "U").slice(0, 1).toUpperCase()}
+        </span>
+      )}
+      <span className="hidden max-w-[120px] truncate text-xs font-semibold text-[#32113A] sm:block">
+        {user.name || user.email}
+      </span>
+      <button
+        type="button"
+        onClick={signOut}
+        className="flex h-8 w-8 items-center justify-center rounded-full text-neutral-500 transition hover:bg-[#FFF3F8] hover:text-[#A4176D]"
+        aria-label="Sign out"
+        title="Sign out"
+      >
+        <LogOut className="h-4 w-4" aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
 
 const pageMeta = {
   "/": {
@@ -129,12 +263,15 @@ function SiteHeader() {
           <NavLink to="/contact" className={navClass}>Contact</NavLink>
         </nav>
 
-        <Link
-          to="/create-video"
-          className="order-2 inline-flex items-center gap-2 rounded-full bg-[#32113A] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-[#52184D] sm:order-3"
-        >
-          Create Video <ArrowRight className="h-4 w-4" aria-hidden="true" />
-        </Link>
+        <div className="order-2 flex items-center gap-2 sm:order-3">
+          <UserMenu />
+          <Link
+            to="/create-video"
+            className="inline-flex items-center gap-2 rounded-full bg-[#32113A] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-[#52184D]"
+          >
+            Create Video <ArrowRight className="h-4 w-4" aria-hidden="true" />
+          </Link>
+        </div>
       </div>
     </header>
   );
@@ -463,6 +600,7 @@ function LandingPage() {
 }
 
 function CreateVideoPage() {
+  const { user } = useAuth();
   const [template, setTemplate] = useState("marigold");
   const [details, setDetails] = useState(initialDetails);
   const [schedule, setSchedule] = useState([
@@ -567,6 +705,40 @@ function CreateVideoPage() {
         </section>
         <section className="mx-auto grid max-w-7xl grid-cols-1 gap-5 px-5 py-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-6 lg:px-10 lg:py-7 xl:grid-cols-[minmax(0,1fr)_390px]">
           <div className="space-y-4">
+            <div className="rounded-2xl border border-[#ECD5E2] bg-white p-4 shadow-[0_14px_46px_rgba(81,25,62,0.05)] sm:p-5">
+              {user ? (
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-3">
+                    {user.picture ? (
+                      <img src={user.picture} alt="" className="h-11 w-11 rounded-full object-cover" referrerPolicy="no-referrer" />
+                    ) : (
+                      <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[#F8EAF2] font-bold text-[#A4176D]">
+                        {(user.name || user.email || "U").slice(0, 1).toUpperCase()}
+                      </span>
+                    )}
+                    <div>
+                      <div className="section-label text-left text-[#9B256D]">Signed in</div>
+                      <div className="font-heading text-xl font-extrabold text-[#32113A]">{user.name || "Google account"}</div>
+                      <div className="text-sm text-neutral-500">{user.email}</div>
+                    </div>
+                  </div>
+                  <span className="inline-flex w-fit rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                    Your invitation can be linked to this account
+                  </span>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="section-label text-left text-[#9B256D]">Google Login</div>
+                    <h2 className="mt-1 font-heading text-2xl font-extrabold text-[#32113A]">Sign in to keep your invitation workspace ready.</h2>
+                    <p className="mt-1 text-sm leading-6 text-neutral-500">
+                      You can still test the creator, but signing in lets us connect future saves, downloads and account history to you.
+                    </p>
+                  </div>
+                  <GoogleSignInButton className="min-h-[40px] shrink-0" />
+                </div>
+              )}
+            </div>
             <div className="rounded-2xl border border-[#ECD5E2] bg-white p-4 shadow-[0_14px_46px_rgba(81,25,62,0.05)]">
               <TemplatePicker value={template} onChange={setTemplate} />
             </div>
@@ -740,17 +912,19 @@ function NotFoundPage() {
 
 function App() {
   return (
-    <div className="App">
-      <PageMeta />
-      <Toaster position="top-right" richColors />
-      <Routes>
-        <Route path="/" element={<LandingPage />} />
-        <Route path="/create-video" element={<CreateVideoPage />} />
-        <Route path="/about" element={<AboutPage />} />
-        <Route path="/contact" element={<ContactPage />} />
-        <Route path="*" element={<NotFoundPage />} />
-      </Routes>
-    </div>
+    <AuthProvider>
+      <div className="App">
+        <PageMeta />
+        <Toaster position="top-right" richColors />
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/create-video" element={<CreateVideoPage />} />
+          <Route path="/about" element={<AboutPage />} />
+          <Route path="/contact" element={<ContactPage />} />
+          <Route path="*" element={<NotFoundPage />} />
+        </Routes>
+      </div>
+    </AuthProvider>
   );
 }
 
