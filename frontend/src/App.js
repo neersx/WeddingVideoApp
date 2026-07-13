@@ -258,18 +258,13 @@ function SiteHeader() {
   return (
     <header className="sticky top-0 z-50 border-b border-black/5 bg-[#fffdf9]/90 backdrop-blur-xl">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-5 py-3 lg:px-10">
-        <Link to="/" className="flex items-center gap-3" aria-label="Invita Videos home">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[#5315A7] via-[#D70A79] to-[#F6A700] shadow-sm">
-            <PlayCircle className="h-5 w-5 text-white" aria-hidden="true" />
-          </span>
-          <span>
-            <span className="block font-heading text-xl font-extrabold tracking-tight text-[#32113A]" data-testid="app-title">
-              Invita Videos
-            </span>
-            <span className="block text-[9px] font-semibold uppercase tracking-[0.22em] text-[#9B5A76]">
-              Wedding stories in motion
-            </span>
-          </span>
+        <Link to="/" className="flex items-center" aria-label="Invita Videos home">
+          <img
+            src="/images/ivlogo-white.jpg"
+            alt="Invita Videos"
+            className="h-16 w-auto max-w-[250px] rounded-xl object-contain sm:h-10 sm:max-w-[320px] lg:h-14 lg:max-w-[390px]"
+            data-testid="app-title"
+          />
         </Link>
 
         <nav className="order-3 flex w-full items-center justify-center gap-1 border-t border-black/5 pt-3 sm:order-2 sm:w-auto sm:border-0 sm:pt-0" aria-label="Main navigation">
