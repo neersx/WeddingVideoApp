@@ -80,6 +80,41 @@ sudo certbot --nginx -d invitawedds.com -d www.invitawedds.com --agree-tos -m ad
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
+## Manual Namecheap SSL certificate
+
+If you purchased SSL from Namecheap, create the Nginx full chain by putting the domain certificate first and the CA bundle second:
+
+```bash
+cd /var/www/invitawedds/WeddingVideoApp
+mkdir -p deploy/ssl/generated
+awk 'NF {print} /^-----END CERTIFICATE-----$/ {print ""}' \
+  deploy/ssl/invitawedds_com.crt \
+  deploy/ssl/invitawedds_com.ca-bundle \
+  > deploy/ssl/generated/fullchain.pem
+cp deploy/ssl/privatekey deploy/ssl/generated/privkey.pem
+openssl x509 -in deploy/ssl/generated/fullchain.pem -noout -subject -issuer -dates
+```
+
+Install the files in `/var/www/invitawedds/web/ssl` and lock down the private key:
+
+```bash
+sudo mkdir -p /var/www/invitawedds/web/ssl
+sudo cp deploy/ssl/generated/fullchain.pem /var/www/invitawedds/web/ssl/fullchain.pem
+sudo cp deploy/ssl/generated/privkey.pem /var/www/invitawedds/web/ssl/privkey.pem
+sudo chown root:root /var/www/invitawedds/web/ssl/fullchain.pem /var/www/invitawedds/web/ssl/privkey.pem
+sudo chmod 644 /var/www/invitawedds/web/ssl/fullchain.pem
+sudo chmod 600 /var/www/invitawedds/web/ssl/privkey.pem
+```
+
+The HTTPS Nginx config uses:
+
+```nginx
+ssl_certificate /var/www/invitawedds/web/ssl/fullchain.pem;
+ssl_certificate_key /var/www/invitawedds/web/ssl/privkey.pem;
+```
+
+The Nginx config blocks public access to `/ssl/`, so the key folder is not served as static content.
+
 ## Deploy by cloning a Git repository
 
 ```bash
