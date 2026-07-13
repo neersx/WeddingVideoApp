@@ -40,8 +40,8 @@ import {
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "http://localhost:8001";
 const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || "";
 export const API = `${BACKEND_URL}/api`;
-const AUTH_STORAGE_KEY = "invitawedds.googleUser";
-const AUTH_CREDENTIAL_STORAGE_KEY = "invitawedds.googleCredential";
+const AUTH_STORAGE_KEY = "invitavideos.googleUser";
+const AUTH_CREDENTIAL_STORAGE_KEY = "invitavideos.googleCredential";
 
 const defaultDisplayMessage =
   "The moment we've all been waiting for — {{brideFirstName}} & {{groomFirstName}} invite you to witness their wedding vows{{#weddingDate}} on {{weddingDate}}{{/weddingDate}}{{#location}} in {{location}}{{/location}}.";
@@ -198,24 +198,24 @@ function UserMenu() {
 
 const pageMeta = {
   "/": {
-    title: "InvitaWedds | Personalised Wedding Invitation Videos",
+    title: "Invita Videos | Personalised Wedding Invitation Videos",
     description:
       "Create beautiful, personalised wedding invitation videos with your story, events, photos and music.",
   },
   "/create-video": {
-    title: "Create Your Wedding Invitation Video | InvitaWedds",
+    title: "Create Your Wedding Invitation Video | Invita Videos",
     description:
       "Choose a design, add your wedding details, photos and music, and create a share-ready invitation video.",
   },
   "/about": {
-    title: "About InvitaWedds | Wedding Stories in Motion",
+    title: "About Invita Videos | Wedding Stories in Motion",
     description:
-      "Learn how InvitaWedds makes it simple for couples to turn wedding details and memories into beautiful invitation videos.",
+      "Learn how Invita Videos makes it simple for couples to turn wedding details and memories into beautiful invitation videos.",
   },
   "/contact": {
-    title: "Contact InvitaWedds | Wedding Video Support",
+    title: "Contact Invita Videos | Wedding Video Support",
     description:
-      "Contact InvitaWedds for help creating, customising or sharing your wedding invitation video.",
+      "Contact Invita Videos for help creating, customising or sharing your wedding invitation video.",
   },
 };
 
@@ -258,13 +258,13 @@ function SiteHeader() {
   return (
     <header className="sticky top-0 z-50 border-b border-black/5 bg-[#fffdf9]/90 backdrop-blur-xl">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-5 py-3 lg:px-10">
-        <Link to="/" className="flex items-center gap-3" aria-label="InvitaWedds home">
+        <Link to="/" className="flex items-center gap-3" aria-label="Invita Videos home">
           <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[#5315A7] via-[#D70A79] to-[#F6A700] shadow-sm">
             <PlayCircle className="h-5 w-5 text-white" aria-hidden="true" />
           </span>
           <span>
             <span className="block font-heading text-xl font-extrabold tracking-tight text-[#32113A]" data-testid="app-title">
-              InvitaWedds
+              Invita Videos
             </span>
             <span className="block text-[9px] font-semibold uppercase tracking-[0.22em] text-[#9B5A76]">
               Wedding stories in motion
@@ -297,7 +297,7 @@ function SiteFooter() {
     <footer className="border-t border-white/10 bg-[#241027] text-white">
       <div className="mx-auto grid max-w-7xl gap-10 px-6 py-12 md:grid-cols-[1.4fr_1fr_1fr] lg:px-10">
         <div>
-          <div className="font-heading text-2xl font-extrabold">InvitaWedds</div>
+          <div className="font-heading text-2xl font-extrabold">Invita Videos</div>
           <p className="mt-3 max-w-sm text-sm leading-6 text-white/65">
             Personalised wedding invitation videos that help every celebration begin with a beautiful story.
           </p>
@@ -313,13 +313,13 @@ function SiteFooter() {
         </div>
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.2em] text-[#F2B94B]">Get in touch</div>
-          <a className="mt-4 inline-flex items-center gap-2 text-sm text-white/70 hover:text-white" href="mailto:info@dreamwedds.com">
-            <Mail className="h-4 w-4" aria-hidden="true" /> info@dreamwedds.com
+          <a className="mt-4 inline-flex items-center gap-2 text-sm text-white/70 hover:text-white" href="mailto:info@invitavideos.com">
+            <Mail className="h-4 w-4" aria-hidden="true" /> info@invitavideos.com
           </a>
         </div>
       </div>
       <div className="border-t border-white/10 px-6 py-5 text-center text-xs text-white/45">
-        © {new Date().getFullYear()} InvitaWedds. Made for celebrations worth remembering.
+        © {new Date().getFullYear()} Invita Videos. Made for celebrations worth remembering.
       </div>
     </footer>
   );
@@ -489,7 +489,7 @@ function LandingPage() {
                   muted={heroMuted}
                   playsInline
                   preload="metadata"
-                  aria-label="InvitaWedds vertical wedding invitation reel preview"
+                  aria-label="Invita Videos vertical wedding invitation reel preview"
                 />
                 <div className="pointer-events-none absolute left-5 top-6 rounded-full border border-white/25 bg-black/45 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-white backdrop-blur-md">
                   Invitation reel · 9:16
@@ -536,7 +536,7 @@ function LandingPage() {
                 Everything you need to invite with feeling.
               </h2>
               <p className="mt-4 text-lg leading-8 text-neutral-600">
-                InvitaWedds turns the practical details of your celebration into an invitation people will want to watch twice.
+                Invita Videos turns the practical details of your celebration into an invitation people will want to watch twice.
               </p>
             </div>
             <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -847,7 +847,7 @@ function AboutPage() {
               <div className="section-label text-[#9B256D]">About us</div>
               <h1 className="mt-4 font-heading text-5xl font-extrabold leading-[1.02] tracking-tight text-[#32113A] sm:text-6xl">Wedding invitations deserve more than a template and a date.</h1>
               <p className="mt-6 text-lg leading-8 text-neutral-600">
-                InvitaWedds helps couples turn the details of their celebration into a personal video story—one that feels warm, thoughtful and easy to share.
+                Invita Videos helps couples turn the details of their celebration into a personal video story—one that feels warm, thoughtful and easy to share.
               </p>
               <p className="mt-4 text-lg leading-8 text-neutral-600">
                 We bring together design, motion, music and your own memories in a simple creation experience, so you can focus on the celebration instead of learning complicated editing software.
@@ -904,11 +904,11 @@ function ContactPage() {
   const handleSubmit = (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const subject = encodeURIComponent(`InvitaWedds enquiry from ${form.get("name")}`);
+    const subject = encodeURIComponent(`Invita Videos enquiry from ${form.get("name")}`);
     const body = encodeURIComponent(
       `Name: ${form.get("name")}\nEmail: ${form.get("email")}\n\n${form.get("message")}`,
     );
-    window.location.href = `mailto:info@dreamwedds.com?subject=${subject}&body=${body}`;
+    window.location.href = `mailto:info@invitavideos.com?subject=${subject}&body=${body}`;
   };
 
   return (
@@ -926,8 +926,8 @@ function ContactPage() {
                 <Mail className="h-5 w-5" aria-hidden="true" />
               </div>
               <div className="mt-4 text-sm font-semibold text-neutral-500">Email</div>
-              <a className="mt-1 block font-heading text-xl font-extrabold text-[#32113A] hover:text-[#A3166A]" href="mailto:info@dreamwedds.com">
-                info@dreamwedds.com
+              <a className="mt-1 block font-heading text-xl font-extrabold text-[#32113A] hover:text-[#A3166A]" href="mailto:info@invitavideos.com">
+                info@invitavideos.com
               </a>
             </div>
           </div>

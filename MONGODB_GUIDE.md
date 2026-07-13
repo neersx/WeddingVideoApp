@@ -6,7 +6,7 @@ The application uses:
 
 | Setting | Value |
 |---|---|
-| Database | `dreamwedds` |
+| Database | `invitavideodb` |
 | Main collection | `renders` |
 | Local address | `127.0.0.1:27017` |
 | Backend driver | Motor/PyMongo |
@@ -63,7 +63,7 @@ Set the following values in `backend/.env`:
 ```dotenv
 STORAGE_BACKEND=mongodb
 MONGO_URL=mongodb://127.0.0.1:27017
-DB_NAME=dreamwedds
+DB_NAME=invitavideodb
 ```
 
 Restart the backend after changing `.env`. Environment changes are not loaded by an already-running process.
@@ -90,7 +90,7 @@ The response should include:
 
 ## 3. Create the application database
 
-MongoDB creates a database only after a collection or document is created. Running `use dreamwedds` alone does not persist an empty database.
+MongoDB creates a database only after a collection or document is created. Running `use invitavideodb` alone does not persist an empty database.
 
 Open the shell:
 
@@ -101,7 +101,7 @@ mongosh
 Then run:
 
 ```javascript
-use dreamwedds
+use invitavideodb
 
 db.createCollection("renders")
 db.renders.createIndex({ created_at: -1 })
@@ -121,7 +121,7 @@ The application also creates `renders` automatically when its first render job i
 ### Local development without authentication
 
 ```bash
-mongosh mongodb://127.0.0.1:27017/dreamwedds
+mongosh mongodb://127.0.0.1:27017/invitavideodb
 ```
 
 Or simply:
@@ -133,7 +133,7 @@ mongosh
 Then select the database:
 
 ```javascript
-use dreamwedds
+use invitavideodb
 ```
 
 ### Production with authentication
@@ -144,10 +144,10 @@ Use a password prompt so the password is not saved in shell history:
 mongosh \
   --host 127.0.0.1 \
   --port 27017 \
-  --username dreamwedds_app \
-  --authenticationDatabase dreamwedds \
+  --username invitavideo_app \
+  --authenticationDatabase invitavideodb \
   --password \
-  dreamwedds
+  invitavideodb
 ```
 
 Enter the database password when prompted.
@@ -163,7 +163,7 @@ Inside `mongosh`:
 show dbs
 
 // Select the application database.
-use dreamwedds
+use invitavideodb
 
 // Show the current database name.
 db.getName()
@@ -185,13 +185,13 @@ One-line terminal equivalents:
 
 ```bash
 mongosh --quiet --eval 'db.adminCommand({ listDatabases: 1, nameOnly: true })'
-mongosh --quiet --eval 'db.getSiblingDB("dreamwedds").getCollectionNames()'
-mongosh --quiet --eval 'db.getSiblingDB("dreamwedds").renders.countDocuments()'
+mongosh --quiet --eval 'db.getSiblingDB("invitavideodb").getCollectionNames()'
+mongosh --quiet --eval 'db.getSiblingDB("invitavideodb").renders.countDocuments()'
 ```
 
 ## 6. Understand a render document
 
-The backend stores render-job metadata in `dreamwedds.renders`. A typical document resembles:
+The backend stores render-job metadata in `invitavideodb.renders`. A typical document resembles:
 
 ```javascript
 {
@@ -228,7 +228,7 @@ MongoDB stores only job metadata. Uploaded images and rendered MP4 files are sto
 Select the database first:
 
 ```javascript
-use dreamwedds
+use invitavideodb
 ```
 
 Count every record:
@@ -475,13 +475,13 @@ db.createUser({
   roles: ["root"]
 })
 
-use dreamwedds
+use invitavideodb
 
 db.createUser({
-  user: "dreamwedds_app",
+  user: "invitavideo_app",
   pwd: passwordPrompt(),
   roles: [
-    { role: "readWrite", db: "dreamwedds" }
+    { role: "readWrite", db: "invitavideodb" }
   ]
 })
 ```
@@ -507,8 +507,8 @@ Use a percent-encoded password in the backend connection string if it contains c
 
 ```dotenv
 STORAGE_BACKEND=mongodb
-MONGO_URL=mongodb://dreamwedds_app:ENCODED_PASSWORD@127.0.0.1:27017/dreamwedds?authSource=dreamwedds
-DB_NAME=dreamwedds
+MONGO_URL=mongodb://invitavideo_app:ENCODED_PASSWORD@127.0.0.1:27017/invitavideodb?authSource=invitavideodb
+DB_NAME=invitavideodb
 ```
 
 Protect production environment files:
@@ -528,8 +528,8 @@ Create a compressed archive:
 mkdir -p "$HOME/mongodb-backups"
 
 mongodump \
-  --uri="mongodb://127.0.0.1:27017/dreamwedds" \
-  --archive="$HOME/mongodb-backups/dreamwedds.archive.gz" \
+  --uri="mongodb://127.0.0.1:27017/invitavideodb" \
+  --archive="$HOME/mongodb-backups/invitavideodb.archive.gz" \
   --gzip
 ```
 
@@ -537,8 +537,8 @@ Restore it:
 
 ```bash
 mongorestore \
-  --uri="mongodb://127.0.0.1:27017/dreamwedds" \
-  --archive="$HOME/mongodb-backups/dreamwedds.archive.gz" \
+  --uri="mongodb://127.0.0.1:27017/invitavideodb" \
+  --archive="$HOME/mongodb-backups/invitavideodb.archive.gz" \
   --gzip
 ```
 
@@ -552,10 +552,10 @@ To avoid putting a password in shell history, use separate options and allow the
 mongodump \
   --host=127.0.0.1 \
   --port=27017 \
-  --username=dreamwedds_app \
-  --authenticationDatabase=dreamwedds \
-  --db=dreamwedds \
-  --archive=/var/backups/dreamwedds/dreamwedds.archive.gz \
+  --username=invitavideo_app \
+  --authenticationDatabase=invitavideodb \
+  --db=invitavideodb \
+  --archive=/var/backups/invitavideodb/invitavideodb.archive.gz \
   --gzip
 ```
 
@@ -600,7 +600,7 @@ sudo systemctl restart mongod
 The database is reachable but contains no collections. Create one or submit the first render job:
 
 ```javascript
-use dreamwedds
+use invitavideodb
 db.createCollection("renders")
 ```
 
@@ -618,9 +618,9 @@ Then completely restart the backend. An already-running process will not reload 
 
 Check all of the following:
 
-- The username is `dreamwedds_app`.
-- The user was created in the `dreamwedds` database.
-- The URI includes `authSource=dreamwedds`.
+- The username is `invitavideo_app`.
+- The user was created in the `invitavideodb` database.
+- The URI includes `authSource=invitavideodb`.
 - Special characters in a URI password are percent-encoded.
 - The backend was restarted after changing its environment file.
 
@@ -629,10 +629,10 @@ Test interactively without exposing the password:
 ```bash
 mongosh \
   --host 127.0.0.1 \
-  --username dreamwedds_app \
-  --authenticationDatabase dreamwedds \
+  --username invitavideo_app \
+  --authenticationDatabase invitavideodb \
   --password \
-  dreamwedds
+  invitavideodb
 ```
 
 ### Database is not shown by `show dbs`
@@ -646,16 +646,16 @@ MongoDB does not display an empty database. Create a collection or insert a docu
 brew services start mongodb-community@8.0
 
 # Connect directly to the app database
-mongosh mongodb://127.0.0.1:27017/dreamwedds
+mongosh mongodb://127.0.0.1:27017/invitavideodb
 
 # List collections
-mongosh --quiet --eval 'db.getSiblingDB("dreamwedds").getCollectionNames()'
+mongosh --quiet --eval 'db.getSiblingDB("invitavideodb").getCollectionNames()'
 
 # Count render records
-mongosh --quiet --eval 'db.getSiblingDB("dreamwedds").renders.countDocuments()'
+mongosh --quiet --eval 'db.getSiblingDB("invitavideodb").renders.countDocuments()'
 
 # Print the latest 10 complete documents
-mongosh dreamwedds --quiet --eval \
+mongosh invitavideodb --quiet --eval \
   'db.renders.find().sort({created_at:-1}).limit(10).forEach(printjson)'
 
 # Check backend storage mode

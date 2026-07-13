@@ -50,7 +50,7 @@ export const TemplatePicker = ({ value, onChange }) => {
     {
       id: "showcase",
       name: "Showcase",
-      desc: "Premium promo. Three animated wedding-website heroes with cinematic camera moves, live RSVP & countdown, DreamWedds logo outro.",
+      desc: "Premium promo. Three animated wedding-website heroes with cinematic camera moves, live RSVP & countdown, Invita Videos logo outro.",
       swatch: ["#0E0D0B", "#B08D57", "#7A9B76", "#F5EFE2"],
       bg: "#0E0D0B",
       text: "#B08D57",

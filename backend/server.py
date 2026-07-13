@@ -19,7 +19,7 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
-db_name = os.environ.get('DB_NAME', 'dreamwedds')
+db_name = os.environ.get('DB_NAME', 'invitavideodb')
 storage_backend = os.environ.get('STORAGE_BACKEND', 'memory').strip().lower()
 if storage_backend not in {'memory', 'mongodb'}:
     raise RuntimeError("STORAGE_BACKEND must be either 'memory' or 'mongodb'")

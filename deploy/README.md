@@ -50,7 +50,7 @@ sudo mkdir -p /etc/invitawedds
 sudo tee /etc/invitawedds/backend.env >/dev/null <<'EOF'
 STORAGE_BACKEND=memory
 MONGO_URL=mongodb://127.0.0.1:27017
-DB_NAME=dreamwedds
+DB_NAME=invitavideodb
 RENDER_SERVICE_URL=http://127.0.0.1:4001
 INTERNAL_BASE_URL=http://127.0.0.1:8001
 CORS_ORIGINS=https://invitavideos.com,http://invitavideos.com
@@ -132,8 +132,8 @@ For MongoDB storage, set `STORAGE_BACKEND=mongodb` and provide a reachable `MONG
 
 ```bash
 sudo STORAGE_BACKEND=mongodb \
-  MONGO_URL='mongodb://user:password@127.0.0.1:27017/dreamwedds?authSource=dreamwedds' \
-  DB_NAME=dreamwedds bash deploy/ubuntu-deploy.sh
+  MONGO_URL='mongodb://invitavideo_app:password@127.0.0.1:27017/invitavideodb?authSource=invitavideodb' \
+  DB_NAME=invitavideodb bash deploy/ubuntu-deploy.sh
 ```
 
 The script writes:

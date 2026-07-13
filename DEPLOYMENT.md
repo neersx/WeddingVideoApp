@@ -103,7 +103,7 @@ Create `.env`:
 cat > .env <<'EOF'
 STORAGE_BACKEND="memory" # Use "mongodb" when MongoDB is configured
 MONGO_URL="mongodb://localhost:27017"
-DB_NAME="dreamwedds"
+DB_NAME="invitavideodb"
 CORS_ORIGINS="http://localhost:3000"
 RENDER_SERVICE_URL="http://localhost:4001"
 INTERNAL_BASE_URL="http://localhost:8001"
@@ -251,11 +251,11 @@ Create app user (do this **before** enabling `authorization` — first create ad
 mongosh <<'EOF'
 use admin
 db.createUser({user:"admin", pwd:"CHANGE_ME_STRONG_ADMIN_PW", roles:["root"]})
-use dreamwedds
+use invitavideodb
 db.createUser({
-  user:"dreamwedds_app",
+  user:"invitavideo_app",
   pwd:"CHANGE_ME_STRONG_APP_PW",
-  roles:[{role:"readWrite", db:"dreamwedds"}]
+  roles:[{role:"readWrite", db:"invitavideodb"}]
 })
 EOF
 ```
@@ -265,7 +265,7 @@ sudo systemctl restart mongod
 ```
 Test:
 ```bash
-mongosh "mongodb://dreamwedds_app:CHANGE_ME_STRONG_APP_PW@127.0.0.1:27017/dreamwedds"
+mongosh "mongodb://invitavideo_app:CHANGE_ME_STRONG_APP_PW@127.0.0.1:27017/invitavideodb"
 ```
 
 ### 2.4 Create app user + directories
@@ -304,8 +304,8 @@ Create the systemd environment file `/etc/invitawedds/backend.env` as root or a 
 sudo mkdir -p /etc/invitawedds
 sudo tee /etc/invitawedds/backend.env >/dev/null <<'EOF'
 STORAGE_BACKEND="mongodb"
-MONGO_URL="mongodb://dreamwedds_app:CHANGE_ME_STRONG_APP_PW@127.0.0.1:27017/dreamwedds?authSource=dreamwedds"
-DB_NAME="dreamwedds"
+MONGO_URL="mongodb://invitavideo_app:CHANGE_ME_STRONG_APP_PW@127.0.0.1:27017/invitavideodb?authSource=invitavideodb"
+DB_NAME="invitavideodb"
 CORS_ORIGINS="https://invitavideos.com"
 RENDER_SERVICE_URL="http://127.0.0.1:4001"
 INTERNAL_BASE_URL="http://127.0.0.1:8001"
@@ -525,7 +525,7 @@ services:
     depends_on: [mongo, render]
     environment:
       MONGO_URL: "mongodb://admin:CHANGE_ME@mongo:27017"
-      DB_NAME: "dreamwedds"
+      DB_NAME: "invitavideodb"
       RENDER_SERVICE_URL: "http://render:4001"
       INTERNAL_BASE_URL: "http://backend:8001"
       CORS_ORIGINS: "https://dreamwedds.example.com"
@@ -577,7 +577,7 @@ No seed data is required. Music tracks are static files on disk (`backend/music/
 
 **Recommended indexes** (optional, tiny dataset — only helpful past 10k rows):
 ```javascript
-mongosh "mongodb://dreamwedds_app:...@127.0.0.1/dreamwedds?authSource=dreamwedds" <<'EOF'
+mongosh "mongodb://invitavideo_app:...@127.0.0.1/invitavideodb?authSource=invitavideodb" <<'EOF'
 db.renders.createIndex({ created_at: -1 })
 db.renders.createIndex({ status: 1, created_at: -1 })
 EOF
@@ -591,12 +591,12 @@ EOF
 
 Nightly `mongodump` cron:
 ```bash
-sudo mkdir -p /var/backups/dreamwedds
-sudo tee /etc/cron.d/dreamwedds-mongo-backup <<'EOF'
+sudo mkdir -p /var/backups/invitavideodb
+sudo tee /etc/cron.d/invitavideodb-mongo-backup <<'EOF'
 0 2 * * * root /usr/bin/mongodump \
-  --uri="mongodb://dreamwedds_app:CHANGE_ME_STRONG_APP_PW@127.0.0.1:27017/dreamwedds?authSource=dreamwedds" \
-  --archive=/var/backups/dreamwedds/dreamwedds-$(date +\%Y\%m\%d).archive.gz --gzip \
-  && find /var/backups/dreamwedds -mtime +14 -delete
+  --uri="mongodb://invitavideo_app:CHANGE_ME_STRONG_APP_PW@127.0.0.1:27017/invitavideodb?authSource=invitavideodb" \
+  --archive=/var/backups/invitavideodb/invitavideodb-$(date +\%Y\%m\%d).archive.gz --gzip \
+  && find /var/backups/invitavideodb -mtime +14 -delete
 EOF
 ```
 
@@ -661,7 +661,7 @@ sudo systemctl reload nginx    # only if nginx config changed
 | Render fails with `chrome-headless-shell: error while loading shared libraries: libatk-1.0.so.0` | Install Remotion/Chromium runtime libraries: `sudo apt install -y libatk1.0-0 libatk-bridge2.0-0 libgtk-3-0 libnss3 libnspr4 libxss1 libxshmfence1 libgbm1 libasound2 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libpango-1.0-0 libcairo2`, then restart `instawedds-render`. |
 | Rendering fails with `SIGTRAP` / Chromium crash | Ensure the systemd unit is running under a real user (not root) or set `BROWSER_EXECUTABLE=/usr/bin/chromium-browser`. Remotion internally passes `--no-sandbox`. |
 | 413 Request Entity Too Large on photo upload | Increase `client_max_body_size` in Nginx (currently 25M). |
-| `MongoServerError: Authentication failed` | Confirm `authSource=dreamwedds` is in `MONGO_URL`. Verify the app user was created inside the `dreamwedds` DB. |
+| `MongoServerError: Authentication failed` | Confirm `authSource=invitavideodb` is in `MONGO_URL`. Verify the app user was created inside the `invitavideodb` DB. |
 | Long renders time out via Nginx | Increase `proxy_read_timeout` (default here is 300s); or rely on client polling — the current flow doesn't hold connections open, so timeouts shouldn't hit the render call. |
 | CORS blocked in browser | `CORS_ORIGINS` in `/etc/invitawedds/backend.env` must exactly match your frontend origin (scheme + host, no trailing slash). Restart backend after change. |
 | Out of disk on `/var/lib/invitawedds` | Enable the retention cron in §5.3 or point renders/uploads at a larger volume. |
