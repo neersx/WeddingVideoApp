@@ -2,20 +2,23 @@ import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import {
   ArrowRight,
+  CalendarHeart,
   CheckCircle2,
   Clapperboard,
-  Film,
+  Clock,
+  Gift,
   Heart,
   Mail,
   Music,
   Palette,
+  PartyPopper,
   PlayCircle,
-  Share2,
   Sparkles,
   Users,
   Video,
   Volume2,
   VolumeX,
+  Wand2,
 } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import axios from "axios";
@@ -183,24 +186,34 @@ function MarketingLayout({ children }) {
 
 const serviceCards = [
   {
-    icon: Film,
-    title: "Stories, not static cards",
-    copy: "Transform your names, dates, venue and message into a cinematic invitation made for mobile sharing.",
+    icon: Palette,
+    title: "Beautiful templates",
+    copy: "Choose from modern, traditional, floral, royal and culturally inspired invitation video designs.",
   },
   {
-    icon: Palette,
-    title: "Designs for your celebration",
-    copy: "Choose a visual style that complements your wedding, from joyful marigolds to elegant contemporary themes.",
+    icon: Wand2,
+    title: "Easy personalisation",
+    copy: "Add the couple's names, wedding dates, venues, event schedules, messages and photographs.",
+  },
+  {
+    icon: Clock,
+    title: "Videos created in minutes",
+    copy: "No complicated editing tools or technical skills are required to create your invitation.",
   },
   {
     icon: Music,
-    title: "Photos and music that feel personal",
-    copy: "Bring your invitation to life with the memories and soundtrack that already mean something to you.",
+    title: "Music included",
+    copy: "Each invitation video includes music selected to complement the design you choose.",
   },
   {
-    icon: Share2,
-    title: "Ready to share everywhere",
-    copy: "Create a polished vertical video that looks at home in WhatsApp, Instagram and every family group chat.",
+    icon: PartyPopper,
+    title: "Perfect for every celebration",
+    copy: "Create videos for weddings, engagements, save-the-dates, receptions and other ceremonies.",
+  },
+  {
+    icon: Gift,
+    title: "Free to create",
+    copy: "Create and share beautiful invitation videos without expensive design services.",
   },
 ];
 
@@ -267,30 +280,43 @@ function LandingPage() {
   return (
     <MarketingLayout>
       <main>
-        <section className="relative overflow-hidden px-6 pb-16 pt-14 lg:px-10 lg:pb-24 lg:pt-16">
-          <div className="absolute -left-24 top-20 h-72 w-72 rounded-full bg-[#F6B6D4]/25 blur-3xl" aria-hidden="true" />
-          <div className="absolute right-0 top-0 h-80 w-80 rounded-full bg-[#F7CE7A]/20 blur-3xl" aria-hidden="true" />
-          <div className="relative mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-[1.12fr_0.88fr] lg:gap-16">
-            <div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-[#E9C9DC] bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#85155F]">
-                <Sparkles className="h-4 w-4" aria-hidden="true" /> Your invitation, beautifully in motion
+        <section className="relative overflow-hidden bg-gradient-to-b from-[#FFF6FB] via-[#FFFBFE] to-[#FFFDF9] px-6 pb-20 pt-12 lg:px-10 lg:pb-28 lg:pt-16">
+          <div className="absolute -left-28 top-16 h-80 w-80 rounded-full bg-[#F6B6D4]/30 blur-3xl" aria-hidden="true" />
+          <div className="absolute -right-16 top-0 h-96 w-96 rounded-full bg-[#F7CE7A]/25 blur-3xl" aria-hidden="true" />
+          <div className="absolute left-1/2 bottom-0 h-72 w-72 -translate-x-1/2 rounded-full bg-[#C7A3F0]/20 blur-3xl" aria-hidden="true" />
+          <div
+            className="absolute inset-0 opacity-[0.55] [background-image:radial-gradient(circle_at_1px_1px,rgba(138,20,104,0.09)_1px,transparent_0)] [background-size:26px_26px]"
+            aria-hidden="true"
+          />
+          <div className="relative mx-auto grid max-w-7xl items-center gap-14 lg:grid-cols-[1.08fr_0.92fr] lg:gap-12">
+            <div className="text-center lg:text-left">
+              <div className="inline-flex items-center gap-2 rounded-full border border-[#E9C9DC] bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#85155F] shadow-[0_6px_20px_rgba(138,20,104,0.08)] backdrop-blur">
+                <Sparkles className="h-4 w-4" aria-hidden="true" /> 100% free · no editing skills needed
               </div>
-              <h1 className="mt-7 font-heading text-5xl font-extrabold leading-[0.98] tracking-[-0.04em] text-[#32113A] sm:text-6xl lg:text-7xl">
-                Let your story begin before the wedding day.
+              <h1 className="mx-auto mt-7 max-w-3xl font-heading text-5xl font-extrabold leading-[0.98] tracking-[-0.04em] text-[#32113A] sm:text-6xl lg:mx-0 lg:text-[4.4rem]">
+                Create Wedding &amp; Engagement Invitation Videos{" "}
+                <span className="relative whitespace-nowrap">
+                  <span className="relative z-10 bg-gradient-to-r from-[#6012A8] via-[#C80A76] to-[#E66B24] bg-clip-text text-transparent">
+                    in Minutes
+                  </span>
+                  <svg className="absolute -bottom-2 left-0 z-0 h-3 w-full text-[#F4B93E]" viewBox="0 0 300 12" fill="none" preserveAspectRatio="none" aria-hidden="true">
+                    <path d="M2 8C60 3 150 2 298 6" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+                  </svg>
+                </span>
               </h1>
-              <p className="mt-6 max-w-xl text-lg leading-8 text-neutral-600">
-                Create a personalised wedding invitation video with your details, photos, events and music—designed to be shared with everyone you love.
+              <p className="mx-auto mt-6 max-w-xl text-lg leading-8 text-neutral-600 lg:mx-0">
+                Choose a beautiful template, add your event details and photos, and create a personalised invitation video with music—absolutely free.
               </p>
-              <div className="mt-8 flex flex-wrap gap-3">
-                <Link to="/create-video" className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-[#6012A8] via-[#C80A76] to-[#E66B24] px-6 py-3.5 font-semibold text-white shadow-[0_14px_32px_rgba(138,20,104,0.22)] transition hover:-translate-y-0.5">
-                  Create your video <ArrowRight className="h-4 w-4" aria-hidden="true" />
+              <div className="mt-8 flex flex-wrap justify-center gap-3 lg:justify-start">
+                <Link to="/create-video" className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-[#6012A8] via-[#C80A76] to-[#E66B24] px-6 py-3.5 font-semibold text-white shadow-[0_14px_32px_rgba(138,20,104,0.22)] transition hover:-translate-y-0.5 hover:shadow-[0_20px_44px_rgba(138,20,104,0.3)]">
+                  Start creating for free <ArrowRight className="h-4 w-4" aria-hidden="true" />
                 </Link>
                 <a href="#how-it-works" className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-white px-6 py-3.5 font-semibold text-[#32113A] transition hover:border-[#B6548F]/50 hover:bg-[#FFF8FB]">
                   See how it works
                 </a>
               </div>
-              <div className="mt-9 flex flex-wrap gap-x-6 gap-y-3 text-sm text-neutral-600">
-                {["Personalised details", "Photos and music", "Share-ready video"].map((item) => (
+              <div className="mt-9 flex flex-wrap justify-center gap-x-6 gap-y-3 text-sm text-neutral-600 lg:justify-start">
+                {["Beautiful templates", "Photos and music", "Ready in minutes"].map((item) => (
                   <span key={item} className="inline-flex items-center gap-2">
                     <CheckCircle2 className="h-4 w-4 text-[#B41374]" aria-hidden="true" /> {item}
                   </span>
@@ -299,7 +325,7 @@ function LandingPage() {
             </div>
 
             <div className="relative flex justify-center lg:justify-end">
-              <div className="absolute left-1/2 top-1/2 -z-10 h-[88%] w-[86%] -translate-x-1/2 -translate-y-1/2 rotate-3 rounded-[3rem] bg-gradient-to-br from-[#7A1AB5]/18 via-[#EC267D]/15 to-[#F6B000]/24 blur-[1px]" aria-hidden="true" />
+              <div className="absolute left-1/2 top-1/2 -z-10 h-[92%] w-[88%] -translate-x-1/2 -translate-y-1/2 rotate-3 rounded-[3rem] bg-gradient-to-br from-[#7A1AB5]/22 via-[#EC267D]/18 to-[#F6B000]/28 blur-[2px]" aria-hidden="true" />
               <div className="relative w-full max-w-[360px] rounded-[2.35rem] border border-white/70 bg-white p-2.5 shadow-[0_28px_90px_rgba(67,26,53,0.22)] sm:max-w-[390px]">
                 <div className="absolute left-1/2 top-5 z-10 h-1.5 w-14 -translate-x-1/2 rounded-full bg-black/45" aria-hidden="true" />
                 <video
@@ -326,6 +352,26 @@ function LandingPage() {
                   {heroMuted ? <VolumeX className="h-4 w-4" aria-hidden="true" /> : <Volume2 className="h-4 w-4" aria-hidden="true" />}
                   {heroMuted ? "Sound on" : "Mute"}
                 </button>
+
+                <div className="pointer-events-none absolute -left-6 top-24 hidden rounded-2xl border border-white/70 bg-white/90 px-4 py-3 shadow-[0_16px_40px_rgba(67,26,53,0.16)] backdrop-blur sm:flex sm:items-center sm:gap-3">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#F8EAF2] text-[#A4176D]">
+                    <Clock className="h-4 w-4" aria-hidden="true" />
+                  </span>
+                  <span>
+                    <span className="block text-sm font-extrabold text-[#32113A]">Ready in minutes</span>
+                    <span className="block text-[11px] text-neutral-500">No editing needed</span>
+                  </span>
+                </div>
+
+                <div className="pointer-events-none absolute -right-5 bottom-28 hidden rounded-2xl border border-white/70 bg-white/90 px-4 py-3 shadow-[0_16px_40px_rgba(67,26,53,0.16)] backdrop-blur sm:flex sm:items-center sm:gap-3">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#FBF0DC] text-[#C98A12]">
+                    <Music className="h-4 w-4" aria-hidden="true" />
+                  </span>
+                  <span>
+                    <span className="block text-sm font-extrabold text-[#32113A]">Music included</span>
+                    <span className="block text-[11px] text-neutral-500">Matched to your design</span>
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -334,7 +380,7 @@ function LandingPage() {
         <section className="border-y border-[#EFDDE7] bg-[#FFF7FB] px-6 py-16 lg:px-10 lg:py-24">
           <div className="mx-auto max-w-7xl">
             <div className="max-w-2xl">
-              <div className="section-label text-[#9B256D]">What we do</div>
+              <div className="section-label text-[#9B256D]">What makes us special</div>
               <h2 className="mt-3 font-heading text-4xl font-extrabold tracking-tight text-[#32113A] sm:text-5xl">
                 Everything you need to invite with feeling.
               </h2>
@@ -342,9 +388,9 @@ function LandingPage() {
                 InvitaWedds turns the practical details of your celebration into an invitation people will want to watch twice.
               </p>
             </div>
-            <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
               {serviceCards.map(({ icon: Icon, title, copy }) => (
-                <article key={title} className="rounded-3xl border border-[#EDD6E2] bg-white p-6 shadow-[0_12px_40px_rgba(81,25,62,0.05)]">
+                <article key={title} className="rounded-3xl border border-[#EDD6E2] bg-white p-6 shadow-[0_12px_40px_rgba(81,25,62,0.05)] transition hover:-translate-y-1 hover:border-[#D9A9C6] hover:shadow-[0_20px_50px_rgba(81,25,62,0.1)]">
                   <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#F8EAF2] text-[#A4176D]">
                     <Icon className="h-5 w-5" aria-hidden="true" />
                   </div>
@@ -378,14 +424,37 @@ function LandingPage() {
           </div>
         </section>
 
-        <section className="px-6 pb-20 lg:px-10 lg:pb-28">
+        <section className="border-y border-[#EFDDE7] bg-[#FFF7FB] px-6 py-16 lg:px-10 lg:py-24">
+          <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-2">
+            <article className="rounded-[2rem] border border-[#ECD5E2] bg-white p-8 shadow-[0_16px_50px_rgba(81,25,62,0.06)] sm:p-10">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#F8EAF2] text-[#A4176D]">
+                <Heart className="h-6 w-6" aria-hidden="true" />
+              </div>
+              <h2 className="mt-6 font-heading text-3xl font-extrabold text-[#32113A]">Our mission</h2>
+              <p className="mt-4 text-lg leading-8 text-neutral-600">
+                To make beautiful digital wedding invitations accessible to every couple. We simplify the entire process so you can create elegant invitation videos quickly and share them instantly with friends and family.
+              </p>
+            </article>
+            <article className="rounded-[2rem] border border-[#ECD5E2] bg-white p-8 shadow-[0_16px_50px_rgba(81,25,62,0.06)] sm:p-10">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#F8EAF2] text-[#A4176D]">
+                <CalendarHeart className="h-6 w-6" aria-hidden="true" />
+              </div>
+              <h2 className="mt-6 font-heading text-3xl font-extrabold text-[#32113A]">Our vision</h2>
+              <p className="mt-4 text-lg leading-8 text-neutral-600">
+                To become the easiest and most loved platform for creating digital invitations. We keep adding new templates, regional styles, languages, music and personalisation options so every couple can create an invitation that feels uniquely theirs.
+              </p>
+            </article>
+          </div>
+        </section>
+
+        <section className="px-6 pb-20 pt-16 lg:px-10 lg:pb-28 lg:pt-24">
           <div className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-8 overflow-hidden rounded-[2rem] bg-[#32113A] px-7 py-10 text-white shadow-[0_24px_70px_rgba(50,17,58,0.2)] sm:px-10 lg:flex-row lg:items-center lg:px-14 lg:py-14">
             <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-[#F4C14E]">Your celebration starts here</div>
-              <h2 className="mt-3 max-w-2xl font-heading text-4xl font-extrabold tracking-tight">Create an invitation as memorable as the day itself.</h2>
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-[#F4C14E]">Your celebration · your story · your invitation</div>
+              <h2 className="mt-3 max-w-2xl font-heading text-4xl font-extrabold tracking-tight">Create a beautiful invitation and share your special moment with everyone you love.</h2>
             </div>
             <Link to="/create-video" className="inline-flex shrink-0 items-center gap-2 rounded-full bg-white px-6 py-3.5 font-semibold text-[#32113A] transition hover:-translate-y-0.5 hover:bg-[#FFF4FA]">
-              Start creating <ArrowRight className="h-4 w-4" aria-hidden="true" />
+              Start creating for free <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </Link>
           </div>
         </section>
