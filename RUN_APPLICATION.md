@@ -25,7 +25,7 @@ With Google Login enabled:
 ```bash
 cd backend
 source .venv/bin/activate
-GOOGLE_CLIENT_ID="YOUR_GOOGLE_WEB_CLIENT_ID" \
+GOOGLE_CLIENT_ID="95024189124-gbdnijjj522h2vsgaacippj1ggoakbqv.apps.googleusercontent.com" \
 uvicorn server:app --host 127.0.0.1 --port 8001
 ```
 
