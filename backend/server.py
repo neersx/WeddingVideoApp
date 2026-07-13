@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, BackgroundTasks
+from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, BackgroundTasks, Header, Depends
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -115,7 +115,7 @@ class _InMemoryCollection:
         return _InMemoryInsertResult(document["_id"])
 
     async def update_one(self, filter_query, update):
-        document = self._documents.get(filter_query.get("_id"))
+        document = await self.find_one(filter_query)
         if not document:
             return _InMemoryUpdateResult(0)
         if "$set" in update:
@@ -124,7 +124,14 @@ class _InMemoryCollection:
         return _InMemoryUpdateResult(1)
 
     async def find_one(self, filter_query):
-        document = self._documents.get(filter_query.get("_id"))
+        document = next(
+            (
+                doc
+                for doc in self._documents.values()
+                if all(doc.get(key) == value for key, value in filter_query.items())
+            ),
+            None,
+        )
         return dict(document) if document else None
 
     def find(self):
@@ -134,6 +141,7 @@ class _InMemoryCollection:
 class _InMemoryDB:
     def __init__(self):
         self.renders = _InMemoryCollection()
+        self.users = _InMemoryCollection()
 
 
 client = None
@@ -181,30 +189,38 @@ class GoogleUser(BaseModel):
     email_verified: bool = False
 
 
-@api_router.get("/")
-async def root():
-    return {"message": "DreamWedds Render API"}
+def _user_doc_from_google_user(user: GoogleUser):
+    now = datetime.now(timezone.utc).isoformat()
+    return {
+        "_id": user.sub,
+        "provider": "google",
+        "googleSub": user.sub,
+        "email": user.email,
+        "name": user.name,
+        "picture": user.picture,
+        "email_verified": user.email_verified,
+        "updated_at": now,
+    }
 
 
-@api_router.get("/health")
-async def health():
-    try:
-        async with httpx.AsyncClient(timeout=5) as hc:
-            r = await hc.get(f"{RENDER_SERVICE_URL}/health")
-            render_status = r.json()
-    except Exception:
-        render_status = {"status": "unreachable"}
-    return {"api": "ok", "storage_backend": storage_backend, "render_service": render_status}
+async def _save_google_user(user: GoogleUser):
+    user_doc = _user_doc_from_google_user(user)
+    existing = await db.users.find_one({"_id": user.sub})
+    if existing:
+        await db.users.update_one({"_id": user.sub}, {"$set": user_doc})
+    else:
+        user_doc["created_at"] = user_doc["updated_at"]
+        await db.users.insert_one(user_doc)
+    return user_doc
 
 
-@api_router.post("/auth/google")
-async def google_login(req: GoogleLoginRequest):
+def _verify_google_credential(credential: str) -> GoogleUser:
     if not GOOGLE_CLIENT_ID:
         raise HTTPException(status_code=503, detail="Google login is not configured")
 
     try:
         payload = id_token.verify_oauth2_token(
-            req.credential,
+            credential,
             google_requests.Request(),
             GOOGLE_CLIENT_ID,
         )
@@ -225,6 +241,39 @@ async def google_login(req: GoogleLoginRequest):
     if not user.sub or not user.email:
         raise HTTPException(status_code=401, detail="Google credential missing account details")
 
+    return user
+
+
+async def require_google_user(authorization: str = Header(default="")) -> GoogleUser:
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise HTTPException(status_code=401, detail="Login is required to render a video")
+
+    user = _verify_google_credential(token)
+    await _save_google_user(user)
+    return user
+
+
+@api_router.get("/")
+async def root():
+    return {"message": "DreamWedds Render API"}
+
+
+@api_router.get("/health")
+async def health():
+    try:
+        async with httpx.AsyncClient(timeout=5) as hc:
+            r = await hc.get(f"{RENDER_SERVICE_URL}/health")
+            render_status = r.json()
+    except Exception:
+        render_status = {"status": "unreachable"}
+    return {"api": "ok", "storage_backend": storage_backend, "render_service": render_status}
+
+
+@api_router.post("/auth/google")
+async def google_login(req: GoogleLoginRequest):
+    user = _verify_google_credential(req.credential)
+    await _save_google_user(user)
     return {"user": user.model_dump()}
 
 
@@ -342,7 +391,7 @@ async def _run_render_job(job_id: str, payload: dict):
 
 
 @api_router.post("/renders")
-async def create_render(req: RenderRequest, background: BackgroundTasks):
+async def create_render(req: RenderRequest, background: BackgroundTasks, user: GoogleUser = Depends(require_google_user)):
     payload = req.model_dump()
 
     # Resolve bundled music id -> served url (takes precedence over musicUrl).
@@ -360,6 +409,8 @@ async def create_render(req: RenderRequest, background: BackgroundTasks):
     render_id = uuid.uuid4().hex
     doc = {
         "_id": render_id,
+        "userId": user.sub,
+        "userEmail": user.email,
         "template": req.template,
         "couple": req.couple.model_dump(),
         "eventDate": req.eventDate,
@@ -389,6 +440,8 @@ async def list_renders():
     return [
         {
             "id": d["_id"],
+            "userId": d.get("userId"),
+            "userEmail": d.get("userEmail"),
             "template": d.get("template"),
             "couple": d.get("couple"),
             "eventDate": d.get("eventDate"),
@@ -410,6 +463,8 @@ async def get_render(render_id: str):
         raise HTTPException(status_code=404, detail="Render not found")
     return {
         "id": d["_id"],
+        "userId": d.get("userId"),
+        "userEmail": d.get("userEmail"),
         "template": d.get("template"),
         "couple": d.get("couple"),
         "eventDate": d.get("eventDate"),
@@ -458,6 +513,10 @@ async def initialize_storage():
         client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=1000)
         await client.admin.command("ping")
         db = client[db_name]
+        await db.users.create_index("email")
+        await db.users.create_index("googleSub", unique=True)
+        await db.renders.create_index("userId")
+        await db.renders.create_index("created_at")
         logger.info("Connected to MongoDB at %s", mongo_url)
     except Exception as exc:  # noqa: BLE001
         if client is not None:

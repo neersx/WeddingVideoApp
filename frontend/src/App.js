@@ -29,11 +29,19 @@ import { ScheduleBuilder } from "@/components/ScheduleBuilder";
 import { PhotoUploader } from "@/components/PhotoUploader";
 import { PreviewPane } from "@/components/PreviewPane";
 import { MusicPicker } from "@/components/MusicPicker";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "http://localhost:8001";
 const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || "";
 export const API = `${BACKEND_URL}/api`;
 const AUTH_STORAGE_KEY = "invitawedds.googleUser";
+const AUTH_CREDENTIAL_STORAGE_KEY = "invitawedds.googleCredential";
 
 const defaultDisplayMessage =
   "The moment we've all been waiting for — {{brideFirstName}} & {{groomFirstName}} invite you to witness their wedding vows{{#weddingDate}} on {{weddingDate}}{{/weddingDate}}{{#location}} in {{location}}{{/location}}.";
@@ -60,25 +68,31 @@ function AuthProvider({ children }) {
       return null;
     }
   });
+  const [credential, setCredential] = useState(() => localStorage.getItem(AUTH_CREDENTIAL_STORAGE_KEY) || "");
 
   const signInWithGoogle = useCallback(async (credential) => {
     const response = await axios.post(`${API}/auth/google`, { credential });
     const nextUser = response.data.user;
     setUser(nextUser);
+    setCredential(credential);
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(nextUser));
+    localStorage.setItem(AUTH_CREDENTIAL_STORAGE_KEY, credential);
     toast.success(`Welcome ${nextUser.name || nextUser.email}`);
+    return nextUser;
   }, []);
 
   const signOut = useCallback(() => {
     setUser(null);
+    setCredential("");
     localStorage.removeItem(AUTH_STORAGE_KEY);
+    localStorage.removeItem(AUTH_CREDENTIAL_STORAGE_KEY);
     if (window.google?.accounts?.id) {
       window.google.accounts.id.disableAutoSelect();
     }
     toast.info("Signed out");
   }, []);
 
-  const value = useMemo(() => ({ user, signInWithGoogle, signOut }), [user, signInWithGoogle, signOut]);
+  const value = useMemo(() => ({ user, credential, signInWithGoogle, signOut }), [user, credential, signInWithGoogle, signOut]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
@@ -91,7 +105,7 @@ function useAuth() {
   return context;
 }
 
-function GoogleSignInButton({ className = "", text = "signin_with" }) {
+function GoogleSignInButton({ className = "", text = "signin_with", onSuccess }) {
   const buttonRef = useRef(null);
   const { signInWithGoogle } = useAuth();
   const [scriptReady, setScriptReady] = useState(Boolean(window.google?.accounts?.id));
@@ -123,7 +137,8 @@ function GoogleSignInButton({ className = "", text = "signin_with" }) {
       client_id: GOOGLE_CLIENT_ID,
       callback: async (response) => {
         try {
-          await signInWithGoogle(response.credential);
+          const nextUser = await signInWithGoogle(response.credential);
+          onSuccess?.(nextUser);
         } catch (error) {
           toast.error(error?.response?.data?.detail || "Google sign-in failed");
         }
@@ -136,7 +151,7 @@ function GoogleSignInButton({ className = "", text = "signin_with" }) {
       shape: "pill",
       text,
     });
-  }, [scriptReady, signInWithGoogle, text]);
+  }, [scriptReady, signInWithGoogle, text, onSuccess]);
 
   if (!GOOGLE_CLIENT_ID) {
     return (
@@ -600,7 +615,7 @@ function LandingPage() {
 }
 
 function CreateVideoPage() {
-  const { user } = useAuth();
+  const { user, credential } = useAuth();
   const [template, setTemplate] = useState("marigold");
   const [details, setDetails] = useState(initialDetails);
   const [schedule, setSchedule] = useState([
@@ -614,6 +629,8 @@ function CreateVideoPage() {
   const [jobProgress, setJobProgress] = useState(0);
   const [jobId, setJobId] = useState(null);
   const [videoUrl, setVideoUrl] = useState(null);
+  const [loginPromptOpen, setLoginPromptOpen] = useState(false);
+  const [resumeRenderAfterLogin, setResumeRenderAfterLogin] = useState(false);
   const pollRef = useRef(null);
 
   const rendering = jobStatus === "queued" || jobStatus === "rendering";
@@ -642,11 +659,7 @@ function CreateVideoPage() {
     }, 2000);
   };
 
-  const handleRender = async () => {
-    if (!details.partnerOne.trim() || !details.partnerTwo.trim()) {
-      toast.error("Both partner names are required");
-      return;
-    }
+  const submitRender = useCallback(async () => {
     setVideoUrl(null);
     setJobProgress(0);
     setJobStatus("queued");
@@ -663,19 +676,70 @@ function CreateVideoPage() {
         schedule,
         durationInSeconds: Number(details.durationInSeconds) || 30,
       };
-      const response = await axios.post(`${API}/renders`, payload);
+      const response = await axios.post(`${API}/renders`, payload, {
+        headers: { Authorization: `Bearer ${credential}` },
+      });
       setJobId(response.data.jobId);
       toast.info("Render queued — this can take a couple of minutes");
       pollJob(response.data.jobId);
     } catch (error) {
       setJobStatus("failed");
-      toast.error(error?.response?.data?.detail || "Failed to queue render");
+      if (error?.response?.status === 401) {
+        setLoginPromptOpen(true);
+        setResumeRenderAfterLogin(true);
+        toast.error("Please sign in again to render your video");
+      } else {
+        toast.error(error?.response?.data?.detail || "Failed to queue render");
+      }
     }
+  }, [credential, template, details, photos, musicId, schedule]);
+
+  const handleRender = async () => {
+    if (!details.partnerOne.trim() || !details.partnerTwo.trim()) {
+      toast.error("Both partner names are required");
+      return;
+    }
+    if (!user || !credential) {
+      setResumeRenderAfterLogin(true);
+      setLoginPromptOpen(true);
+      return;
+    }
+    await submitRender();
   };
+
+  useEffect(() => {
+    if (!user || !credential || !resumeRenderAfterLogin) return;
+    setResumeRenderAfterLogin(false);
+    setLoginPromptOpen(false);
+    submitRender();
+  }, [user, credential, resumeRenderAfterLogin, submitRender]);
 
   return (
     <MarketingLayout>
       <main>
+        <Dialog open={loginPromptOpen} onOpenChange={setLoginPromptOpen}>
+          <DialogContent className="max-w-md rounded-3xl border-[#EBD3E0] bg-white p-0 shadow-[0_24px_80px_rgba(50,17,58,0.22)]">
+            <div className="rounded-t-3xl bg-[#FFF6FA] px-6 py-5">
+              <DialogHeader>
+                <DialogTitle className="font-heading text-2xl font-extrabold text-[#32113A]">
+                  Sign in to render your video
+                </DialogTitle>
+                <DialogDescription className="pt-2 leading-6 text-neutral-600">
+                  Use Google to create or access your account. After login, your video render will start automatically.
+                </DialogDescription>
+              </DialogHeader>
+            </div>
+            <div className="px-6 pb-6">
+              <div className="rounded-2xl border border-[#ECD5E2] bg-white p-4">
+                <div className="section-label text-left text-[#9B256D]">Login / Register</div>
+                <p className="mb-4 mt-2 text-sm leading-6 text-neutral-500">
+                  We will save this render against your Google account so you can track how many invitation videos you create.
+                </p>
+                <GoogleSignInButton className="min-h-[40px]" text="continue_with" />
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
         <section className="relative overflow-hidden border-b border-[#EBDDE5] bg-[#FFF7FB] px-5 py-5 lg:px-10">
           <div className="absolute -left-24 -top-28 h-56 w-56 rounded-full bg-[#F6B6D4]/35 blur-3xl" aria-hidden="true" />
           <div className="absolute -right-20 top-0 h-60 w-60 rounded-full bg-[#F7CE7A]/25 blur-3xl" aria-hidden="true" />
