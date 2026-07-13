@@ -195,10 +195,10 @@ Log in as a non-root sudo user:
 sudo apt update && sudo apt -y upgrade
 sudo apt install -y build-essential git curl ufw ca-certificates gnupg lsb-release \
   ffmpeg fonts-noto-color-emoji \
-  chromium-browser \
-  libnss3 libdbus-1-3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
+  libnss3 libnspr4 libdbus-1-3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
+  libx11-xcb1 \
   libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
-  libgbm1 libasound2 libpango-1.0-0 libcairo2
+  libxss1 libxshmfence1 libgbm1 libasound2 libpango-1.0-0 libcairo2 libgtk-3-0
 ```
 
 Firewall (allow SSH + HTTP + HTTPS only; DB and internal ports stay closed):
@@ -209,14 +209,17 @@ sudo ufw allow 443/tcp
 sudo ufw --force enable
 ```
 
-### 2.2 Install Python 3.11, Node 20, Yarn
+### 2.2 Install Python 3.11 and Node 20
 
 ```bash
 sudo apt install -y python3.11 python3.11-venv python3-pip
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
-sudo npm install -g yarn
+node --version
+npm --version
 ```
+
+Do not install Ubuntu's separate `npm` package after installing NodeSource Node.js. The NodeSource `nodejs` package already includes npm; installing Ubuntu `npm` can cause `nodejs : Conflicts: npm`.
 
 ### 2.3 Install MongoDB (production settings)
 
@@ -268,25 +271,27 @@ mongosh "mongodb://dreamwedds_app:CHANGE_ME_STRONG_APP_PW@127.0.0.1:27017/dreamw
 ### 2.4 Create app user + directories
 
 ```bash
-sudo useradd -m -s /bin/bash dreamwedds
-sudo mkdir -p /opt/dreamwedds
-sudo chown dreamwedds:dreamwedds /opt/dreamwedds
-sudo -iu dreamwedds
+sudo useradd -m -s /bin/bash invitawedds
+sudo mkdir -p /var/www/invitawedds
+sudo chown invitawedds:invitawedds /var/www/invitawedds
+sudo -iu invitawedds
 ```
 
 ### 2.5 Deploy code
 
-As `dreamwedds`:
+As `invitawedds`:
 ```bash
-cd /opt/dreamwedds
-git clone <YOUR_REPO_URL> app
-cd app
+cd /var/www/invitawedds
+git clone <YOUR_REPO_URL> WeddingVideoApp
+cd WeddingVideoApp
 ```
 
 ### 2.6 Backend (production)
 
+Run dependency installation as `invitawedds`:
+
 ```bash
-cd /opt/dreamwedds/app/backend
+cd /var/www/invitawedds/WeddingVideoApp/backend
 python3.11 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
@@ -294,95 +299,109 @@ pip install -r requirements.txt
 pip install gunicorn uvicorn[standard]
 ```
 
-Create `/opt/dreamwedds/app/backend/.env`:
+Create the systemd environment file `/etc/invitawedds/backend.env` as root or a sudoer:
 ```bash
+sudo mkdir -p /etc/invitawedds
+sudo tee /etc/invitawedds/backend.env >/dev/null <<'EOF'
 STORAGE_BACKEND="mongodb"
 MONGO_URL="mongodb://dreamwedds_app:CHANGE_ME_STRONG_APP_PW@127.0.0.1:27017/dreamwedds?authSource=dreamwedds"
 DB_NAME="dreamwedds"
-CORS_ORIGINS="https://dreamwedds.example.com"
+CORS_ORIGINS="https://invitawedds.com"
 RENDER_SERVICE_URL="http://127.0.0.1:4001"
 INTERNAL_BASE_URL="http://127.0.0.1:8001"
+EOF
+sudo chown root:invitawedds /etc/invitawedds/backend.env
+sudo chmod 640 /etc/invitawedds/backend.env
 ```
 
 Persist uploads/renders on a dedicated data volume (optional but recommended):
 ```bash
-sudo mkdir -p /var/lib/dreamwedds/{uploads,renders}
-sudo chown -R dreamwedds:dreamwedds /var/lib/dreamwedds
+sudo mkdir -p /var/lib/invitawedds/{uploads,renders}
+sudo chown -R invitawedds:invitawedds /var/lib/invitawedds
 # symlink so code paths keep working
-ln -sfn /var/lib/dreamwedds/uploads /opt/dreamwedds/app/backend/uploads
-ln -sfn /var/lib/dreamwedds/renders /opt/dreamwedds/app/backend/renders
+ln -sfn /var/lib/invitawedds/uploads /var/www/invitawedds/WeddingVideoApp/backend/uploads
+ln -sfn /var/lib/invitawedds/renders /var/www/invitawedds/WeddingVideoApp/backend/renders
 ```
 
 ### 2.7 Render-service (production)
 
+Run dependency installation as `invitawedds`:
+
 ```bash
-cd /opt/dreamwedds/app/render-service
-yarn install --frozen-lockfile
+cd /var/www/invitawedds/WeddingVideoApp/render-service
+npm install --legacy-peer-deps
 # Pre-warm Remotion's browser
 npx remotion browser ensure
 ```
 
-Environment file `/opt/dreamwedds/app/render-service/.env` (optional):
+Create the systemd environment file `/etc/invitawedds/render.env` as root or a sudoer:
 ```bash
+sudo tee /etc/invitawedds/render.env >/dev/null <<'EOF'
 PORT=4001
 # Uncomment to use system chromium instead of the Remotion-managed one:
 # BROWSER_EXECUTABLE=/usr/bin/chromium-browser
+EOF
+sudo chown root:invitawedds /etc/invitawedds/render.env
+sudo chmod 640 /etc/invitawedds/render.env
 ```
 
 ### 2.8 Frontend build
 
 ```bash
-cd /opt/dreamwedds/app/frontend
-yarn install --frozen-lockfile
+cd /var/www/invitawedds/WeddingVideoApp/frontend
+npm install --legacy-peer-deps
 # .env for the build
 cat > .env <<'EOF'
-REACT_APP_BACKEND_URL=https://dreamwedds.example.com
+REACT_APP_BACKEND_URL=https://invitawedds.com
 EOF
-yarn build   # outputs to ./build
+npm run build   # outputs to ./build
 ```
 
 The `build/` folder is what Nginx serves.
 
 ### 2.9 systemd services
 
-**Backend** — `/etc/systemd/system/dreamwedds-backend.service`:
+**Backend** — `/etc/systemd/system/instawedds-backend.service`:
 ```ini
 [Unit]
-Description=DreamWedds FastAPI backend
-After=network.target mongod.service
-Requires=mongod.service
+Description=InvitaWedds Wedding Video API
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-User=dreamwedds
-WorkingDirectory=/opt/dreamwedds/app/backend
-EnvironmentFile=/opt/dreamwedds/app/backend/.env
-ExecStart=/opt/dreamwedds/app/backend/.venv/bin/uvicorn server:app \
-  --host 127.0.0.1 --port 8001 --workers 2 --proxy-headers
+User=invitawedds
+Group=invitawedds
+WorkingDirectory=/var/www/invitawedds/WeddingVideoApp/backend
+EnvironmentFile=/etc/invitawedds/backend.env
+ExecStart=/var/www/invitawedds/WeddingVideoApp/backend/.venv/bin/uvicorn server:app --host 127.0.0.1 --port 8001
 Restart=always
-RestartSec=3
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-**Render-service** — `/etc/systemd/system/dreamwedds-render.service`:
+**Render-service** — `/etc/systemd/system/instawedds-render.service`:
 ```ini
 [Unit]
-Description=DreamWedds Remotion render service
-After=network.target
+Description=InvitaWedds Remotion Render Service
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-User=dreamwedds
-WorkingDirectory=/opt/dreamwedds/app/render-service
-EnvironmentFile=-/opt/dreamwedds/app/render-service/.env
-Environment=NODE_ENV=production
-ExecStart=/opt/dreamwedds/app/render-service/node_modules/.bin/tsx src/index.ts
+User=invitawedds
+Group=invitawedds
+WorkingDirectory=/var/www/invitawedds/WeddingVideoApp/render-service
+EnvironmentFile=/etc/invitawedds/render.env
+ExecStart=/usr/bin/npm run start
 Restart=always
 RestartSec=5
-# Chromium needs a decent memory ceiling
-LimitNOFILE=65536
+NoNewPrivileges=true
+PrivateTmp=false
 
 [Install]
 WantedBy=multi-user.target
@@ -391,8 +410,8 @@ WantedBy=multi-user.target
 Enable + start:
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now dreamwedds-render dreamwedds-backend
-sudo systemctl status dreamwedds-render dreamwedds-backend
+sudo systemctl enable --now instawedds-render instawedds-backend
+sudo systemctl status instawedds-render instawedds-backend
 ```
 
 ### 2.10 Nginx reverse proxy
@@ -408,7 +427,7 @@ server {
     listen 80;
     server_name dreamwedds.example.com;
 
-    root /opt/dreamwedds/app/frontend/build;
+    root /var/www/invitawedds/web/build;
     index index.html;
 
     # Large uploads/downloads (photos + rendered mp4s)
@@ -418,8 +437,17 @@ server {
     proxy_read_timeout 300s;
     proxy_send_timeout 300s;
 
-    # API → FastAPI on 127.0.0.1:8001
-    location /api/ {
+    # API -> FastAPI on 127.0.0.1:8001
+    location = /api {
+        proxy_pass         http://127.0.0.1:8001/api/;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+    }
+
+    location ^~ /api/ {
         proxy_pass         http://127.0.0.1:8001;
         proxy_http_version 1.1;
         proxy_set_header   Host              $host;
@@ -577,15 +605,15 @@ EOF
 Simple rsync to off-box storage (S3, Backblaze, another VPS):
 ```bash
 # example S3 sync via awscli or rclone
-rclone sync /var/lib/dreamwedds/renders  remote:dreamwedds/renders
-rclone sync /var/lib/dreamwedds/uploads  remote:dreamwedds/uploads
+rclone sync /var/lib/invitawedds/renders  remote:invitawedds/renders
+rclone sync /var/lib/invitawedds/uploads  remote:invitawedds/uploads
 ```
 
 ### 5.3 Cleanup policy (recommended)
 
 Renders accumulate. Add a cron to prune files older than 30 days:
 ```bash
-0 3 * * * dreamwedds find /var/lib/dreamwedds/renders -type f -mtime +30 -delete
+0 3 * * * invitawedds find /var/lib/invitawedds/renders -type f -mtime +30 -delete
 ```
 (Mongo docs will still reference them; adjust `list_renders` if you want to hide broken ones.)
 
@@ -594,23 +622,26 @@ Renders accumulate. Add a cron to prune files older than 30 days:
 ## 6. Updating / Redeploying
 
 ```bash
-sudo -iu dreamwedds
-cd /opt/dreamwedds/app
+sudo -iu invitawedds
+cd /var/www/invitawedds/WeddingVideoApp
 git pull
 
 # Backend deps changed?
 cd backend && source .venv/bin/activate && pip install -r requirements.txt
 
 # Frontend rebuild
-cd ../frontend && yarn install --frozen-lockfile && yarn build
+cd ../frontend && npm install --legacy-peer-deps && npm run build
+rm -rf /var/www/invitawedds/web/build
+mkdir -p /var/www/invitawedds/web/build
+cp -a build/. /var/www/invitawedds/web/build/
 
 # Render-service deps changed?
-cd ../render-service && yarn install --frozen-lockfile
+cd ../render-service && npm install --legacy-peer-deps
 ```
 
 Reload services (as sudoer):
 ```bash
-sudo systemctl restart dreamwedds-backend dreamwedds-render
+sudo systemctl restart instawedds-backend instawedds-render
 sudo systemctl reload nginx    # only if nginx config changed
 ```
 
@@ -620,19 +651,26 @@ sudo systemctl reload nginx    # only if nginx config changed
 
 | Symptom | Fix |
 |---------|-----|
-| `render_service.status: unreachable` in `/api/health` | `systemctl status dreamwedds-render` — the first boot takes 20-40s to bundle. Check `journalctl -u dreamwedds-render -n 200`. |
+| `render_service.status: unreachable` in `/api/health` | `systemctl status instawedds-render` — the first boot takes 20-40s to bundle. Check `journalctl -u instawedds-render -n 200`. |
+| `Failed to load environment files: No such file or directory` | Create `/etc/invitawedds/backend.env` and `/etc/invitawedds/render.env`, then run `sudo systemctl daemon-reload && sudo systemctl restart instawedds-backend instawedds-render`. |
+| `Failed to run 'start' task: No such file or directory` | Check `command -v npm`. If it is not `/usr/bin/npm`, update `ExecStart` in `/etc/systemd/system/instawedds-render.service` to the real npm path, then run `sudo systemctl daemon-reload`. |
+| `ERESOLVE could not resolve` for `react-day-picker` / `date-fns`, followed by `craco: not found` | Run frontend install with `npm install --legacy-peer-deps`, then run the build again. The build failed because npm stopped before installing dev dependency `@craco/craco`. |
+| `403 Forbidden nginx/1.18.0` on `invitawedds.com` | Confirm `/var/www/invitawedds/web/build/index.html` exists and Nginx can traverse/read the directory: `sudo namei -l /var/www/invitawedds/web/build/index.html`. Rebuild/copy the frontend and set read permissions if needed. |
+| Backend URLs ending in file extensions return `404` through Nginx | Make the API location `location ^~ /api/` so static asset regex rules do not steal `/api/uploads/*.jpg`, `/api/music/*.mp3`, or similar backend routes. |
+| Render logs show `EPERM`, `syscall: 'chmod'`, path `@remotion/compositor.../remotion` | `node_modules` is usually root-owned from running `sudo npm install`. Run `sudo chown -R invitawedds:invitawedds /var/www/invitawedds/WeddingVideoApp/render-service`, reinstall as `invitawedds`, then restart `instawedds-render`. |
+| Render fails with `chrome-headless-shell: error while loading shared libraries: libatk-1.0.so.0` | Install Remotion/Chromium runtime libraries: `sudo apt install -y libatk1.0-0 libatk-bridge2.0-0 libgtk-3-0 libnss3 libnspr4 libxss1 libxshmfence1 libgbm1 libasound2 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libpango-1.0-0 libcairo2`, then restart `instawedds-render`. |
 | Rendering fails with `SIGTRAP` / Chromium crash | Ensure the systemd unit is running under a real user (not root) or set `BROWSER_EXECUTABLE=/usr/bin/chromium-browser`. Remotion internally passes `--no-sandbox`. |
 | 413 Request Entity Too Large on photo upload | Increase `client_max_body_size` in Nginx (currently 25M). |
 | `MongoServerError: Authentication failed` | Confirm `authSource=dreamwedds` is in `MONGO_URL`. Verify the app user was created inside the `dreamwedds` DB. |
 | Long renders time out via Nginx | Increase `proxy_read_timeout` (default here is 300s); or rely on client polling — the current flow doesn't hold connections open, so timeouts shouldn't hit the render call. |
-| CORS blocked in browser | `CORS_ORIGINS` in `backend/.env` must exactly match your frontend origin (scheme + host, no trailing slash). Restart backend after change. |
-| Out of disk on `/var/lib/dreamwedds` | Enable the retention cron in §5.3 or point renders/uploads at a larger volume. |
+| CORS blocked in browser | `CORS_ORIGINS` in `/etc/invitawedds/backend.env` must exactly match your frontend origin (scheme + host, no trailing slash). Restart backend after change. |
+| Out of disk on `/var/lib/invitawedds` | Enable the retention cron in §5.3 or point renders/uploads at a larger volume. |
 
 ### Useful commands
 ```bash
 # Live logs
-sudo journalctl -u dreamwedds-backend -f
-sudo journalctl -u dreamwedds-render  -f
+sudo journalctl -u instawedds-backend -f
+sudo journalctl -u instawedds-render  -f
 sudo tail -f /var/log/nginx/error.log
 
 # Quick health
@@ -649,7 +687,7 @@ curl -s http://127.0.0.1:4001/health           # from the VPS itself
 | MongoDB | 27017 | No (bound to 127.0.0.1) | — |
 | render-service | 4001 | No (Nginx does not proxy it) | `PORT`, optional `BROWSER_EXECUTABLE` |
 | backend (FastAPI) | 8001 | Only via Nginx `/api/*` | `STORAGE_BACKEND`, `MONGO_URL`, `DB_NAME`, `CORS_ORIGINS`, `RENDER_SERVICE_URL`, `INTERNAL_BASE_URL` |
-| frontend (static) | — | Yes (Nginx serves `/opt/dreamwedds/app/frontend/build`) | `REACT_APP_BACKEND_URL` (build-time only) |
+| frontend (static) | — | Yes (Nginx serves `/var/www/invitawedds/web/build`) | `REACT_APP_BACKEND_URL` (build-time only) |
 
 `STORAGE_BACKEND` defaults to `memory` for local development. Set it to `mongodb` in deployments that require persistent database storage; MongoDB connection failures then stop the backend instead of silently switching modes.
 
@@ -664,4 +702,4 @@ curl -s http://127.0.0.1:4001/health           # from the VPS itself
 
 ---
 
-**That's it.** After §2 you have a hardened single-server deployment; after §3 you have the same in containers. Report issues in `journalctl -u dreamwedds-*` and Nginx logs first — most problems surface there within 30 seconds.
+**That's it.** After §2 you have a hardened single-server deployment; after §3 you have the same in containers. Report issues in `journalctl -u instawedds-backend -u instawedds-render` and Nginx logs first — most problems surface there within 30 seconds.

@@ -17,6 +17,9 @@ MONGO_URL="${MONGO_URL:-mongodb://127.0.0.1:27017}"
 DB_NAME="${DB_NAME:-dreamwedds}"
 CERTBOT_EMAIL="${CERTBOT_EMAIL:-}"
 ENABLE_TLS="${ENABLE_TLS:-true}"
+CERTBOT_DOMAINS="${CERTBOT_DOMAINS:-$DOMAIN}"
+FRONTEND_BACKEND_URL="${FRONTEND_BACKEND_URL:-}"
+CORS_ORIGINS="${CORS_ORIGINS:-}"
 
 BACKEND_PORT="${BACKEND_PORT:-8001}"
 RENDER_PORT="${RENDER_PORT:-4001}"
@@ -33,9 +36,25 @@ fail() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
 
 export DEBIAN_FRONTEND=noninteractive
 
+if [[ -z "$FRONTEND_BACKEND_URL" ]]; then
+  if [[ "$ENABLE_TLS" == "true" ]]; then
+    FRONTEND_BACKEND_URL="https://$DOMAIN"
+  else
+    FRONTEND_BACKEND_URL="http://$DOMAIN"
+  fi
+fi
+if [[ -z "$CORS_ORIGINS" ]]; then
+  CORS_ORIGINS="https://$DOMAIN,http://$DOMAIN"
+fi
+
 log "Installing OS packages"
 apt-get update
-apt-get install -y git nginx python3 python3-venv python3-pip nodejs rsync curl
+apt-get install -y \
+  git nginx python3 python3-venv python3-pip nodejs rsync curl ffmpeg \
+  fonts-noto-color-emoji \
+  libnss3 libnspr4 libdbus-1-3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
+  libx11-xcb1 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
+  libxss1 libxshmfence1 libgbm1 libasound2 libpango-1.0-0 libcairo2 libgtk-3-0
 
 command -v node >/dev/null 2>&1 || fail "Node.js is not installed"
 command -v npm >/dev/null 2>&1 || fail "npm is not available with the installed Node.js package"
@@ -75,10 +94,10 @@ log "Installing backend dependencies"
 runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/backend' && python3 -m venv .venv && .venv/bin/pip install --upgrade pip && .venv/bin/pip install -r requirements.txt"
 
 log "Installing renderer dependencies"
-runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/render-service' && npm install"
+runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/render-service' && npm install --legacy-peer-deps"
 
 log "Building frontend"
-runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/frontend' && npm install && REACT_APP_BACKEND_URL='https://${DOMAIN}' npm run build"
+runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/frontend' && npm install --legacy-peer-deps && REACT_APP_BACKEND_URL='$FRONTEND_BACKEND_URL' npm run build"
 rm -rf "$WEB_ROOT"
 mkdir -p "$WEB_ROOT"
 cp -a "$APP_DIR/frontend/build/." "$WEB_ROOT/"
@@ -91,7 +110,7 @@ MONGO_URL=$MONGO_URL
 DB_NAME=$DB_NAME
 RENDER_SERVICE_URL=http://127.0.0.1:$RENDER_PORT
 INTERNAL_BASE_URL=http://127.0.0.1:$BACKEND_PORT
-CORS_ORIGINS=https://$DOMAIN
+CORS_ORIGINS=$CORS_ORIGINS
 EOF
 
 cat > "$RENDER_ENV_FILE" <<EOF
@@ -103,7 +122,7 @@ chmod 640 "$ENV_FILE" "$RENDER_ENV_FILE"
 log "Writing systemd services"
 cat > "/etc/systemd/system/${SERVICE_NAME}-backend.service" <<EOF
 [Unit]
-Description=DreamWedds Wedding Video API
+Description=InvitaWedds Wedding Video API
 After=network-online.target
 Wants=network-online.target
 
@@ -125,7 +144,7 @@ EOF
 
 cat > "/etc/systemd/system/${SERVICE_NAME}-render.service" <<EOF
 [Unit]
-Description=DreamWedds Remotion Render Service
+Description=InvitaWedds Remotion Render Service
 After=network-online.target
 Wants=network-online.target
 
@@ -156,7 +175,18 @@ server {
     root $WEB_ROOT;
     index index.html;
 
-    location /api/ {
+    location = /api {
+        proxy_pass http://127.0.0.1:$BACKEND_PORT/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 900s;
+        proxy_send_timeout 900s;
+    }
+
+    location ^~ /api/ {
         proxy_pass http://127.0.0.1:$BACKEND_PORT;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
@@ -192,12 +222,16 @@ if [[ "$ENABLE_TLS" == "true" ]]; then
   else
     log "Installing HTTPS certificate for $DOMAIN"
     apt-get install -y certbot python3-certbot-nginx
-    certbot --nginx --non-interactive --agree-tos --redirect -m "$CERTBOT_EMAIL" -d "$DOMAIN"
+    certbot_args=()
+    for certbot_domain in $CERTBOT_DOMAINS; do
+      certbot_args+=(--domain "$certbot_domain")
+    done
+    certbot --nginx --non-interactive --agree-tos --redirect -m "$CERTBOT_EMAIL" "${certbot_args[@]}"
   fi
 fi
 
 log "Deployment complete"
-printf 'Web URL:       https://%s\n' "$DOMAIN"
+printf 'Web URL:       %s\n' "$FRONTEND_BACKEND_URL"
 printf 'Storage mode:  %s\n' "$STORAGE_BACKEND"
 printf 'Health check:  curl -fsS http://127.0.0.1:%s/api/health\n' "$BACKEND_PORT"
 printf 'Logs:          journalctl -u %s-backend -u %s-render -f\n' "$SERVICE_NAME" "$SERVICE_NAME"

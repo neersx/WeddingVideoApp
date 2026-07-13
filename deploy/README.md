@@ -14,22 +14,48 @@ By default, the repository is installed at `/var/www/invitawedds/WeddingVideoApp
 
 ```bash
 cd /path/to/WeddingVideoApp
-sudo DOMAIN=video.dreamwedds.com CERTBOT_EMAIL=admin@example.com \
-  STORAGE_BACKEND=memory bash deploy/ubuntu-deploy.sh
-```
-
-The deployment script can also be run with the new domain:
-
-```bash
 sudo DOMAIN=invitawedds.com CERTBOT_EMAIL=admin@example.com \
   STORAGE_BACKEND=memory bash deploy/ubuntu-deploy.sh
 ```
+
+If `www.invitawedds.com` also points to the same VPS, include it in the certificate request:
+
+```bash
+sudo DOMAIN=invitawedds.com CERTBOT_EMAIL=admin@example.com \
+  CERTBOT_DOMAINS="invitawedds.com www.invitawedds.com" \
+  STORAGE_BACKEND=memory bash deploy/ubuntu-deploy.sh
+```
+
+The script always writes an HTTP-only Nginx config first so Nginx can start before the Let's Encrypt certificate exists. When `CERTBOT_EMAIL` is supplied and `ENABLE_TLS=true`, Certbot upgrades that HTTP config to HTTPS.
+
+Useful deployment variables:
+
+- `DOMAIN`: primary public domain, default `invitawedds.com`.
+- `CERTBOT_EMAIL`: Let's Encrypt account/renewal email. Leave empty for HTTP-only bootstrap.
+- `CERTBOT_DOMAINS`: space-separated cert domains, default same as `DOMAIN`.
+- `FRONTEND_BACKEND_URL`: build-time API origin for React, default `https://$DOMAIN` when TLS is enabled, otherwise `http://$DOMAIN`.
+- `CORS_ORIGINS`: comma-separated browser origins allowed by FastAPI, default `https://$DOMAIN,http://$DOMAIN`.
+- `ENABLE_TLS`: set `false` to skip Certbot and stay HTTP-only.
 
 ## Manual Nginx and systemd installation
 
 If the application files and dependencies are already installed, copy the provided service and Nginx files:
 
 ```bash
+sudo mkdir -p /etc/invitawedds
+sudo tee /etc/invitawedds/backend.env >/dev/null <<'EOF'
+STORAGE_BACKEND=memory
+MONGO_URL=mongodb://127.0.0.1:27017
+DB_NAME=dreamwedds
+RENDER_SERVICE_URL=http://127.0.0.1:4001
+INTERNAL_BASE_URL=http://127.0.0.1:8001
+CORS_ORIGINS=https://invitawedds.com,http://invitawedds.com
+EOF
+sudo tee /etc/invitawedds/render.env >/dev/null <<'EOF'
+PORT=4001
+EOF
+sudo chown root:invitawedds /etc/invitawedds/*.env
+sudo chmod 640 /etc/invitawedds/*.env
 sudo cp deploy/systemd/instawedds-backend.service /etc/systemd/system/
 sudo cp deploy/systemd/instawedds-render.service /etc/systemd/system/
 sudo cp deploy/nginx/invitawedds.com.conf /etc/nginx/conf.d/
@@ -44,11 +70,21 @@ The Nginx file expects a Let's Encrypt certificate at `/etc/letsencrypt/live/inv
 sudo certbot certonly --standalone -d invitawedds.com -d www.invitawedds.com
 ```
 
+If Nginx fails with `cannot load certificate "/etc/letsencrypt/live/invitawedds.com/fullchain.pem"`, replace the HTTPS config with the HTTP-only bootstrap config, start Nginx, then issue the certificate:
+
+```bash
+sudo cp deploy/nginx/invitawedds.com.http.conf /etc/nginx/conf.d/invitawedds.com.conf
+sudo nginx -t
+sudo systemctl restart nginx
+sudo certbot --nginx -d invitawedds.com -d www.invitawedds.com --agree-tos -m admin@example.com --redirect
+sudo nginx -t && sudo systemctl reload nginx
+```
+
 ## Deploy by cloning a Git repository
 
 ```bash
 sudo REPO_URL="https://github.com/your-org/WeddingVideoApp.git" \
-  BRANCH=main DOMAIN=video.dreamwedds.com \
+  BRANCH=main DOMAIN=invitawedds.com \
   CERTBOT_EMAIL=admin@example.com STORAGE_BACKEND=memory \
   bash /tmp/WeddingVideoApp/deploy/ubuntu-deploy.sh
 ```
@@ -75,4 +111,12 @@ Useful commands:
 sudo systemctl status instawedds-backend instawedds-render
 sudo journalctl -u instawedds-backend -u instawedds-render -f
 sudo nginx -t && sudo systemctl reload nginx
+```
+
+If frontend installation fails with a `react-day-picker` / `date-fns` peer dependency error, run the frontend install with:
+
+```bash
+cd /var/www/invitawedds/WeddingVideoApp/frontend
+npm install --legacy-peer-deps
+REACT_APP_BACKEND_URL=https://invitawedds.com npm run build
 ```
