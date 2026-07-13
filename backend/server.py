@@ -284,10 +284,13 @@ async def verify_recaptcha_token(token: Optional[str], remote_ip: Optional[str] 
     score = float(result.get("score") or 0)
     action = result.get("action")
     if not result.get("success"):
+        logger.warning("reCAPTCHA verification failed: %s", result.get("error-codes", []))
         raise HTTPException(status_code=403, detail="reCAPTCHA verification failed")
     if RECAPTCHA_EXPECTED_ACTION and action != RECAPTCHA_EXPECTED_ACTION:
+        logger.warning("reCAPTCHA action mismatch: expected=%s actual=%s", RECAPTCHA_EXPECTED_ACTION, action)
         raise HTTPException(status_code=403, detail="Invalid reCAPTCHA action")
     if score < RECAPTCHA_SCORE_THRESHOLD:
+        logger.warning("reCAPTCHA score too low: score=%s threshold=%s", score, RECAPTCHA_SCORE_THRESHOLD)
         raise HTTPException(status_code=403, detail="reCAPTCHA score was too low")
     return result
 
