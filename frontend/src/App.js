@@ -539,20 +539,19 @@ function CreateVideoPage() {
   return (
     <MarketingLayout>
       <main>
-        <section className="border-b border-[#EBDDE5] bg-gradient-to-b from-[#FFF7FB] to-[#FFFDF9] px-6 py-10 lg:px-10 lg:py-14">
-          <div className="mx-auto flex max-w-7xl flex-col justify-between gap-5 md:flex-row md:items-end">
+        <section className="border-b border-[#EBDDE5] bg-gradient-to-b from-[#FFF7FB] to-[#FFFDF9] px-6 py-7 lg:px-10 lg:py-9">
+          <div className="mx-auto flex max-w-7xl flex-col justify-between gap-3 md:flex-row md:items-center">
             <div>
               <div className="section-label text-[#9B256D]">Create Video</div>
-              <h1 className="mt-3 font-heading text-4xl font-extrabold tracking-tight text-[#32113A] sm:text-5xl">Build your wedding invitation.</h1>
-              <p className="mt-3 max-w-2xl text-neutral-600">Choose a style, add your celebration details and preview the story before you render.</p>
+              <h1 className="mt-2 font-heading text-3xl font-extrabold tracking-tight text-[#32113A] sm:text-4xl">Build your wedding invitation.</h1>
             </div>
-            <div className="inline-flex items-center gap-2 text-sm text-neutral-500">
+            <div className="inline-flex items-center gap-2 rounded-full border border-[#EBD3E0] bg-white px-3.5 py-1.5 text-xs font-medium text-neutral-600 shadow-sm">
               <Video className="h-4 w-4 text-[#B41374]" aria-hidden="true" /> Vertical video · 1080×1920
             </div>
           </div>
         </section>
-        <section className="mx-auto grid max-w-7xl grid-cols-1 gap-8 px-6 py-10 lg:grid-cols-12 lg:gap-12 lg:px-10">
-          <div className="space-y-10 lg:col-span-8">
+        <section className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-6 py-8 lg:grid-cols-12 lg:gap-10 lg:px-10">
+          <div className="space-y-6 lg:col-span-8">
             <TemplatePicker value={template} onChange={setTemplate} />
             <DetailsForm details={details} onChange={setDetails} />
             <ScheduleBuilder schedule={schedule} onChange={setSchedule} />
@@ -561,7 +560,6 @@ function CreateVideoPage() {
           </div>
           <div className="lg:col-span-4">
             <PreviewPane
-              template={template}
               rendering={rendering}
               status={jobStatus}
               progress={jobProgress}

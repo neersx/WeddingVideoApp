@@ -53,10 +53,46 @@ body {
 .shimmer-overlay {
   background: linear-gradient(
     100deg,
-    rgba(212, 175, 55, 0) 20%,
-    rgba(212, 175, 55, 0.25) 50%,
-    rgba(212, 175, 55, 0) 80%
+    rgba(236, 38, 125, 0) 20%,
+    rgba(244, 185, 62, 0.28) 50%,
+    rgba(236, 38, 125, 0) 80%
   );
   background-size: 600px 100%;
   animation: shimmer 1.6s infinite linear;
+}
+
+@keyframes fadeMessage {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  15%,
+  85% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+.animate-fade-message {
+  animation: fadeMessage 2.6s ease-in-out;
+}
+
+@keyframes floatOrb {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 0.5;
+  }
+  50% {
+    transform: translateY(-14px) scale(1.12);
+    opacity: 0.85;
+  }
+}
+
+.loader-orb {
+  animation: floatOrb 3.2s ease-in-out infinite;
 }

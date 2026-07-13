@@ -1,6 +1,11 @@
+import { CalendarDays } from "lucide-react";
+import { format, isValid, parse } from "date-fns";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -8,6 +13,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
+const DATE_FORMAT = "MMMM d, yyyy";
+
+const parseEventDate = (value) => {
+  if (!value) return undefined;
+  const parsed = parse(value, DATE_FORMAT, new Date());
+  return isValid(parsed) ? parsed : undefined;
+};
 
 const Field = ({ label, testId, children }) => (
   <div className="space-y-2 text-left">
@@ -20,6 +33,7 @@ const Field = ({ label, testId, children }) => (
 
 export const DetailsForm = ({ details, onChange }) => {
   const set = (key) => (e) => onChange({ ...details, [key]: e.target.value });
+  const selectedDate = parseEventDate(details.eventDate);
 
   return (
     <section>
@@ -32,7 +46,32 @@ export const DetailsForm = ({ details, onChange }) => {
           <Input data-testid="partner2-input" value={details.partnerTwo} onChange={set("partnerTwo")} placeholder="Rohan" className="py-5" />
         </Field>
         <Field label="Event Date">
-          <Input data-testid="event-date-input" value={details.eventDate} onChange={set("eventDate")} placeholder="November 21, 2026" className="py-5" />
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                data-testid="event-date-input"
+                className={cn(
+                  "flex h-auto w-full items-center justify-between rounded-md border border-input bg-background px-3 py-[1.375rem] text-sm ring-offset-background transition-colors hover:border-[#D9A9C6] focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+                  !selectedDate && "text-muted-foreground",
+                )}
+              >
+                {selectedDate ? format(selectedDate, DATE_FORMAT) : "Pick a date"}
+                <CalendarDays className="ml-2 h-4 w-4 shrink-0 text-[#B41374]" aria-hidden="true" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="single"
+                selected={selectedDate}
+                defaultMonth={selectedDate}
+                onSelect={(date) =>
+                  date && onChange({ ...details, eventDate: format(date, DATE_FORMAT) })
+                }
+                initialFocus
+              />
+            </PopoverContent>
+          </Popover>
         </Field>
         <Field label="Video Length">
           <Select
