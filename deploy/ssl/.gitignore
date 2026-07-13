@@ -1,2 +1,7 @@
 *
 !.gitignore
+!invitavideos_com.crt
+!invitavideos_com.ca-bundle
+!invitavideos_com.p7b
+!generated/
+!generated/fullchain.pem
