@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# chmod +x /var/www/invitawedds/WeddingVideoApp/deploy/redeploy-app.sh
+# sudo bash /var/www/invitawedds/WeddingVideoApp/deploy/redeploy-app.sh
 # Safe redeploy for an already-configured InvitaWedds VPS.
 # This script keeps the existing nginx and SSL certificate setup untouched.
 
@@ -14,6 +16,7 @@ RENDER_SERVICE="${RENDER_SERVICE:-instawedds-render.service}"
 PULL_LATEST="${PULL_LATEST:-true}"
 INSTALL_DEPS="${INSTALL_DEPS:-true}"
 RESTART_SERVICES="${RESTART_SERVICES:-true}"
+NPM_CACHE_DIR="${NPM_CACHE_DIR:-/var/lib/${APP_USER}/.npm}"
 
 log() { printf '\n[%s] %s\n' "$(date '+%H:%M:%S')" "$*"; }
 fail() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
@@ -26,6 +29,10 @@ if ! id "$APP_USER" >/dev/null 2>&1; then
   fail "Application user does not exist: $APP_USER"
 fi
 
+log "Repairing frontend file ownership"
+mkdir -p "$NPM_CACHE_DIR"
+chown -R "$APP_USER:$APP_USER" "$APP_DIR/frontend" "$NPM_CACHE_DIR"
+
 if [[ "$PULL_LATEST" == "true" && -d "$APP_DIR/.git" ]]; then
   log "Pulling latest source from $BRANCH"
   git -C "$APP_DIR" fetch origin "$BRANCH"
@@ -35,11 +42,11 @@ fi
 
 if [[ "$INSTALL_DEPS" == "true" ]]; then
   log "Installing frontend dependencies"
-  runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/frontend' && npm install --legacy-peer-deps"
+  runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/frontend' && npm_config_cache='$NPM_CACHE_DIR' npm install --legacy-peer-deps"
 fi
 
 log "Building frontend"
-runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/frontend' && REACT_APP_BACKEND_URL='$FRONTEND_BACKEND_URL' npm run build"
+runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/frontend' && npm_config_cache='$NPM_CACHE_DIR' REACT_APP_BACKEND_URL='$FRONTEND_BACKEND_URL' npm run build"
 
 log "Publishing frontend build to $WEB_ROOT"
 rm -rf "$WEB_ROOT"
