@@ -14,6 +14,8 @@ import {
   Sparkles,
   Users,
   Video,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import axios from "axios";
@@ -203,13 +205,72 @@ const serviceCards = [
 ];
 
 function LandingPage() {
+  const heroVideoRef = useRef(null);
+  const [heroMuted, setHeroMuted] = useState(true);
+
+  useEffect(() => {
+    const video = heroVideoRef.current;
+    if (!video) return undefined;
+
+    let soundEnabled = false;
+    const options = { passive: true };
+
+    const removeListeners = () => {
+      window.removeEventListener("pointerdown", enableSound);
+      window.removeEventListener("keydown", enableSound);
+      window.removeEventListener("scroll", enableSound, options);
+    };
+
+    const enableSound = async () => {
+      if (soundEnabled || !heroVideoRef.current) return;
+
+      try {
+        heroVideoRef.current.muted = false;
+        heroVideoRef.current.volume = 0.8;
+        await heroVideoRef.current.play();
+        soundEnabled = true;
+        setHeroMuted(false);
+        removeListeners();
+      } catch {
+        // Most browsers require a click or tap before sound can start. If a
+        // scroll attempt is rejected, the pointer and keyboard listeners stay.
+        heroVideoRef.current.muted = true;
+        setHeroMuted(true);
+      }
+    };
+
+    window.addEventListener("pointerdown", enableSound);
+    window.addEventListener("keydown", enableSound);
+    window.addEventListener("scroll", enableSound, options);
+
+    return removeListeners;
+  }, []);
+
+  const toggleHeroSound = async () => {
+    const video = heroVideoRef.current;
+    if (!video) return;
+
+    const shouldUnmute = video.muted;
+    video.muted = !shouldUnmute;
+    setHeroMuted(!shouldUnmute);
+    if (shouldUnmute) {
+      video.volume = 0.8;
+      try {
+        await video.play();
+      } catch {
+        video.muted = true;
+        setHeroMuted(true);
+      }
+    }
+  };
+
   return (
     <MarketingLayout>
       <main>
-        <section className="relative overflow-hidden px-6 pb-16 pt-14 lg:px-10 lg:pb-24 lg:pt-20">
+        <section className="relative overflow-hidden px-6 pb-16 pt-14 lg:px-10 lg:pb-24 lg:pt-16">
           <div className="absolute -left-24 top-20 h-72 w-72 rounded-full bg-[#F6B6D4]/25 blur-3xl" aria-hidden="true" />
           <div className="absolute right-0 top-0 h-80 w-80 rounded-full bg-[#F7CE7A]/20 blur-3xl" aria-hidden="true" />
-          <div className="relative mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-[0.86fr_1.14fr]">
+          <div className="relative mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-[1.12fr_0.88fr] lg:gap-16">
             <div>
               <div className="inline-flex items-center gap-2 rounded-full border border-[#E9C9DC] bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#85155F]">
                 <Sparkles className="h-4 w-4" aria-hidden="true" /> Your invitation, beautifully in motion
@@ -237,16 +298,35 @@ function LandingPage() {
               </div>
             </div>
 
-            <div className="relative">
-              <div className="absolute -inset-4 -z-10 rotate-2 rounded-[2rem] bg-gradient-to-br from-[#7A1AB5]/15 via-[#EC267D]/15 to-[#F6B000]/20" aria-hidden="true" />
-              <img
-                src="/brand/og-image.webp"
-                alt="InvitaWedds personalised wedding invitation video shown beside an elegant invitation card"
-                className="aspect-[1.904/1] w-full rounded-[1.6rem] object-cover shadow-[0_26px_80px_rgba(67,26,53,0.18)]"
-                width="1731"
-                height="909"
-                fetchPriority="high"
-              />
+            <div className="relative flex justify-center lg:justify-end">
+              <div className="absolute left-1/2 top-1/2 -z-10 h-[88%] w-[86%] -translate-x-1/2 -translate-y-1/2 rotate-3 rounded-[3rem] bg-gradient-to-br from-[#7A1AB5]/18 via-[#EC267D]/15 to-[#F6B000]/24 blur-[1px]" aria-hidden="true" />
+              <div className="relative w-full max-w-[360px] rounded-[2.35rem] border border-white/70 bg-white p-2.5 shadow-[0_28px_90px_rgba(67,26,53,0.22)] sm:max-w-[390px]">
+                <div className="absolute left-1/2 top-5 z-10 h-1.5 w-14 -translate-x-1/2 rounded-full bg-black/45" aria-hidden="true" />
+                <video
+                  ref={heroVideoRef}
+                  src="/brand/invitawedds.webm"
+                  poster="/brand/og-image.webp"
+                  className="aspect-[9/16] w-full rounded-[1.85rem] bg-[#32113A] object-cover"
+                  autoPlay
+                  loop
+                  muted={heroMuted}
+                  playsInline
+                  preload="metadata"
+                  aria-label="InvitaWedds vertical wedding invitation reel preview"
+                />
+                <div className="pointer-events-none absolute left-5 top-6 rounded-full border border-white/25 bg-black/45 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-white backdrop-blur-md">
+                  Invitation reel · 9:16
+                </div>
+                <button
+                  type="button"
+                  onClick={toggleHeroSound}
+                  className="absolute bottom-6 right-6 inline-flex items-center gap-2 rounded-full border border-white/30 bg-black/55 px-4 py-2 text-xs font-semibold text-white shadow-lg backdrop-blur-md transition hover:bg-black/70 focus:outline-none focus:ring-2 focus:ring-white"
+                  aria-label={heroMuted ? "Enable preview sound" : "Mute preview sound"}
+                >
+                  {heroMuted ? <VolumeX className="h-4 w-4" aria-hidden="true" /> : <Volume2 className="h-4 w-4" aria-hidden="true" />}
+                  {heroMuted ? "Sound on" : "Mute"}
+                </button>
+              </div>
             </div>
           </div>
         </section>
