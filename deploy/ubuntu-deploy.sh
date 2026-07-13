@@ -8,7 +8,8 @@ APP_NAME="${APP_NAME:-invitawedds}"
 SERVICE_NAME="${SERVICE_NAME:-instawedds}"
 APP_USER="${APP_USER:-invitawedds}"
 APP_DIR="${APP_DIR:-/var/www/invitawedds/WeddingVideoApp}"
-DOMAIN="${DOMAIN:-invitawedds.com}"
+DOMAIN="${DOMAIN:-invitavideos.com}"
+LEGACY_DOMAIN="${LEGACY_DOMAIN:-invitawedds.com}"
 SOURCE_DIR="${SOURCE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 REPO_URL="${REPO_URL:-}"
 BRANCH="${BRANCH:-main}"
@@ -171,7 +172,15 @@ cat > "/etc/nginx/conf.d/${APP_NAME}.conf" <<EOF
 server {
     listen 80;
     listen [::]:80;
-    server_name $DOMAIN;
+    server_name $LEGACY_DOMAIN www.$LEGACY_DOMAIN;
+
+    return 301 http://$DOMAIN\$request_uri;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name $DOMAIN www.$DOMAIN;
 
     client_max_body_size 50M;
     root $WEB_ROOT;

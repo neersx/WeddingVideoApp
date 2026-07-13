@@ -224,7 +224,7 @@ function PageMeta() {
 
   useEffect(() => {
     const meta = pageMeta[pathname] || pageMeta["/"];
-    const canonicalUrl = `https://invitawedds.com${pathname === "/" ? "/" : pathname}`;
+    const canonicalUrl = `https://invitavideos.com${pathname === "/" ? "/" : pathname}`;
     document.title = meta.title;
 
     const setMeta = (selector, value) => {

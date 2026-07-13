@@ -148,8 +148,8 @@ sudo tail -f /var/log/nginx/error.log
 ```bash
 curl -fsS http://127.0.0.1:8001/api/health
 curl -fsS http://127.0.0.1:4001/health
-curl -I https://invitawedds.com
-curl -I https://invitawedds.com/api/health
+curl -I https://invitavideos.com
+curl -I https://invitavideos.com/api/health
 ```
 
 ## Safe Redeploy
@@ -185,7 +185,7 @@ Use this only for first-time installation or when you intentionally want the scr
 
 ```bash
 cd /var/www/invitawedds/WeddingVideoApp
-sudo DOMAIN=invitawedds.com \
+sudo DOMAIN=invitavideos.com \
   GOOGLE_CLIENT_ID="YOUR_GOOGLE_WEB_CLIENT_ID" \
   bash deploy/ubuntu-deploy.sh
 ```

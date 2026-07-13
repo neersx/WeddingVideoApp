@@ -9,7 +9,7 @@ set -Eeuo pipefail
 APP_USER="${APP_USER:-invitawedds}"
 APP_DIR="${APP_DIR:-/var/www/invitawedds/WeddingVideoApp}"
 BRANCH="${BRANCH:-main}"
-FRONTEND_BACKEND_URL="${FRONTEND_BACKEND_URL:-https://invitawedds.com}"
+FRONTEND_BACKEND_URL="${FRONTEND_BACKEND_URL:-https://invitavideos.com}"
 WEB_ROOT="${WEB_ROOT:-/var/www/invitawedds/web/build}"
 ENV_FILE="${ENV_FILE:-/etc/invitawedds/backend.env}"
 BACKEND_SERVICE="${BACKEND_SERVICE:-instawedds-backend.service}"

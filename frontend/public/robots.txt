@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://invitawedds.com/sitemap.xml
+Sitemap: https://invitavideos.com/sitemap.xml

@@ -306,7 +306,7 @@ sudo tee /etc/invitawedds/backend.env >/dev/null <<'EOF'
 STORAGE_BACKEND="mongodb"
 MONGO_URL="mongodb://dreamwedds_app:CHANGE_ME_STRONG_APP_PW@127.0.0.1:27017/dreamwedds?authSource=dreamwedds"
 DB_NAME="dreamwedds"
-CORS_ORIGINS="https://invitawedds.com"
+CORS_ORIGINS="https://invitavideos.com"
 RENDER_SERVICE_URL="http://127.0.0.1:4001"
 INTERNAL_BASE_URL="http://127.0.0.1:8001"
 EOF
@@ -352,7 +352,7 @@ cd /var/www/invitawedds/WeddingVideoApp/frontend
 npm install --legacy-peer-deps
 # .env for the build
 cat > .env <<'EOF'
-REACT_APP_BACKEND_URL=https://invitawedds.com
+REACT_APP_BACKEND_URL=https://invitavideos.com
 EOF
 npm run build   # outputs to ./build
 ```
@@ -655,7 +655,7 @@ sudo systemctl reload nginx    # only if nginx config changed
 | `Failed to load environment files: No such file or directory` | Create `/etc/invitawedds/backend.env` and `/etc/invitawedds/render.env`, then run `sudo systemctl daemon-reload && sudo systemctl restart instawedds-backend instawedds-render`. |
 | `Failed to run 'start' task: No such file or directory` | Check `command -v npm`. If it is not `/usr/bin/npm`, update `ExecStart` in `/etc/systemd/system/instawedds-render.service` to the real npm path, then run `sudo systemctl daemon-reload`. |
 | `ERESOLVE could not resolve` for `react-day-picker` / `date-fns`, followed by `craco: not found` | Run frontend install with `npm install --legacy-peer-deps`, then run the build again. The build failed because npm stopped before installing dev dependency `@craco/craco`. |
-| `403 Forbidden nginx/1.18.0` on `invitawedds.com` | Confirm `/var/www/invitawedds/web/build/index.html` exists and Nginx can traverse/read the directory: `sudo namei -l /var/www/invitawedds/web/build/index.html`. Rebuild/copy the frontend and set read permissions if needed. |
+| `403 Forbidden nginx/1.18.0` on `invitavideos.com` | Confirm `/var/www/invitawedds/web/build/index.html` exists and Nginx can traverse/read the directory: `sudo namei -l /var/www/invitawedds/web/build/index.html`. Rebuild/copy the frontend and set read permissions if needed. |
 | Backend URLs ending in file extensions return `404` through Nginx | Make the API location `location ^~ /api/` so static asset regex rules do not steal `/api/uploads/*.jpg`, `/api/music/*.mp3`, or similar backend routes. |
 | Render logs show `EPERM`, `syscall: 'chmod'`, path `@remotion/compositor.../remotion` | `node_modules` is usually root-owned from running `sudo npm install`. Run `sudo chown -R invitawedds:invitawedds /var/www/invitawedds/WeddingVideoApp/render-service`, reinstall as `invitawedds`, then restart `instawedds-render`. |
 | Render fails with `chrome-headless-shell: error while loading shared libraries: libatk-1.0.so.0` | Install Remotion/Chromium runtime libraries: `sudo apt install -y libatk1.0-0 libatk-bridge2.0-0 libgtk-3-0 libnss3 libnspr4 libxss1 libxshmfence1 libgbm1 libasound2 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libpango-1.0-0 libcairo2`, then restart `instawedds-render`. |
