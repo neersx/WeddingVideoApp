@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# Safe redeploy for an already-configured InvitaWedds VPS.
+# This script keeps the existing nginx and SSL certificate setup untouched.
+
+APP_USER="${APP_USER:-invitawedds}"
+APP_DIR="${APP_DIR:-/var/www/invitawedds/WeddingVideoApp}"
+BRANCH="${BRANCH:-main}"
+FRONTEND_BACKEND_URL="${FRONTEND_BACKEND_URL:-https://invitawedds.com}"
+WEB_ROOT="${WEB_ROOT:-/var/www/invitawedds/web/build}"
+BACKEND_SERVICE="${BACKEND_SERVICE:-instawedds-backend.service}"
+RENDER_SERVICE="${RENDER_SERVICE:-instawedds-render.service}"
+PULL_LATEST="${PULL_LATEST:-true}"
+INSTALL_DEPS="${INSTALL_DEPS:-true}"
+RESTART_SERVICES="${RESTART_SERVICES:-true}"
+
+log() { printf '\n[%s] %s\n' "$(date '+%H:%M:%S')" "$*"; }
+fail() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
+
+[[ "$(id -u)" -eq 0 ]] || fail "Run this script as root: sudo bash deploy/redeploy-app.sh"
+[[ -d "$APP_DIR" ]] || fail "APP_DIR does not exist: $APP_DIR"
+[[ -d "$APP_DIR/frontend" ]] || fail "Frontend directory not found: $APP_DIR/frontend"
+
+if ! id "$APP_USER" >/dev/null 2>&1; then
+  fail "Application user does not exist: $APP_USER"
+fi
+
+if [[ "$PULL_LATEST" == "true" && -d "$APP_DIR/.git" ]]; then
+  log "Pulling latest source from $BRANCH"
+  git -C "$APP_DIR" fetch origin "$BRANCH"
+  git -C "$APP_DIR" checkout "$BRANCH"
+  git -C "$APP_DIR" pull --ff-only origin "$BRANCH"
+fi
+
+if [[ "$INSTALL_DEPS" == "true" ]]; then
+  log "Installing frontend dependencies"
+  runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/frontend' && npm install --legacy-peer-deps"
+fi
+
+log "Building frontend"
+runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/frontend' && REACT_APP_BACKEND_URL='$FRONTEND_BACKEND_URL' npm run build"
+
+log "Publishing frontend build to $WEB_ROOT"
+rm -rf "$WEB_ROOT"
+mkdir -p "$WEB_ROOT"
+cp -a "$APP_DIR/frontend/build/." "$WEB_ROOT/"
+chown -R "$APP_USER:$APP_USER" "$WEB_ROOT"
+
+if [[ "$RESTART_SERVICES" == "true" ]]; then
+  log "Restarting application services"
+  systemctl restart "$BACKEND_SERVICE" "$RENDER_SERVICE"
+fi
+
+log "Redeploy complete"
+printf 'Web root:      %s\n' "$WEB_ROOT"
+printf 'Backend URL:   %s\n' "$FRONTEND_BACKEND_URL"
+printf 'Services:      %s %s\n' "$BACKEND_SERVICE" "$RENDER_SERVICE"

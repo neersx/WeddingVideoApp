@@ -45,9 +45,9 @@ export const MusicPicker = ({ value, onChange }) => {
 
   return (
     <section>
-      <h2 className="section-label mb-4 text-left">05 — Soundtrack</h2>
-      <div className="tactile-card p-6">
-        <p className="mb-4 text-xs uppercase tracking-[0.15em] text-neutral-500">
+      <h2 className="section-label mb-3 text-left">05 — Soundtrack</h2>
+      <div>
+        <p className="mb-3 text-xs uppercase tracking-[0.15em] text-neutral-500">
           Pick a bundled track or leave silent
         </p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" data-testid="music-picker-grid">
@@ -55,7 +55,7 @@ export const MusicPicker = ({ value, onChange }) => {
             type="button"
             data-testid="music-option-none"
             onClick={() => onChange(null)}
-            className={`flex items-center justify-between rounded-lg border p-4 text-left transition ${
+            className={`flex items-center justify-between rounded-lg border p-3 text-left transition ${
               !value
                 ? "border-[#0A0A0A] bg-[#0A0A0A] text-white"
                 : "border-neutral-300 bg-white hover:border-neutral-500"
@@ -81,7 +81,7 @@ export const MusicPicker = ({ value, onChange }) => {
               <div
                 key={t.id}
                 data-testid={`music-option-${t.id}`}
-                className={`flex items-center justify-between rounded-lg border p-4 transition ${
+                className={`flex items-center justify-between rounded-lg border p-3 transition ${
                   selected
                     ? "border-[#D4AF37] bg-[#0A0A0A] text-white shadow-lg"
                     : "border-neutral-300 bg-white hover:border-neutral-500"

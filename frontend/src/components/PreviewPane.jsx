@@ -50,7 +50,7 @@ export const PreviewPane = ({ rendering, status = "idle", progress = 0, jobId, v
   const pct = Math.max(0, Math.min(100, Math.round(progress * 100)));
 
   return (
-    <div className="sticky top-24 space-y-5">
+    <div className="sticky top-20 space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="section-label text-left text-[#9B256D]">Live output · 1080 × 1920</h2>
         <span className="inline-flex items-center gap-1.5 rounded-full bg-[#F8EAF2] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#A4176D]">
@@ -59,9 +59,9 @@ export const PreviewPane = ({ rendering, status = "idle", progress = 0, jobId, v
         </span>
       </div>
 
-      <div className="group rounded-2xl bg-gradient-to-br from-[#1a0820] to-[#2a0f33] p-3 shadow-[0_20px_60px_rgba(50,17,58,0.28)]">
+      <div className="group rounded-[1.65rem] bg-gradient-to-br from-[#1a0820] via-[#2a0f33] to-[#50164F] p-2.5 shadow-[0_20px_60px_rgba(50,17,58,0.28)]">
         <div
-          className="relative mx-auto aspect-[9/16] w-full max-w-[300px] overflow-hidden rounded-xl bg-[#171717] ring-1 ring-white/10"
+          className="relative mx-auto aspect-[9/16] w-full max-w-[292px] overflow-hidden rounded-[1.25rem] bg-[#171717] ring-1 ring-white/10"
           data-testid="video-preview-pane"
         >
           {videoUrl ? (
@@ -121,6 +121,15 @@ export const PreviewPane = ({ rendering, status = "idle", progress = 0, jobId, v
               </div>
             </div>
           )}
+
+          {!rendering && (
+            <div className="pointer-events-none absolute inset-x-3 bottom-3 rounded-2xl border border-white/10 bg-black/45 px-3 py-2 text-white opacity-0 shadow-lg backdrop-blur transition duration-300 group-hover:opacity-100">
+              <div className="flex items-center justify-between gap-3 text-[10px] uppercase tracking-[0.14em] text-white/60">
+                <span>{videoUrl ? "Preview ready" : "Waiting for render"}</span>
+                <span>{STATUS_LABEL[status] || STATUS_LABEL.idle}</span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -157,7 +166,7 @@ export const PreviewPane = ({ rendering, status = "idle", progress = 0, jobId, v
       )}
 
       <p className="text-left text-xs leading-relaxed text-neutral-400">
-        Renders run asynchronously — a job id is issued instantly and the preview updates automatically when your MP4 is ready.
+        The loader stays over this preview while your invitation is queued and rendered. The MP4 appears here automatically.
       </p>
     </div>
   );

@@ -35,10 +35,10 @@ export const PhotoUploader = ({ photos, onChange }) => {
 
   return (
     <section>
-      <h2 className="section-label mb-4 text-left">04 — Photos ({photos.length}/4)</h2>
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <h2 className="section-label mb-3 text-left">04 — Photos ({photos.length}/4)</h2>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-2">
         {photos.map((url, i) => (
-          <div key={url} className="group relative aspect-[3/4] overflow-hidden rounded-md border border-black/10">
+          <div key={url} className="group relative aspect-[3/4] overflow-hidden rounded-xl border border-black/10">
             <img src={`${BACKEND_URL}${url}`} alt={`upload-${i}`} className="h-full w-full object-cover" />
             <button
               type="button"
@@ -56,7 +56,7 @@ export const PhotoUploader = ({ photos, onChange }) => {
             data-testid="photo-upload-btn"
             onClick={() => inputRef.current?.click()}
             disabled={uploading}
-            className="tactile-card flex aspect-[3/4] flex-col items-center justify-center gap-2 text-neutral-400 hover:text-neutral-600"
+            className="flex aspect-[3/4] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-[#D9A9C6] bg-[#FFF8FB] text-neutral-400 transition hover:border-[#B6548F] hover:text-[#A4176D]"
           >
             {uploading ? <Loader2 className="h-6 w-6 animate-spin" /> : <ImagePlus className="h-6 w-6" />}
             <span className="text-xs uppercase tracking-[0.1em]">{uploading ? "Uploading..." : "Add photo"}</span>
@@ -72,7 +72,7 @@ export const PhotoUploader = ({ photos, onChange }) => {
         data-testid="photo-file-input"
         onChange={(e) => handleFiles(e.target.files)}
       />
-      <p className="mt-3 text-left text-xs text-neutral-400">
+      <p className="mt-3 text-left text-[11px] leading-relaxed text-neutral-400">
         Photos appear as a Ken Burns slideshow in the middle of the video. Up to 4 images (JPG/PNG/WebP).
       </p>
     </section>

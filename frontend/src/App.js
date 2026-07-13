@@ -15,7 +15,6 @@ import {
   PlayCircle,
   Sparkles,
   Users,
-  Video,
   Volume2,
   VolumeX,
   Wand2,
@@ -539,26 +538,54 @@ function CreateVideoPage() {
   return (
     <MarketingLayout>
       <main>
-        <section className="border-b border-[#EBDDE5] bg-gradient-to-b from-[#FFF7FB] to-[#FFFDF9] px-6 py-7 lg:px-10 lg:py-9">
-          <div className="mx-auto flex max-w-7xl flex-col justify-between gap-3 md:flex-row md:items-center">
-            <div>
+        <section className="relative overflow-hidden border-b border-[#EBDDE5] bg-[#FFF7FB] px-5 py-5 lg:px-10">
+          <div className="absolute -left-24 -top-28 h-56 w-56 rounded-full bg-[#F6B6D4]/35 blur-3xl" aria-hidden="true" />
+          <div className="absolute -right-20 top-0 h-60 w-60 rounded-full bg-[#F7CE7A]/25 blur-3xl" aria-hidden="true" />
+          <div className="relative mx-auto flex max-w-7xl flex-col justify-between gap-5 lg:flex-row lg:items-center">
+            <div className="max-w-2xl">
               <div className="section-label text-[#9B256D]">Create Video</div>
-              <h1 className="mt-2 font-heading text-3xl font-extrabold tracking-tight text-[#32113A] sm:text-4xl">Build your wedding invitation.</h1>
+              <h1 className="mt-1 font-heading text-3xl font-extrabold tracking-tight text-[#32113A] sm:text-4xl">
+                Build, preview and render your invitation.
+              </h1>
+              <p className="mt-2 max-w-xl text-sm leading-6 text-neutral-600">
+                Fill the essentials, choose a style, add memories and render a vertical wedding invitation video ready to share.
+              </p>
             </div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-[#EBD3E0] bg-white px-3.5 py-1.5 text-xs font-medium text-neutral-600 shadow-sm">
-              <Video className="h-4 w-4 text-[#B41374]" aria-hidden="true" /> Vertical video · 1080×1920
+            <div className="grid grid-cols-3 gap-2 rounded-2xl border border-[#EBD3E0] bg-white/80 p-2 text-center shadow-[0_12px_40px_rgba(81,25,62,0.06)] backdrop-blur sm:min-w-[390px]">
+              {[
+                ["Template", template],
+                ["Photos", `${photos.length}/4`],
+                ["Events", schedule.length],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-xl bg-[#FFF8FB] px-3 py-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-400">{label}</div>
+                  <div className="mt-1 truncate font-heading text-lg font-extrabold text-[#32113A]">{value}</div>
+                </div>
+              ))}
             </div>
           </div>
         </section>
-        <section className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-6 py-8 lg:grid-cols-12 lg:gap-10 lg:px-10">
-          <div className="space-y-6 lg:col-span-8">
-            <TemplatePicker value={template} onChange={setTemplate} />
-            <DetailsForm details={details} onChange={setDetails} />
-            <ScheduleBuilder schedule={schedule} onChange={setSchedule} />
-            <PhotoUploader photos={photos} onChange={setPhotos} />
-            <MusicPicker value={musicId} onChange={setMusicId} />
+        <section className="mx-auto grid max-w-7xl grid-cols-1 gap-5 px-5 py-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-6 lg:px-10 lg:py-7 xl:grid-cols-[minmax(0,1fr)_390px]">
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-[#ECD5E2] bg-white p-4 shadow-[0_14px_46px_rgba(81,25,62,0.05)]">
+              <TemplatePicker value={template} onChange={setTemplate} />
+            </div>
+            <div className="rounded-2xl border border-[#ECD5E2] bg-white p-4 shadow-[0_14px_46px_rgba(81,25,62,0.05)] sm:p-5">
+              <DetailsForm details={details} onChange={setDetails} />
+            </div>
+            <div className="grid gap-4 xl:grid-cols-2">
+              <div className="rounded-2xl border border-[#ECD5E2] bg-white p-4 shadow-[0_14px_46px_rgba(81,25,62,0.05)]">
+                <ScheduleBuilder schedule={schedule} onChange={setSchedule} />
+              </div>
+              <div className="rounded-2xl border border-[#ECD5E2] bg-white p-4 shadow-[0_14px_46px_rgba(81,25,62,0.05)]">
+                <PhotoUploader photos={photos} onChange={setPhotos} />
+              </div>
+            </div>
+            <div className="rounded-2xl border border-[#ECD5E2] bg-white p-4 shadow-[0_14px_46px_rgba(81,25,62,0.05)]">
+              <MusicPicker value={musicId} onChange={setMusicId} />
+            </div>
           </div>
-          <div className="lg:col-span-4">
+          <div>
             <PreviewPane
               rendering={rendering}
               status={jobStatus}

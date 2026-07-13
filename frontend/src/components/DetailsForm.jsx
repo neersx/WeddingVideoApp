@@ -37,13 +37,13 @@ export const DetailsForm = ({ details, onChange }) => {
 
   return (
     <section>
-      <h2 className="section-label mb-4 text-left">02 — Couple &amp; Event Details</h2>
-      <div className="tactile-card grid grid-cols-1 gap-6 p-8 sm:grid-cols-2">
+      <h2 className="section-label mb-3 text-left">02 — Couple &amp; Event Details</h2>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="Partner One">
-          <Input data-testid="partner1-input" value={details.partnerOne} onChange={set("partnerOne")} placeholder="Aisha" className="py-5" />
+          <Input data-testid="partner1-input" value={details.partnerOne} onChange={set("partnerOne")} placeholder="Aisha" className="py-4" />
         </Field>
         <Field label="Partner Two">
-          <Input data-testid="partner2-input" value={details.partnerTwo} onChange={set("partnerTwo")} placeholder="Rohan" className="py-5" />
+          <Input data-testid="partner2-input" value={details.partnerTwo} onChange={set("partnerTwo")} placeholder="Rohan" className="py-4" />
         </Field>
         <Field label="Event Date">
           <Popover>
@@ -52,7 +52,7 @@ export const DetailsForm = ({ details, onChange }) => {
                 type="button"
                 data-testid="event-date-input"
                 className={cn(
-                  "flex h-auto w-full items-center justify-between rounded-md border border-input bg-background px-3 py-[1.375rem] text-sm ring-offset-background transition-colors hover:border-[#D9A9C6] focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+                  "flex h-auto w-full items-center justify-between rounded-md border border-input bg-background px-3 py-[1.125rem] text-sm ring-offset-background transition-colors hover:border-[#D9A9C6] focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
                   !selectedDate && "text-muted-foreground",
                 )}
               >
@@ -78,7 +78,7 @@ export const DetailsForm = ({ details, onChange }) => {
             value={String(details.durationInSeconds)}
             onValueChange={(v) => onChange({ ...details, durationInSeconds: Number(v) })}
           >
-            <SelectTrigger data-testid="duration-select" className="py-5">
+            <SelectTrigger data-testid="duration-select" className="py-4">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -89,10 +89,10 @@ export const DetailsForm = ({ details, onChange }) => {
           </Select>
         </Field>
         <Field label="Venue Name">
-          <Input data-testid="venue-name-input" value={details.venueName} onChange={set("venueName")} placeholder="The Leela Palace" className="py-5" />
+          <Input data-testid="venue-name-input" value={details.venueName} onChange={set("venueName")} placeholder="The Leela Palace" className="py-4" />
         </Field>
         <Field label="City">
-          <Input data-testid="venue-city-input" value={details.venueCity} onChange={set("venueCity")} placeholder="Udaipur" className="py-5" />
+          <Input data-testid="venue-city-input" value={details.venueCity} onChange={set("venueCity")} placeholder="Udaipur" className="py-4" />
         </Field>
         <div className="sm:col-span-2">
           <Field label="Custom Message / Quote">
@@ -100,7 +100,7 @@ export const DetailsForm = ({ details, onChange }) => {
               data-testid="message-input"
               value={details.message}
               onChange={set("message")}
-              rows={3}
+              rows={2}
               placeholder="Together with their families..."
             />
           </Field>
@@ -111,7 +111,7 @@ export const DetailsForm = ({ details, onChange }) => {
               data-testid="display-message-input"
               value={details.displayMessage}
               onChange={set("displayMessage")}
-              rows={4}
+              rows={3}
               placeholder="The moment we've all been waiting for..."
             />
           </Field>

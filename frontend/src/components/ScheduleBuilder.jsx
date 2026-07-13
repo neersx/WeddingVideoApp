@@ -17,7 +17,7 @@ export const ScheduleBuilder = ({ schedule, onChange }) => {
 
   return (
     <section>
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-3 flex items-center justify-between">
         <h2 className="section-label text-left">03 — Event Schedule</h2>
         <Button
           data-testid="add-event-btn"
@@ -30,7 +30,7 @@ export const ScheduleBuilder = ({ schedule, onChange }) => {
           <Plus className="mr-1 h-4 w-4" /> Add event
         </Button>
       </div>
-      <div className="space-y-3">
+      <div className="space-y-2">
         <AnimatePresence initial={false}>
           {schedule.map((item, i) => (
             <motion.div
@@ -38,7 +38,7 @@ export const ScheduleBuilder = ({ schedule, onChange }) => {
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="tactile-card flex items-center gap-4 p-4"
+              className="flex items-center gap-2 rounded-xl border border-[#ECD5E2] bg-[#FFFDF9] p-2.5 transition hover:border-[#D9A9C6]"
             >
               <Input
                 data-testid={`event-name-input-${i}`}
@@ -52,7 +52,7 @@ export const ScheduleBuilder = ({ schedule, onChange }) => {
                 value={item.time}
                 onChange={(e) => update(i, "time", e.target.value)}
                 placeholder="10:00 AM"
-                className="w-40"
+                className="w-32"
               />
               <button
                 type="button"

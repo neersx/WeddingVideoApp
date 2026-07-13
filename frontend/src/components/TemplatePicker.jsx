@@ -70,7 +70,7 @@ export const TemplatePicker = ({ value, onChange }) => {
           </span>
         )}
       </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
         {templates.map((t) => {
           const isSelected = value === t.id;
           return (
@@ -88,7 +88,7 @@ export const TemplatePicker = ({ value, onChange }) => {
               }`}
             >
               <div
-                className="flex h-16 items-center justify-center"
+                className="flex h-12 items-center justify-center"
                 style={{ backgroundColor: t.bg }}
               >
                 <span
@@ -103,7 +103,7 @@ export const TemplatePicker = ({ value, onChange }) => {
                   <Check className="h-3 w-3" strokeWidth={3} />
                 </span>
               )}
-              <div className="flex items-center justify-between gap-2 px-2.5 py-2">
+              <div className="flex items-center justify-between gap-2 px-2.5 py-1.5">
                 <span className="font-heading text-sm font-extrabold tracking-tight text-[#32113A]">{t.name}</span>
                 <span className="flex gap-1">
                   {t.swatch.slice(0, 4).map((c) => (
