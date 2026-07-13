@@ -48,7 +48,7 @@ With Google Login enabled:
 ```bash
 cd frontend
 REACT_APP_BACKEND_URL=http://localhost:8001 \
-REACT_APP_GOOGLE_CLIENT_ID="YOUR_GOOGLE_WEB_CLIENT_ID" \
+REACT_APP_GOOGLE_CLIENT_ID="95024189124-gbdnijjj522h2vsgaacippj1ggoakbqv.apps.googleusercontent.com" \
 npm run start
 ```
 
