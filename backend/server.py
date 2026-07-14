@@ -221,6 +221,22 @@ DEFAULT_TEMPLATE_DOCUMENTS = [
         "isActive": True,
         "sortOrder": 10,
     },
+    {
+        "_id": "birthday-era-v1",
+        "id": "birthday-era-v1",
+        "name": "Birthday Era",
+        "desc": "Emotional cinematic birthday reel with warm film tones, four-photo storytelling, gentle motion and a branded InvitaVideos outro.",
+        "category": "Birthday",
+        "style": "Trendy Beat Sync",
+        "duration": 30,
+        "maxImages": 4,
+        "swatch": ["#9C6249", "#4B302A", "#F1B56B", "#FFF7EA"],
+        "bg": "#4B302A",
+        "text": "#FFF7EA",
+        "font": "'Cormorant Garamond', serif",
+        "isActive": True,
+        "sortOrder": 5,
+    },
 ]
 
 app = FastAPI(title="DreamWedds Render API")
@@ -429,6 +445,9 @@ def _serialize_template(document):
         "bg": document.get("bg", "#FFFFFF"),
         "text": document.get("text", "#111111"),
         "font": document.get("font", "'Playfair Display', serif"),
+        "style": document.get("style", ""),
+        "duration": document.get("duration"),
+        "maxImages": document.get("maxImages"),
         "isActive": bool(document.get("isActive", True)),
         "sortOrder": int(document.get("sortOrder", 100)),
         "updated_at": document.get("updated_at"),

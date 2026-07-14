@@ -24,7 +24,7 @@ export const DEFAULT_TEMPLATES = [
     text: "#E7D9F2",
     font: "'Cormorant Garamond', serif",
     isActive: true,
-    sortOrder: 20,
+    sortOrder: 5,
   },
   {
     id: "heartbeat",
@@ -121,6 +121,21 @@ export const DEFAULT_TEMPLATES = [
     font: "'Outfit', sans-serif",
     isActive: true,
     sortOrder: 10,
+  },
+  {
+    id: "birthday-era-v1",
+    name: "Birthday Era",
+    desc: "Emotional cinematic birthday reel with warm film tones, four-photo storytelling, gentle motion and a branded InvitaVideos outro.",
+    category: "Birthday",
+    style: "Trendy Beat Sync",
+    duration: 30,
+    maxImages: 4,
+    swatch: ["#9C6249", "#4B302A", "#F1B56B", "#FFF7EA"],
+    bg: "#4B302A",
+    text: "#FFF7EA",
+    font: "'Cormorant Garamond', serif",
+    isActive: true,
+    sortOrder: 5,
   },
 ];
 

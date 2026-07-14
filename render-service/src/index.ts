@@ -50,6 +50,8 @@ const buildInputProps = (body: any) => {
     'royal-palace': 'RoyalPalace',
     'ring-reveal': 'RingReveal',
     'confetti-pop': 'ConfettiPop',
+    'birthday-era-v1': 'BirthdayEra',
+    'birthday-era': 'BirthdayEra',
   };
   const compositionId = compMap[template] || 'Marigold';
   const inputProps = {

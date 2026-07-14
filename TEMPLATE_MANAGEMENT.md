@@ -9,6 +9,7 @@ The built-in catalog now also includes category-specific templates:
 - Wedding: `Royal Palace`
 - Engagement: `Engagement Glow`, `Ring Reveal`
 - Birthday: `Confetti Pop`
+- Birthday: `Birthday Era` (`birthday-era-v1`), an emotional cinematic 30-second reel with a branded InvitaVideos outro.
 
 For Birthday templates, the current shared form uses Partner One as the birthday person's name and Partner Two as the host or family name.
 
