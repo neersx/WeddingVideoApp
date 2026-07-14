@@ -11,6 +11,7 @@ export type WeddingProps = {
   photos?: string[];
   musicUrl?: string | null;
   schedule?: ScheduleItem[];
+  tags?: string[];
   durationInSeconds?: number;
 };
 

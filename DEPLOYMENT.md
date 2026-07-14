@@ -108,6 +108,7 @@ CORS_ORIGINS="http://localhost:3000"
 RENDER_SERVICE_URL="http://localhost:4001"
 INTERNAL_BASE_URL="http://localhost:8001"
 GOOGLE_CLIENT_ID="YOUR_GOOGLE_WEB_CLIENT_ID"
+ADMIN_EMAILS=""
 RECAPTCHA_SECRET_KEY="" # Optional locally; set for production reCAPTCHA checks
 RECAPTCHA_SCORE_THRESHOLD="0.5"
 RECAPTCHA_EXPECTED_ACTION="render_video"
@@ -314,6 +315,7 @@ CORS_ORIGINS="https://invitavideos.com"
 RENDER_SERVICE_URL="http://127.0.0.1:4001"
 INTERNAL_BASE_URL="http://127.0.0.1:8001"
 GOOGLE_CLIENT_ID="YOUR_GOOGLE_WEB_CLIENT_ID"
+ADMIN_EMAILS="you@example.com"
 RECAPTCHA_SITE_KEY="YOUR_RECAPTCHA_V3_SITE_KEY"
 RECAPTCHA_SECRET_KEY="YOUR_RECAPTCHA_V3_SECRET_KEY"
 RECAPTCHA_SCORE_THRESHOLD="0.5"
@@ -363,6 +365,7 @@ npm install --legacy-peer-deps
 cat > .env <<'EOF'
 REACT_APP_BACKEND_URL=https://invitavideos.com
 REACT_APP_GOOGLE_CLIENT_ID=YOUR_GOOGLE_WEB_CLIENT_ID
+REACT_APP_ADMIN_EMAILS=you@example.com
 REACT_APP_RECAPTCHA_SITE_KEY=YOUR_RECAPTCHA_V3_SITE_KEY
 EOF
 npm run build   # outputs to ./build
@@ -697,8 +700,8 @@ curl -s http://127.0.0.1:4001/health           # from the VPS itself
 |-----------|---------------|-------------------|-----------|
 | MongoDB | 27017 | No (bound to 127.0.0.1) | — |
 | render-service | 4001 | No (Nginx does not proxy it) | `PORT`, optional `BROWSER_EXECUTABLE` |
-| backend (FastAPI) | 8001 | Only via Nginx `/api/*` | `STORAGE_BACKEND`, `MONGO_URL`, `DB_NAME`, `CORS_ORIGINS`, `RENDER_SERVICE_URL`, `INTERNAL_BASE_URL`, `GOOGLE_CLIENT_ID`, `RECAPTCHA_SECRET_KEY`, `RECAPTCHA_SCORE_THRESHOLD`, `RECAPTCHA_EXPECTED_ACTION` |
-| frontend (static) | — | Yes (Nginx serves `/var/www/invitawedds/web/build`) | `REACT_APP_BACKEND_URL`, `REACT_APP_GOOGLE_CLIENT_ID`, `REACT_APP_RECAPTCHA_SITE_KEY` (build-time only) |
+| backend (FastAPI) | 8001 | Only via Nginx `/api/*` | `STORAGE_BACKEND`, `MONGO_URL`, `DB_NAME`, `CORS_ORIGINS`, `RENDER_SERVICE_URL`, `INTERNAL_BASE_URL`, `GOOGLE_CLIENT_ID`, `ADMIN_EMAILS`, `RECAPTCHA_SECRET_KEY`, `RECAPTCHA_SCORE_THRESHOLD`, `RECAPTCHA_EXPECTED_ACTION` |
+| frontend (static) | — | Yes (Nginx serves `/var/www/invitawedds/web/build`) | `REACT_APP_BACKEND_URL`, `REACT_APP_GOOGLE_CLIENT_ID`, `REACT_APP_ADMIN_EMAILS`, `REACT_APP_RECAPTCHA_SITE_KEY` (build-time only) |
 
 `STORAGE_BACKEND` defaults to `memory` for local development. Set it to `mongodb` in deployments that require persistent database storage; MongoDB connection failures then stop the backend instead of silently switching modes.
 

@@ -22,7 +22,7 @@ import {
 import { Toaster, toast } from "sonner";
 import axios from "axios";
 import "@/App.css";
-import { TemplatePicker } from "@/components/TemplatePicker";
+import { DEFAULT_TEMPLATES, TemplatePicker } from "@/components/TemplatePicker";
 import { DetailsForm } from "@/components/DetailsForm";
 import { ScheduleBuilder } from "@/components/ScheduleBuilder";
 import { PhotoUploader } from "@/components/PhotoUploader";
@@ -38,6 +38,10 @@ import {
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "http://localhost:8001";
 const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || "";
+const ADMIN_EMAILS = (process.env.REACT_APP_ADMIN_EMAILS || "")
+  .split(",")
+  .map((email) => email.trim().toLowerCase())
+  .filter(Boolean);
 const RECAPTCHA_SITE_KEY = process.env.REACT_APP_RECAPTCHA_SITE_KEY || "";
 const RECAPTCHA_ACTION = "render_video";
 export const API = `${BACKEND_URL}/api`;
@@ -58,7 +62,33 @@ const initialDetails = {
     "Together with their families, they invite you to celebrate the beginning of their forever.",
   displayMessage: defaultDisplayMessage,
   durationInSeconds: 30,
+  tags: "",
 };
+
+const categoryDefaults = {
+  Wedding: initialDetails,
+  Engagement: {
+    ...initialDetails,
+    message: "With joy in their hearts, they invite you to celebrate the beginning of their forever.",
+    displayMessage: "We said yes! {{brideFirstName}} & {{groomFirstName}} invite you to celebrate their engagement{{#weddingDate}} on {{weddingDate}}{{/weddingDate}}{{#location}} at {{location}}{{/location}}.",
+  },
+  Birthday: {
+    ...initialDetails,
+    partnerOne: "Aarav",
+    partnerTwo: "Sharma",
+    eventDate: "October 18, 2026",
+    venueName: "The Garden House",
+    venueCity: "Mumbai",
+    message: "Come celebrate a wonderful birthday filled with cake, music and memories!",
+    displayMessage: "You're invited to celebrate {{brideFirstName}}'s birthday{{#weddingDate}} on {{weddingDate}}{{/weddingDate}}{{#location}} at {{location}}{{/location}}.",
+  },
+};
+
+const weddingSchedule = [
+  { name: "Haldi", time: "10:00 AM" },
+  { name: "Sangeet", time: "7:00 PM" },
+  { name: "Wedding", time: "11:30 AM" },
+];
 
 function loadRecaptchaScript() {
   if (!RECAPTCHA_SITE_KEY) return Promise.resolve();
@@ -148,6 +178,10 @@ function useAuth() {
     throw new Error("useAuth must be used within AuthProvider");
   }
   return context;
+}
+
+function isAdminUser(user) {
+  return Boolean(user?.email && ADMIN_EMAILS.includes(user.email.toLowerCase()));
 }
 
 function GoogleSignInButton({ className = "", text = "signin_with", onSuccess }) {
@@ -262,6 +296,10 @@ const pageMeta = {
     description:
       "Contact Invita Videos for help creating, customising or sharing your wedding invitation video.",
   },
+  "/admin/templates": {
+    title: "Template Admin | Invita Videos",
+    description: "Manage invitation template categories and availability.",
+  },
 };
 
 function PageMeta() {
@@ -300,6 +338,9 @@ const navClass = ({ isActive }) =>
   }`;
 
 function SiteHeader() {
+  const { user } = useAuth();
+  const showAdminMenu = isAdminUser(user);
+
   return (
     <header className="sticky top-0 z-50 border-b border-black/5 bg-[#fffdf9]/90 backdrop-blur-xl">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-5 py-3 lg:px-10">
@@ -316,6 +357,7 @@ function SiteHeader() {
           <NavLink to="/" end className={navClass}>Home</NavLink>
           <NavLink to="/about" className={navClass}>About</NavLink>
           <NavLink to="/contact" className={navClass}>Contact</NavLink>
+          {showAdminMenu && <NavLink to="/admin/templates" className={navClass}>Admin</NavLink>}
         </nav>
 
         <div className="order-2 flex items-center gap-2 sm:order-3">
@@ -657,11 +699,10 @@ function LandingPage() {
 function CreateVideoPage() {
   const { user, credential } = useAuth();
   const [template, setTemplate] = useState("marigold");
+  const [templates, setTemplates] = useState(DEFAULT_TEMPLATES);
   const [details, setDetails] = useState(initialDetails);
   const [schedule, setSchedule] = useState([
-    { name: "Haldi", time: "10:00 AM" },
-    { name: "Sangeet", time: "7:00 PM" },
-    { name: "Wedding", time: "11:30 AM" },
+    ...weddingSchedule,
   ]);
   const [photos, setPhotos] = useState([]);
   const [musicId, setMusicId] = useState("tere-sang");
@@ -674,8 +715,38 @@ function CreateVideoPage() {
   const pollRef = useRef(null);
 
   const rendering = jobStatus === "queued" || jobStatus === "rendering";
+  const selectedTemplate = templates.find((item) => item.id === template);
+  const category = selectedTemplate?.category || "Wedding";
+
+  useEffect(() => {
+    const defaults = categoryDefaults[category] || categoryDefaults.Wedding;
+    setDetails((current) => ({ ...current, ...defaults }));
+    setSchedule(category === "Wedding" ? [...weddingSchedule] : []);
+  }, [category]);
 
   useEffect(() => () => clearInterval(pollRef.current), []);
+
+  useEffect(() => {
+    let cancelled = false;
+    axios
+      .get(`${API}/templates`)
+      .then((response) => {
+        if (cancelled) return;
+        const nextTemplates = Array.isArray(response.data) && response.data.length ? response.data : DEFAULT_TEMPLATES;
+        setTemplates(nextTemplates);
+        setTemplate((current) =>
+          nextTemplates.some((item) => item.id === current && item.isActive !== false)
+            ? current
+            : nextTemplates[0]?.id || "marigold",
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setTemplates(DEFAULT_TEMPLATES);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const pollJob = (id) => {
     clearInterval(pollRef.current);
@@ -714,8 +785,13 @@ function CreateVideoPage() {
         displayMessage: details.displayMessage,
         photos,
         musicId: musicId || null,
-        schedule,
+        schedule: category === "Engagement" ? [{ name: "Engagement", time: details.eventDate }] : category === "Birthday" ? [] : schedule,
         durationInSeconds: Number(details.durationInSeconds) || 30,
+        tags: String(details.tags || "")
+          .split(",")
+          .map((tag) => tag.trim())
+          .filter(Boolean)
+          .slice(0, 12),
         recaptchaToken,
       };
       const response = await axios.post(`${API}/renders`, payload, {
@@ -736,7 +812,7 @@ function CreateVideoPage() {
         toast.error(error?.response?.data?.detail || "Failed to queue render");
       }
     }
-  }, [credential, template, details, photos, musicId, schedule]);
+  }, [credential, template, details, photos, musicId, schedule, category]);
 
   const handleRender = async () => {
     if (!details.partnerOne.trim() || !details.partnerTwo.trim()) {
@@ -794,14 +870,14 @@ function CreateVideoPage() {
                 Build, preview and render your invitation.
               </h1>
               <p className="mt-2 max-w-xl text-sm leading-6 text-neutral-600">
-                Fill the essentials, choose a style, add memories and render a vertical wedding invitation video ready to share.
+                Fill the essentials, choose a style, add memories and render a vertical {category.toLowerCase()} invitation video ready to share.
               </p>
             </div>
             <div className="grid grid-cols-3 gap-2 rounded-2xl border border-[#EBD3E0] bg-white/80 p-2 text-center shadow-[0_12px_40px_rgba(81,25,62,0.06)] backdrop-blur sm:min-w-[390px]">
               {[
                 ["Template", template],
                 ["Photos", `${photos.length}/4`],
-                ["Events", schedule.length],
+                ["Events", category === "Engagement" ? 1 : category === "Birthday" ? 0 : schedule.length],
               ].map(([label, value]) => (
                 <div key={label} className="rounded-xl bg-[#FFF8FB] px-3 py-2">
                   <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-400">{label}</div>
@@ -848,15 +924,15 @@ function CreateVideoPage() {
               )}
             </div>
             <div className="rounded-2xl border border-[#ECD5E2] bg-white p-4 shadow-[0_14px_46px_rgba(81,25,62,0.05)]">
-              <TemplatePicker value={template} onChange={setTemplate} />
+              <TemplatePicker value={template} onChange={setTemplate} templates={templates} />
             </div>
             <div className="rounded-2xl border border-[#ECD5E2] bg-white p-4 shadow-[0_14px_46px_rgba(81,25,62,0.05)] sm:p-5">
-              <DetailsForm details={details} onChange={setDetails} />
+              <DetailsForm details={details} onChange={setDetails} category={category} />
             </div>
-            <div className="grid gap-4 xl:grid-cols-2">
-              <div className="rounded-2xl border border-[#ECD5E2] bg-white p-4 shadow-[0_14px_46px_rgba(81,25,62,0.05)]">
+            <div className={`grid gap-4 ${category === "Wedding" ? "xl:grid-cols-2" : "xl:grid-cols-1"}`}>
+              {category === "Wedding" && <div className="rounded-2xl border border-[#ECD5E2] bg-white p-4 shadow-[0_14px_46px_rgba(81,25,62,0.05)]">
                 <ScheduleBuilder schedule={schedule} onChange={setSchedule} />
-              </div>
+              </div>}
               <div className="rounded-2xl border border-[#ECD5E2] bg-white p-4 shadow-[0_14px_46px_rgba(81,25,62,0.05)]">
                 <PhotoUploader photos={photos} onChange={setPhotos} />
               </div>
@@ -938,6 +1014,201 @@ function AboutPage() {
           <Link to="/create-video" className="mt-7 inline-flex items-center gap-2 rounded-full bg-[#32113A] px-6 py-3.5 font-semibold text-white transition hover:-translate-y-0.5 hover:bg-[#52184D]">
             Create your invitation <ArrowRight className="h-4 w-4" aria-hidden="true" />
           </Link>
+        </section>
+      </main>
+    </MarketingLayout>
+  );
+}
+
+function AdminTemplatesPage() {
+  const { user, credential } = useAuth();
+  const [templates, setTemplates] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [savingId, setSavingId] = useState("");
+
+  const loadTemplates = useCallback(async () => {
+    if (!credential) return;
+    setLoading(true);
+    try {
+      const response = await axios.get(`${API}/admin/templates`, {
+        headers: { Authorization: `Bearer ${credential}` },
+      });
+      setTemplates(response.data);
+    } catch (error) {
+      toast.error(error?.response?.data?.detail || "Failed to load template mappings");
+    } finally {
+      setLoading(false);
+    }
+  }, [credential]);
+
+  useEffect(() => {
+    loadTemplates();
+  }, [loadTemplates]);
+
+  const updateLocalTemplate = (templateId, field, value) => {
+    setTemplates((current) =>
+      current.map((template) =>
+        template.id === templateId ? { ...template, [field]: value } : template,
+      ),
+    );
+  };
+
+  const saveTemplate = async (template) => {
+    setSavingId(template.id);
+    try {
+      const response = await axios.patch(
+        `${API}/admin/templates/${template.id}`,
+        {
+          category: template.category,
+          isActive: template.isActive,
+          sortOrder: Number(template.sortOrder) || 100,
+        },
+        {
+          headers: { Authorization: `Bearer ${credential}` },
+        },
+      );
+      setTemplates((current) =>
+        current.map((item) => (item.id === template.id ? response.data : item)),
+      );
+      toast.success(`${template.name} mapping saved`);
+    } catch (error) {
+      toast.error(error?.response?.data?.detail || "Failed to save template mapping");
+    } finally {
+      setSavingId("");
+    }
+  };
+
+  const categories = [...new Set(templates.map((template) => template.category || "Wedding"))].sort();
+
+  return (
+    <MarketingLayout>
+      <main className="px-6 py-12 lg:px-10 lg:py-16">
+        <section className="mx-auto max-w-7xl">
+          <div className="flex flex-col justify-between gap-5 rounded-[2rem] border border-[#ECD5E2] bg-[#FFF7FB] p-7 sm:p-9 lg:flex-row lg:items-end">
+            <div>
+              <div className="section-label text-left text-[#9B256D]">Admin · Templates</div>
+              <h1 className="mt-2 font-heading text-4xl font-extrabold tracking-tight text-[#32113A] sm:text-5xl">
+                Manage template categories.
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-neutral-600">
+                Map each render template to a category such as Wedding, Engagement, Birthday, Anniversary or any future celebration type.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={loadTemplates}
+              disabled={!credential || loading}
+              className="inline-flex w-fit items-center justify-center rounded-full border border-[#D8B7CB] bg-white px-5 py-3 text-sm font-semibold text-[#32113A] transition hover:bg-[#FFF0F8] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {loading ? "Loading..." : "Refresh mappings"}
+            </button>
+          </div>
+
+          {!user || !credential ? (
+            <div className="mt-6 rounded-3xl border border-[#ECD5E2] bg-white p-6 shadow-[0_14px_46px_rgba(81,25,62,0.05)]">
+              <div className="section-label text-left text-[#9B256D]">Login required</div>
+              <h2 className="mt-2 font-heading text-2xl font-extrabold text-[#32113A]">Sign in to manage template mappings.</h2>
+              <p className="mb-4 mt-2 text-sm leading-6 text-neutral-500">
+                Admin actions use your Google login. Set `ADMIN_EMAILS` on the backend to restrict access to specific email addresses.
+              </p>
+              <GoogleSignInButton className="min-h-[40px]" text="continue_with" />
+            </div>
+          ) : (
+            <>
+              <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-2xl border border-[#ECD5E2] bg-white p-5">
+                  <div className="text-xs font-semibold uppercase tracking-[0.16em] text-neutral-400">Templates</div>
+                  <div className="mt-2 font-heading text-3xl font-extrabold text-[#32113A]">{templates.length}</div>
+                </div>
+                <div className="rounded-2xl border border-[#ECD5E2] bg-white p-5 sm:col-span-1 lg:col-span-3">
+                  <div className="text-xs font-semibold uppercase tracking-[0.16em] text-neutral-400">Categories</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {(categories.length ? categories : ["Wedding"]).map((category) => (
+                      <span key={category} className="rounded-full bg-[#FFF3F8] px-3 py-1 text-xs font-semibold text-[#8D1B63]">
+                        {category}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 overflow-hidden rounded-3xl border border-[#ECD5E2] bg-white shadow-[0_14px_46px_rgba(81,25,62,0.05)]">
+                <div className="grid grid-cols-[1.2fr_1fr_0.55fr_0.55fr_0.55fr] gap-3 border-b border-[#F0DDE7] bg-[#FFF8FB] px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-neutral-500">
+                  <div>Template</div>
+                  <div>Category</div>
+                  <div>Sort</div>
+                  <div>Active</div>
+                  <div className="text-right">Action</div>
+                </div>
+                <div className="divide-y divide-[#F0DDE7]">
+                  {templates.map((templateItem) => (
+                    <div key={templateItem.id} className="grid grid-cols-1 gap-4 px-5 py-5 lg:grid-cols-[1.2fr_1fr_0.55fr_0.55fr_0.55fr] lg:items-center">
+                      <div>
+                        <div className="flex items-center gap-3">
+                          <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-black/10 text-lg italic" style={{ backgroundColor: templateItem.bg, color: templateItem.text, fontFamily: templateItem.font }}>
+                            {templateItem.name.slice(0, 1)}
+                          </span>
+                          <div>
+                            <div className="font-heading text-lg font-extrabold text-[#32113A]">{templateItem.name}</div>
+                            <div className="text-xs text-neutral-500">{templateItem.id}</div>
+                          </div>
+                        </div>
+                        <p className="mt-2 max-w-xl text-sm leading-6 text-neutral-500">{templateItem.desc}</p>
+                      </div>
+                      <label className="grid gap-1 text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400 lg:block">
+                        <span className="lg:hidden">Category</span>
+                        <input
+                          value={templateItem.category || ""}
+                          onChange={(event) => updateLocalTemplate(templateItem.id, "category", event.target.value)}
+                          list="template-category-options"
+                          className="w-full rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm font-normal normal-case tracking-normal text-[#32113A] outline-none transition focus:border-[#B22176] focus:ring-2 focus:ring-[#EFCBDD]"
+                          placeholder="Wedding"
+                        />
+                      </label>
+                      <label className="grid gap-1 text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400 lg:block">
+                        <span className="lg:hidden">Sort order</span>
+                        <input
+                          type="number"
+                          value={templateItem.sortOrder}
+                          onChange={(event) => updateLocalTemplate(templateItem.id, "sortOrder", event.target.value)}
+                          className="w-full rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm font-normal normal-case tracking-normal text-[#32113A] outline-none transition focus:border-[#B22176] focus:ring-2 focus:ring-[#EFCBDD]"
+                        />
+                      </label>
+                      <label className="flex items-center gap-2 text-sm font-semibold text-[#32113A]">
+                        <input
+                          type="checkbox"
+                          checked={templateItem.isActive !== false}
+                          onChange={(event) => updateLocalTemplate(templateItem.id, "isActive", event.target.checked)}
+                          className="h-4 w-4 accent-[#B31571]"
+                        />
+                        Active
+                      </label>
+                      <div className="flex justify-start lg:justify-end">
+                        <button
+                          type="button"
+                          onClick={() => saveTemplate(templateItem)}
+                          disabled={savingId === templateItem.id}
+                          className="inline-flex items-center justify-center rounded-full bg-[#32113A] px-5 py-2.5 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-[#52184D] disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {savingId === templateItem.id ? "Saving..." : "Save"}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {!loading && templates.length === 0 && (
+                    <div className="px-5 py-10 text-center text-sm text-neutral-500">
+                      No templates found. Restart the backend once to seed the default Wedding templates.
+                    </div>
+                  )}
+                </div>
+              </div>
+              <datalist id="template-category-options">
+                {[...new Set(["Wedding", "Engagement", "Birthday", "Anniversary", "Reception", ...categories])].map((category) => (
+                  <option key={category} value={category} />
+                ))}
+              </datalist>
+            </>
+          )}
         </section>
       </main>
     </MarketingLayout>
@@ -1029,6 +1300,7 @@ function App() {
           <Route path="/create-video" element={<CreateVideoPage />} />
           <Route path="/about" element={<AboutPage />} />
           <Route path="/contact" element={<ContactPage />} />
+          <Route path="/admin/templates" element={<AdminTemplatesPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </div>

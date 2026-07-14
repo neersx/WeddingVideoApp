@@ -186,6 +186,7 @@ sudo RECAPTCHA_SITE_KEY="YOUR_RECAPTCHA_V3_SITE_KEY" \
   RECAPTCHA_SECRET_KEY="YOUR_RECAPTCHA_V3_SECRET_KEY" \
   RECAPTCHA_SCORE_THRESHOLD=0.5 \
   RECAPTCHA_EXPECTED_ACTION=render_video \
+  ADMIN_EMAILS="you@example.com" \
   bash deploy/redeploy-app.sh
 ```
 
@@ -197,7 +198,7 @@ The safe redeploy script:
 - builds React with `REACT_APP_BACKEND_URL`
 - copies the build to `/var/www/invitawedds/web/build`
 - reuses the existing `GOOGLE_CLIENT_ID` from `/etc/invitawedds/backend.env` when you do not pass one
-- updates supplied backend env values such as `GOOGLE_CLIENT_ID`, `RECAPTCHA_SITE_KEY`, `RECAPTCHA_SECRET_KEY`, `RECAPTCHA_SCORE_THRESHOLD`, `RECAPTCHA_EXPECTED_ACTION`, `STORAGE_BACKEND`, `MONGO_URL`, `DB_NAME`, `CORS_ORIGINS`, `RENDER_SERVICE_URL`, and `INTERNAL_BASE_URL`
+- updates supplied backend env values such as `GOOGLE_CLIENT_ID`, `ADMIN_EMAILS`, `RECAPTCHA_SITE_KEY`, `RECAPTCHA_SECRET_KEY`, `RECAPTCHA_SCORE_THRESHOLD`, `RECAPTCHA_EXPECTED_ACTION`, `STORAGE_BACKEND`, `MONGO_URL`, `DB_NAME`, `CORS_ORIGINS`, `RENDER_SERVICE_URL`, and `INTERNAL_BASE_URL`
 - restarts backend and render services
 - does not change nginx or SSL
 
@@ -267,6 +268,7 @@ Confirm the frontend was built with:
 
 ```bash
 REACT_APP_GOOGLE_CLIENT_ID="YOUR_GOOGLE_WEB_CLIENT_ID"
+REACT_APP_ADMIN_EMAILS="you@example.com"
 REACT_APP_RECAPTCHA_SITE_KEY="YOUR_RECAPTCHA_V3_SITE_KEY"
 ```
 
@@ -274,6 +276,7 @@ Confirm backend env has:
 
 ```bash
 sudo grep GOOGLE_CLIENT_ID /etc/invitawedds/backend.env
+sudo grep ADMIN_EMAILS /etc/invitawedds/backend.env
 sudo grep RECAPTCHA /etc/invitawedds/backend.env
 ```
 

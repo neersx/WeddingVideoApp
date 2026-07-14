@@ -26,6 +26,11 @@ if storage_backend not in {'memory', 'mongodb'}:
 RENDER_SERVICE_URL = os.environ.get('RENDER_SERVICE_URL', 'http://localhost:4001')
 INTERNAL_BASE_URL = os.environ.get('INTERNAL_BASE_URL', 'http://localhost:8001')
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '').strip()
+ADMIN_EMAILS = {
+    email.strip().lower()
+    for email in os.environ.get('ADMIN_EMAILS', '').split(',')
+    if email.strip()
+}
 RECAPTCHA_SECRET_KEY = os.environ.get('RECAPTCHA_SECRET_KEY', '').strip()
 RECAPTCHA_EXPECTED_ACTION = os.environ.get('RECAPTCHA_EXPECTED_ACTION', 'render_video').strip()
 try:
@@ -85,6 +90,139 @@ MUSIC_LIBRARY = [
 ]
 MUSIC_BY_ID = {t["id"]: t for t in MUSIC_LIBRARY}
 
+DEFAULT_TEMPLATE_DOCUMENTS = [
+    {
+        "_id": "marigold",
+        "id": "marigold",
+        "name": "Marigold",
+        "desc": "Rustic-luxe traditional. Burnt orange, gold, floating petals.",
+        "category": "Wedding",
+        "swatch": ["#C55A36", "#D4AF37", "#F8AB5B", "#FFF8F0"],
+        "bg": "#FFF8F0",
+        "text": "#4A2545",
+        "font": "'Playfair Display', serif",
+        "isActive": True,
+        "sortOrder": 10,
+    },
+    {
+        "_id": "midnight",
+        "id": "midnight",
+        "name": "Midnight",
+        "desc": "Dark romance. Cinematic black, gold typography, starfield.",
+        "category": "Wedding",
+        "swatch": ["#0B0B0F", "#2B1B3D", "#D4AF37", "#7A5C9E"],
+        "bg": "#0B0B0F",
+        "text": "#E7D9F2",
+        "font": "'Cormorant Garamond', serif",
+        "isActive": True,
+        "sortOrder": 20,
+    },
+    {
+        "_id": "heartbeat",
+        "id": "heartbeat",
+        "name": "Heartbeat",
+        "desc": "Beating heart intro, blush photobook with floating date bar, romantic invitation.",
+        "category": "Wedding",
+        "swatch": ["#B4405F", "#F5D0D8", "#C7A365", "#FFF7F0"],
+        "bg": "#FFF7F0",
+        "text": "#7A1E3A",
+        "font": "'Dancing Script', cursive",
+        "isActive": True,
+        "sortOrder": 30,
+    },
+    {
+        "_id": "story",
+        "id": "story",
+        "name": "Story",
+        "desc": "Editorial full-bleed photos, huge bold date reveal, chapter-by-chapter invitation.",
+        "category": "Wedding",
+        "swatch": ["#7A9B76", "#F4EFE6", "#A67B39", "#1F1F1F"],
+        "bg": "#1F1F1F",
+        "text": "#F4EFE6",
+        "font": "'Cormorant Garamond', serif",
+        "isActive": True,
+        "sortOrder": 40,
+    },
+    {
+        "_id": "poster",
+        "id": "poster",
+        "name": "Poster",
+        "desc": "Bauhaus-modern. Bold monogram, geometric mosaic, red/yellow accents, editorial punch.",
+        "category": "Wedding",
+        "swatch": ["#E63946", "#F4C542", "#264653", "#F2EEE5"],
+        "bg": "#F2EEE5",
+        "text": "#0A0A0A",
+        "font": "'Archivo Black', sans-serif",
+        "isActive": True,
+        "sortOrder": 50,
+    },
+    {
+        "_id": "showcase",
+        "id": "showcase",
+        "name": "Showcase",
+        "desc": "Premium promo. Three animated wedding-website heroes with cinematic camera moves, live RSVP & countdown, Invita Videos logo outro.",
+        "category": "Wedding",
+        "swatch": ["#0E0D0B", "#B08D57", "#7A9B76", "#F5EFE2"],
+        "bg": "#0E0D0B",
+        "text": "#B08D57",
+        "font": "'Playfair Display', serif",
+        "isActive": True,
+        "sortOrder": 60,
+    },
+    {
+        "_id": "engagement-glow",
+        "id": "engagement-glow",
+        "name": "Engagement Glow",
+        "desc": "Moody purple-rose engagement invite with soft bokeh background, champagne typography and cinematic reveal.",
+        "category": "Engagement",
+        "swatch": ["#150D1F", "#6D3B63", "#C58B7D", "#E7C694"],
+        "bg": "#150D1F",
+        "text": "#FFF7F3",
+        "font": "'Cormorant Garamond', serif",
+        "isActive": True,
+        "sortOrder": 10,
+    },
+    {
+        "_id": "royal-palace",
+        "id": "royal-palace",
+        "name": "Royal Palace",
+        "desc": "Regal emerald and antique-gold wedding invitation with palace arches, a couple crest and ceremonial details.",
+        "category": "Wedding",
+        "swatch": ["#0D3028", "#741E35", "#D6B56D", "#FFF4D6"],
+        "bg": "#0D3028",
+        "text": "#FFF4D6",
+        "font": "'Cormorant Garamond', serif",
+        "isActive": True,
+        "sortOrder": 70,
+    },
+    {
+        "_id": "ring-reveal",
+        "id": "ring-reveal",
+        "name": "Ring Reveal",
+        "desc": "Luxury engagement announcement with interlocking gold rings, diamond light and an elegant portrait reveal.",
+        "category": "Engagement",
+        "swatch": ["#111111", "#D5B36A", "#F7E9DC", "#FFFFFF"],
+        "bg": "#111111",
+        "text": "#F7E9DC",
+        "font": "'Cormorant Garamond', serif",
+        "isActive": True,
+        "sortOrder": 20,
+    },
+    {
+        "_id": "confetti-pop",
+        "id": "confetti-pop",
+        "name": "Confetti Pop",
+        "desc": "Bright birthday invitation with balloons, falling confetti, bold party typography and a playful photo stack.",
+        "category": "Birthday",
+        "swatch": ["#FF5A7A", "#FFD447", "#42C6D7", "#7454D8"],
+        "bg": "#FFF6D8",
+        "text": "#24213A",
+        "font": "'Outfit', sans-serif",
+        "isActive": True,
+        "sortOrder": 10,
+    },
+]
+
 app = FastAPI(title="DreamWedds Render API")
 api_router = APIRouter(prefix="/api")
 
@@ -140,14 +278,21 @@ class _InMemoryCollection:
         )
         return dict(document) if document else None
 
-    def find(self):
-        return _InMemoryCursor(self._documents.values())
+    def find(self, filter_query=None):
+        filter_query = filter_query or {}
+        documents = [
+            doc
+            for doc in self._documents.values()
+            if all(doc.get(key) == value for key, value in filter_query.items())
+        ]
+        return _InMemoryCursor(documents)
 
 
 class _InMemoryDB:
     def __init__(self):
         self.renders = _InMemoryCollection()
         self.users = _InMemoryCollection()
+        self.templates = _InMemoryCollection()
 
 
 client = None
@@ -181,6 +326,7 @@ class RenderRequest(BaseModel):
     musicId: Optional[str] = None
     schedule: List[ScheduleItem] = Field(default_factory=list)
     durationInSeconds: int = 30
+    tags: List[str] = Field(default_factory=list)
     recaptchaToken: Optional[str] = None
 
 
@@ -194,6 +340,12 @@ class GoogleUser(BaseModel):
     name: str = ""
     picture: str = ""
     email_verified: bool = False
+
+
+class TemplateUpdateRequest(BaseModel):
+    category: str
+    isActive: bool = True
+    sortOrder: int = 100
 
 
 def _user_doc_from_google_user(user: GoogleUser):
@@ -259,6 +411,40 @@ async def require_google_user(authorization: str = Header(default="")) -> Google
     user = _verify_google_credential(token)
     await _save_google_user(user)
     return user
+
+
+async def require_admin_user(user: GoogleUser = Depends(require_google_user)) -> GoogleUser:
+    if ADMIN_EMAILS and user.email.lower() not in ADMIN_EMAILS:
+        raise HTTPException(status_code=403, detail="Admin access is required")
+    return user
+
+
+def _serialize_template(document):
+    return {
+        "id": document.get("id") or document.get("_id"),
+        "name": document.get("name", ""),
+        "desc": document.get("desc", ""),
+        "category": document.get("category", "Wedding"),
+        "swatch": document.get("swatch", []),
+        "bg": document.get("bg", "#FFFFFF"),
+        "text": document.get("text", "#111111"),
+        "font": document.get("font", "'Playfair Display', serif"),
+        "isActive": bool(document.get("isActive", True)),
+        "sortOrder": int(document.get("sortOrder", 100)),
+        "updated_at": document.get("updated_at"),
+    }
+
+
+async def seed_default_templates():
+    now = datetime.now(timezone.utc).isoformat()
+    for template in DEFAULT_TEMPLATE_DOCUMENTS:
+        existing = await db.templates.find_one({"_id": template["_id"]})
+        if existing:
+            continue
+        doc = dict(template)
+        doc["created_at"] = now
+        doc["updated_at"] = now
+        await db.templates.insert_one(doc)
 
 
 async def verify_recaptcha_token(token: Optional[str], remote_ip: Optional[str] = None):
@@ -365,6 +551,57 @@ async def get_music(music_id: str):
     return FileResponse(path, media_type="audio/mpeg", filename=track["filename"])
 
 
+@api_router.get("/templates")
+async def list_templates(category: Optional[str] = None):
+    filter_query = {"isActive": True}
+    if category:
+        filter_query["category"] = category
+    docs = await db.templates.find(filter_query).to_list(200)
+    templates = [_serialize_template(d) for d in docs]
+    templates.sort(key=lambda t: (t["category"].lower(), t["sortOrder"], t["name"].lower()))
+    return templates
+
+
+@api_router.get("/template-categories")
+async def list_template_categories():
+    docs = await db.templates.find({"isActive": True}).to_list(200)
+    categories = sorted({(d.get("category") or "Wedding") for d in docs})
+    return [{"name": category} for category in categories]
+
+
+@api_router.get("/admin/templates")
+async def admin_list_templates(_: GoogleUser = Depends(require_admin_user)):
+    docs = await db.templates.find().to_list(200)
+    templates = [_serialize_template(d) for d in docs]
+    templates.sort(key=lambda t: (t["category"].lower(), t["sortOrder"], t["name"].lower()))
+    return templates
+
+
+@api_router.patch("/admin/templates/{template_id}")
+async def admin_update_template(
+    template_id: str,
+    req: TemplateUpdateRequest,
+    _: GoogleUser = Depends(require_admin_user),
+):
+    existing = await db.templates.find_one({"_id": template_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    category = req.category.strip()
+    if not category:
+        raise HTTPException(status_code=400, detail="Category is required")
+
+    updates = {
+        "category": category,
+        "isActive": req.isActive,
+        "sortOrder": req.sortOrder,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.templates.update_one({"_id": template_id}, {"$set": updates})
+    updated = await db.templates.find_one({"_id": template_id})
+    return _serialize_template(updated)
+
+
 async def _run_render_job(job_id: str, payload: dict):
     """Background worker: dispatch to render-service, poll progress, download mp4, update Mongo doc."""
     try:
@@ -440,6 +677,7 @@ async def create_render(
 ):
     recaptcha_result = await verify_recaptcha_token(req.recaptchaToken, request.client.host if request.client else None)
     payload = req.model_dump(exclude={"recaptchaToken"})
+    payload["tags"] = list(dict.fromkeys(tag.strip() for tag in req.tags if tag.strip()))[:12]
 
     # Resolve bundled music id -> served url (takes precedence over musicUrl).
     if req.musicId:
@@ -464,6 +702,7 @@ async def create_render(
         "venue": req.venue.model_dump(),
         "displayMessage": req.displayMessage,
         "durationInSeconds": req.durationInSeconds,
+        "tags": payload["tags"],
         "musicId": req.musicId,
         "status": "queued",
         "progress": 0.0,
@@ -499,6 +738,7 @@ async def list_renders():
             "couple": d.get("couple"),
             "eventDate": d.get("eventDate"),
             "displayMessage": d.get("displayMessage"),
+            "tags": d.get("tags", []),
             "status": d.get("status", "done"),
             "progress": d.get("progress", 0.0),
             "created_at": d.get("created_at"),
@@ -523,6 +763,7 @@ async def get_render(render_id: str):
         "eventDate": d.get("eventDate"),
         "venue": d.get("venue"),
         "displayMessage": d.get("displayMessage"),
+        "tags": d.get("tags", []),
         "status": d.get("status", "done"),
         "progress": d.get("progress", 0.0),
         "error": d.get("error"),
@@ -559,6 +800,7 @@ async def initialize_storage():
     global client, db
     if storage_backend == 'memory':
         db = _InMemoryDB()
+        await seed_default_templates()
         logger.info("Using in-memory storage")
         return
 
@@ -570,6 +812,9 @@ async def initialize_storage():
         await db.users.create_index("googleSub", unique=True)
         await db.renders.create_index("userId")
         await db.renders.create_index("created_at")
+        await db.templates.create_index("category")
+        await db.templates.create_index("sortOrder")
+        await seed_default_templates()
         logger.info("Connected to MongoDB at %s", mongo_url)
     except Exception as exc:  # noqa: BLE001
         if client is not None:

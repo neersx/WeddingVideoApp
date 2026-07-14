@@ -45,6 +45,11 @@ const buildInputProps = (body: any) => {
     story: 'Story',
     poster: 'Poster',
     showcase: 'Showcase',
+    'engagement-glow': 'EngagementGlow',
+    engagement: 'EngagementGlow',
+    'royal-palace': 'RoyalPalace',
+    'ring-reveal': 'RingReveal',
+    'confetti-pop': 'ConfettiPop',
   };
   const compositionId = compMap[template] || 'Marigold';
   const inputProps = {
@@ -56,6 +61,7 @@ const buildInputProps = (body: any) => {
     photos: Array.isArray(body.photos) ? body.photos.slice(0, 6) : [],
     musicUrl: body.musicUrl || null,
     schedule: Array.isArray(body.schedule) ? body.schedule.slice(0, 6) : [],
+    tags: Array.isArray(body.tags) ? body.tags.slice(0, 12) : [],
     durationInSeconds: Math.min(60, Math.max(5, Number(body.durationInSeconds) || 30)),
   };
   return {compositionId, inputProps};
