@@ -62,6 +62,8 @@
 	<string>Expo Dev Launcher uses the local network to discover and connect to development servers running on your computer.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Allow $(PRODUCT_NAME) to access your microphone</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>InvitaVideos saves completed invitation videos to your Photos library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>InvitaVideos needs access to your photos to create invitation videos.</string>
 	<key>RCTNewArchEnabled</key>

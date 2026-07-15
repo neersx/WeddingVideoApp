@@ -1,5 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, Form, BackgroundTasks, Header, Depends, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -950,7 +950,7 @@ async def create_render(
         "jobId": render_id,
         "status": "queued",
         "poll_url": f"/api/renders/{render_id}",
-        "video_url": f"/api/renders/{render_id}/video",
+        "video_url": f"/api/renders/{render_id}/video.mp4",
     }
 
 
@@ -971,7 +971,7 @@ async def list_renders():
             "progress": d.get("progress", 0.0),
             "created_at": d.get("created_at"),
             "finished_at": d.get("finished_at"),
-            "video_url": f"/api/renders/{d['_id']}/video",
+            "video_url": f"/api/renders/{d['_id']}/video.mp4",
         }
         for d in docs
     ]
@@ -997,16 +997,69 @@ async def get_render(render_id: str):
         "error": d.get("error"),
         "created_at": d.get("created_at"),
         "finished_at": d.get("finished_at"),
-        "video_url": f"/api/renders/{d['_id']}/video",
+        "video_url": f"/api/renders/{d['_id']}/video.mp4",
     }
 
 
+def _stream_file_range(path: Path, start: int, end: int, chunk_size: int = 1024 * 256):
+    with path.open("rb") as source:
+        source.seek(start)
+        remaining = end - start + 1
+        while remaining > 0:
+            chunk = source.read(min(chunk_size, remaining))
+            if not chunk:
+                break
+            remaining -= len(chunk)
+            yield chunk
+
+
 @api_router.get("/renders/{render_id}/video")
-async def get_render_video(render_id: str):
+async def get_render_video(render_id: str, request: Request):
     path = RENDERS_DIR / f"{Path(render_id).name}.mp4"
     if not path.exists():
         raise HTTPException(status_code=404, detail="Video not found")
-    return FileResponse(path, media_type="video/mp4", filename=f"dreamwedds-{render_id[:8]}.mp4")
+    size = path.stat().st_size
+    common_headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": f'inline; filename="invitavideos-{render_id[:8]}.mp4"',
+    }
+    range_header = request.headers.get("range", "")
+    match = re.fullmatch(r"bytes=(\d*)-(\d*)", range_header.strip()) if range_header else None
+    if match:
+        start_text, end_text = match.groups()
+        if not start_text and not end_text:
+            return Response(status_code=416, headers={"Content-Range": f"bytes */{size}"})
+        if start_text:
+            start = int(start_text)
+            end = min(int(end_text), size - 1) if end_text else size - 1
+        else:
+            suffix_length = min(int(end_text), size)
+            start = size - suffix_length
+            end = size - 1
+        if start >= size or start > end:
+            return Response(status_code=416, headers={"Content-Range": f"bytes */{size}"})
+        headers = {
+            **common_headers,
+            "Content-Range": f"bytes {start}-{end}/{size}",
+            "Content-Length": str(end - start + 1),
+        }
+        return StreamingResponse(
+            _stream_file_range(path, start, end),
+            status_code=206,
+            media_type="video/mp4",
+            headers=headers,
+        )
+    return FileResponse(
+        path,
+        media_type="video/mp4",
+        headers=common_headers,
+        content_disposition_type="inline",
+    )
+
+
+@api_router.get("/renders/{render_id}/video.mp4")
+async def get_render_video_mp4(render_id: str, request: Request):
+    return await get_render_video(render_id, request)
 
 
 app.include_router(api_router)

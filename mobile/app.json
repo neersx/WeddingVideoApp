@@ -44,7 +44,18 @@
             "usePrecompiledModules": false
           }
         }
-      ]
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "InvitaVideos needs access to your photo library.",
+          "savePhotosPermission": "InvitaVideos saves completed invitation videos to your Photos library.",
+          "granularPermissions": [
+            "video"
+          ]
+        }
+      ],
+      "expo-sharing"
     ]
   }
 }
