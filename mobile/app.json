@@ -8,7 +8,8 @@
     "userInterfaceStyle": "dark",
     "scheme": "invitavideos",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.anonymous.invitavideos"
     },
     "android": {
       "adaptiveIcon": {
