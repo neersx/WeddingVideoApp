@@ -285,3 +285,16 @@ Then restart backend:
 ```bash
 sudo systemctl restart instawedds-backend.service
 ```
+
+## Expo mobile app
+
+The mobile client lives in [`mobile/`](mobile/README.md) and uses the same API and render queue as the web app:
+
+```bash
+cd mobile
+npm install
+cp .env.example .env
+npm start
+```
+
+Set `EXPO_PUBLIC_API_URL` to `http://YOUR-LAN-IP:8001/api` when testing against a local backend on a physical phone. Configure the Expo Google client IDs in `.env` before using the Google sign-in button.
