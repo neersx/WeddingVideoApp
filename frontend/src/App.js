@@ -1078,6 +1078,56 @@ function AboutPage() {
   );
 }
 
+const ADMIN_TABS = [
+  ["/admin", "Dashboard"],
+  ["/admin/templates", "Templates"],
+  ["/admin/users", "Users"],
+  ["/admin/renders", "Video renders"],
+  ["/admin/settings", "Settings"],
+];
+
+function AdminTabs() {
+  return <nav className="mb-6 flex flex-wrap gap-2 rounded-2xl border border-[#ECD5E2] bg-white p-2 shadow-[0_10px_30px_rgba(81,25,62,0.05)]" aria-label="Admin portal">
+    {ADMIN_TABS.map(([path, label]) => <NavLink key={path} to={path} end={path === "/admin"} className={({ isActive }) => `rounded-xl px-4 py-2.5 text-sm font-semibold transition ${isActive ? "bg-[#32113A] text-white shadow-sm" : "text-[#8D1B63] hover:bg-[#FFF0F7]"}`}>{label}</NavLink>)}
+  </nav>;
+}
+
+function AdminPageFrame({ eyebrow, title, description, children }) {
+  return <MarketingLayout><main className="px-6 py-12 lg:px-10 lg:py-16"><section className="mx-auto max-w-7xl"><AdminTabs /><div className="rounded-[2rem] border border-[#ECD5E2] bg-[#FFF7FB] p-7 sm:p-9"><div className="section-label text-left text-[#9B256D]">Admin · {eyebrow}</div><h1 className="mt-2 font-heading text-4xl font-extrabold tracking-tight text-[#32113A] sm:text-5xl">{title}</h1><p className="mt-3 max-w-3xl text-sm leading-6 text-neutral-600">{description}</p></div>{children}</section></main></MarketingLayout>;
+}
+
+function AdminGate({ children }) {
+  const { user } = useAuth();
+  return isAdminUser(user) ? children : <NotFoundPage />;
+}
+
+function AdminDashboardPage() {
+  const { credential } = useAuth();
+  const [data, setData] = useState(null);
+  useEffect(() => { axios.get(`${API}/admin/dashboard`, { headers: { Authorization: `Bearer ${credential}` } }).then((response) => setData(response.data)).catch(() => {}); }, [credential]);
+  if (!data) return <AdminPageFrame eyebrow="Dashboard" title="Admin dashboard" description="Loading platform metrics…"><div className="mt-6 rounded-3xl border border-[#ECD5E2] bg-white p-8 text-sm text-neutral-500">Loading analytics…</div></AdminPageFrame>;
+  const cards = [["Users", data.users, "Registered accounts"], ["Videos", data.videos, "Total render jobs"], ["Live users", data.liveUsers, "Active in the last 15 minutes"], ["Completed", data.renders.done, "Successful videos"]];
+  return <AdminPageFrame eyebrow="Dashboard" title="Platform overview" description="Monitor users, video creation, and rendering activity from one place."><div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{cards.map(([label, value, hint]) => <div key={label} className="rounded-3xl border border-[#ECD5E2] bg-white p-6"><div className="text-xs font-bold uppercase tracking-[0.16em] text-neutral-400">{label}</div><div className="mt-3 font-heading text-4xl font-extrabold text-[#32113A]">{value}</div><div className="mt-2 text-xs text-neutral-500">{hint}</div></div>)}</div><div className="mt-6 grid gap-5 lg:grid-cols-[1.3fr_0.7fr]"><div className="rounded-3xl border border-[#ECD5E2] bg-white p-6"><h2 className="font-heading text-2xl font-extrabold text-[#32113A]">Recent activity</h2><div className="mt-4 divide-y divide-[#F0DDE7]">{data.recent.map((item) => <div key={item.id} className="flex items-center justify-between gap-4 py-3 text-sm"><div><div className="font-semibold text-[#32113A]">{item.userEmail || "Unknown user"}</div><div className="text-xs text-neutral-500">{item.template} · {item.created_at ? new Date(item.created_at).toLocaleString() : ""}</div></div><span className="rounded-full bg-[#FFF3F8] px-3 py-1 text-xs font-semibold text-[#8D1B63]">{item.status}</span></div>)}</div></div><div className="rounded-3xl border border-[#ECD5E2] bg-white p-6"><h2 className="font-heading text-2xl font-extrabold text-[#32113A]">Render health</h2><div className="mt-5 space-y-3">{Object.entries(data.renders).map(([status, count]) => <div key={status} className="flex justify-between rounded-xl bg-[#FFF8FB] px-4 py-3 text-sm"><span className="capitalize text-neutral-600">{status}</span><strong className="text-[#32113A]">{count}</strong></div>)}</div></div></div></AdminPageFrame>;
+}
+
+function AdminUsersPage() {
+  const { credential } = useAuth();
+  const [users, setUsers] = useState(null);
+  useEffect(() => { axios.get(`${API}/admin/users`, { headers: { Authorization: `Bearer ${credential}` } }).then((response) => setUsers(response.data)).catch(() => setUsers([])); }, [credential]);
+  return <AdminPageFrame eyebrow="Users" title="User accounts" description="See registered users and how many invitation videos each account has created."><div className="mt-6 overflow-hidden rounded-3xl border border-[#ECD5E2] bg-white">{users === null ? <div className="p-8 text-sm text-neutral-500">Loading users…</div> : <div className="divide-y divide-[#F0DDE7]">{users.map((item) => <div key={item.id} className="flex flex-col gap-3 px-6 py-5 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-3">{item.picture ? <img src={item.picture} alt="" className="h-10 w-10 rounded-full object-cover" referrerPolicy="no-referrer" /> : <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#F8EAF2] font-bold text-[#A4176D]">{(item.name || item.email || "U").slice(0, 1).toUpperCase()}</div>}<div><div className="font-semibold text-[#32113A]">{item.name || "Unnamed user"}</div><div className="text-sm text-neutral-500">{item.email}</div></div></div><div className="flex items-center gap-5 text-sm"><span><strong className="text-[#32113A]">{item.renderCount}</strong> videos</span><span className="text-xs text-neutral-400">Last activity: {item.lastRender ? new Date(item.lastRender).toLocaleDateString() : "Never"}</span></div></div>)}{!users.length && <div className="p-8 text-sm text-neutral-500">No users found.</div>}</div>}</div></AdminPageFrame>;
+}
+
+function AdminRendersPage() {
+  const { credential } = useAuth();
+  const [renders, setRenders] = useState(null);
+  useEffect(() => { axios.get(`${API}/admin/renders`, { headers: { Authorization: `Bearer ${credential}` } }).then((response) => setRenders(response.data)).catch(() => setRenders([])); }, [credential]);
+  return <AdminPageFrame eyebrow="Video renders" title="Video activity" description="Review video jobs generated by users, their templates, status, and timestamps."><div className="mt-6 overflow-hidden rounded-3xl border border-[#ECD5E2] bg-white">{renders === null ? <div className="p-8 text-sm text-neutral-500">Loading renders…</div> : <div className="divide-y divide-[#F0DDE7]">{renders.map((item) => <div key={item.id} className="grid gap-2 px-6 py-5 sm:grid-cols-[1.4fr_1fr_0.7fr_1fr] sm:items-center"><div><div className="font-semibold text-[#32113A]">{item.userEmail || "Unknown user"}</div><div className="text-xs text-neutral-400">{item.id.slice(0, 12)}</div></div><div className="text-sm text-neutral-600">{item.template}</div><span className="w-fit rounded-full bg-[#FFF3F8] px-3 py-1 text-xs font-semibold text-[#8D1B63]">{item.status}</span><div className="text-xs text-neutral-500">{item.created_at ? new Date(item.created_at).toLocaleString() : ""}</div></div>)}{!renders.length && <div className="p-8 text-sm text-neutral-500">No renders found.</div>}</div>}</div></AdminPageFrame>;
+}
+
+function AdminSettingsPage() {
+  return <AdminPageFrame eyebrow="Settings" title="Platform settings" description="Review the environment-backed settings used by the Invita Videos platform."><div className="mt-6 grid gap-4 sm:grid-cols-2"><div className="rounded-3xl border border-[#ECD5E2] bg-white p-6"><div className="section-label text-left text-[#9B256D]">Access</div><h2 className="mt-2 font-heading text-2xl font-extrabold text-[#32113A]">Admin protection</h2><p className="mt-3 text-sm leading-6 text-neutral-600">Admin access is protected by the configured administrator email list. Backend API checks remain active even when the navigation is hidden.</p></div><div className="rounded-3xl border border-[#ECD5E2] bg-white p-6"><div className="section-label text-left text-[#9B256D]">Rendering</div><h2 className="mt-2 font-heading text-2xl font-extrabold text-[#32113A]">Video pipeline</h2><p className="mt-3 text-sm leading-6 text-neutral-600">Templates, music, uploads, MongoDB storage, reCAPTCHA, and the render worker are configured through deployment environment files.</p></div></div></AdminPageFrame>;
+}
+
 function AdminTemplatesPage() {
   const { user, credential } = useAuth();
   const [templates, setTemplates] = useState([]);
@@ -1200,6 +1250,7 @@ function AdminTemplatesPage() {
     <MarketingLayout>
       <main className="px-6 py-12 lg:px-10 lg:py-16">
         <section className="mx-auto max-w-7xl">
+          <AdminTabs />
           <div className="flex flex-col justify-between gap-5 rounded-[2rem] border border-[#ECD5E2] bg-[#FFF7FB] p-7 sm:p-9 lg:flex-row lg:items-end">
             <div>
               <div className="section-label text-left text-[#9B256D]">Admin · Templates</div>
@@ -1461,7 +1512,11 @@ function App() {
           <Route path="/create-video" element={<CreateVideoPage />} />
           <Route path="/about" element={<AboutPage />} />
           <Route path="/contact" element={<ContactPage />} />
-          <Route path="/admin/templates" element={<AdminTemplatesPage />} />
+          <Route path="/admin" element={<AdminGate><AdminDashboardPage /></AdminGate>} />
+          <Route path="/admin/templates" element={<AdminGate><AdminTemplatesPage /></AdminGate>} />
+          <Route path="/admin/users" element={<AdminGate><AdminUsersPage /></AdminGate>} />
+          <Route path="/admin/renders" element={<AdminGate><AdminRendersPage /></AdminGate>} />
+          <Route path="/admin/settings" element={<AdminGate><AdminSettingsPage /></AdminGate>} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </div>

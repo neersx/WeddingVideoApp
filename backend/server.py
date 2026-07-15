@@ -772,6 +772,45 @@ async def admin_update_template(
     return (await _attach_template_render_counts([_serialize_template(updated)]))[0]
 
 
+@api_router.get("/admin/dashboard")
+async def admin_dashboard(_: GoogleUser = Depends(require_admin_user)):
+    users = await db.users.count_documents({})
+    renders = await db.renders.count_documents({})
+    queued = await db.renders.count_documents({"status": "queued"})
+    rendering = await db.renders.count_documents({"status": "rendering"})
+    done = await db.renders.count_documents({"status": "done"})
+    failed = await db.renders.count_documents({"status": "failed"})
+    active_since = datetime.now(timezone.utc).timestamp() - 15 * 60
+    recent_docs = await db.renders.find().sort("created_at", -1).to_list(200)
+    live_users = len({d.get("userId") for d in recent_docs if d.get("userId") and d.get("created_at") and datetime.fromisoformat(d["created_at"]).timestamp() >= active_since})
+    return {
+        "users": users,
+        "videos": renders,
+        "liveUsers": live_users,
+        "renders": {"queued": queued, "rendering": rendering, "done": done, "failed": failed},
+        "recent": [
+            {"id": d["_id"], "userEmail": d.get("userEmail"), "template": d.get("template"), "status": d.get("status"), "created_at": d.get("created_at")}
+            for d in recent_docs[:10]
+        ],
+    }
+
+
+@api_router.get("/admin/users")
+async def admin_users(_: GoogleUser = Depends(require_admin_user)):
+    users = await db.users.find().sort("updated_at", -1).to_list(500)
+    result = []
+    for user in users:
+        user_renders = await db.renders.find({"userId": user["_id"]}).to_list(500)
+        result.append({"id": user["_id"], "email": user.get("email"), "name": user.get("name"), "picture": user.get("picture"), "created_at": user.get("created_at"), "updated_at": user.get("updated_at"), "renderCount": len(user_renders), "lastRender": user_renders[-1].get("created_at") if user_renders else None})
+    return result
+
+
+@api_router.get("/admin/renders")
+async def admin_renders(_: GoogleUser = Depends(require_admin_user)):
+    docs = await db.renders.find().sort("created_at", -1).to_list(500)
+    return [{"id": d["_id"], "userId": d.get("userId"), "userEmail": d.get("userEmail"), "template": d.get("template"), "status": d.get("status"), "progress": d.get("progress", 0), "created_at": d.get("created_at"), "finished_at": d.get("finished_at"), "error": d.get("error")} for d in docs]
+
+
 async def _run_render_job(job_id: str, payload: dict):
     """Background worker: dispatch to render-service, poll progress, download mp4, update Mongo doc."""
     try:

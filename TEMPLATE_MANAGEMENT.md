@@ -82,6 +82,8 @@ The page lets you:
 - enable/disable templates
 - update sort order
 
+The Admin portal also includes Dashboard, Users, Video renders, and Settings tabs. Dashboard metrics include registered users, total render jobs, users active in the last 15 minutes, completed videos, render status counts, and recent activity. Users and Video renders provide detailed account and job lists.
+
 Write access uses Google login. The frontend route and backend API are restricted to `neer19ultimate@gmail.com` by default; unauthorized users receive the normal 404 page in the frontend and a 403 response from the API.
 
 To restrict admin access in production, set `ADMIN_EMAILS` in `/etc/invitawedds/backend.env`:
