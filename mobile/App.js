@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Linking, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
 import * as WebBrowser from 'expo-web-browser';
@@ -33,6 +33,16 @@ const STEPS = [
 ];
 
 const CATEGORY_ICONS = { Wedding: '💍', Engagement: '💐', Birthday: '🎂' };
+
+// Default wedding event schedule — mirrors the web frontend (frontend/src/App.js).
+const WEDDING_SCHEDULE = [
+  { name: 'Haldi', time: '10:00 AM' },
+  { name: 'Sangeet', time: '7:00 PM' },
+  { name: 'Wedding', time: '11:30 AM' },
+];
+
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
 // Design tokens — shared across every component so iOS and Android render identically.
 const palette = {
@@ -99,6 +109,8 @@ export default function App() {
   const [template, setTemplate] = useState(null);
   const [photos, setPhotos] = useState([]);
   const [musicId, setMusicId] = useState('');
+  const [schedule, setSchedule] = useState([...WEDDING_SCHEDULE]);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [details, setDetails] = useState({ partnerOne: '', partnerTwo: '', firstName: '', lastName: '', eventDate: '', venueName: '', city: '', message: '', durationInSeconds: '10' });
   const [user, setUser] = useState(DISABLE_GOOGLE_AUTH ? { email: 'local-dev@invitavideos.test', name: 'Local Development User' } : null);
   const [credential, setCredential] = useState(DISABLE_GOOGLE_AUTH ? 'local-development' : null);
@@ -139,6 +151,17 @@ export default function App() {
 
   const removePhoto = (uri) => setPhotos((current) => current.filter((photo) => photo.uri !== uri));
 
+  const selectCategory = (item) => {
+    setCategory(item);
+    setTemplate(null);
+    setMusicId('');
+    setSchedule(item === 'Wedding' ? [...WEDDING_SCHEDULE] : []);
+  };
+
+  const updateScheduleItem = (index, key, value) => setSchedule((current) => current.map((item, i) => (i === index ? { ...item, [key]: value } : item)));
+  const removeScheduleItem = (index) => setSchedule((current) => current.filter((_, i) => i !== index));
+  const addScheduleItem = () => setSchedule((current) => (current.length >= 6 ? current : [...current, { name: '', time: '' }]));
+
   async function createVideo() {
     setError(''); setVideoUrl(null); setLocalVideoUri(null);
     if (!credential && !DISABLE_GOOGLE_AUTH) return setError('Sign in with Google before creating a video.');
@@ -151,7 +174,7 @@ export default function App() {
       setStatus('Starting render…');
       const nameOne = category === 'Birthday' ? details.firstName : details.partnerOne;
       const nameTwo = category === 'Birthday' ? details.lastName : details.partnerTwo;
-      const render = await json('/renders', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${credential}` }, body: JSON.stringify({ template: template.id, couple: { partnerOne: nameOne || 'Your', partnerTwo: nameTwo || 'Story' }, eventDate: details.eventDate, venue: { name: details.venueName, city: details.city }, message: details.message, photos: uploaded, musicId: musicId || template.defaultMusicId || undefined, durationInSeconds: Number(details.durationInSeconds) || 10, tags: [category.toLowerCase()] }) });
+      const render = await json('/renders', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${credential}` }, body: JSON.stringify({ template: template.id, couple: { partnerOne: nameOne || 'Your', partnerTwo: nameTwo || 'Story' }, eventDate: details.eventDate, venue: { name: details.venueName, city: details.city }, message: details.message, schedule: category === 'Engagement' ? [{ name: 'Engagement', time: details.eventDate }] : category === 'Birthday' ? [] : schedule.filter((item) => item.name || item.time), photos: uploaded, musicId: musicId || template.defaultMusicId || undefined, durationInSeconds: Number(details.durationInSeconds) || 10, tags: [category.toLowerCase()] }) });
       let current = render;
       for (let i = 0; i < 90 && !['done', 'failed'].includes(current.status); i += 1) { await new Promise((resolve) => setTimeout(resolve, 2000)); current = await json(`/renders/${render.jobId}`, { headers: { Authorization: `Bearer ${credential}` } }); const progress = Number(current.progress || 0); setStatus(`Rendering… ${Math.round(progress <= 1 ? progress * 100 : progress)}%`); }
       if (current.status === 'failed') throw new Error(current.error || 'Render failed');
@@ -197,7 +220,19 @@ export default function App() {
   }
 
   const next = () => { if (step === 0 && !template) return setError('Choose a template first.'); setError(''); setStep((n) => Math.min(3, n + 1)); };
-  const previous = () => { setError(''); setStep((n) => Math.max(0, n - 1)); };
+  const previous = () => {
+    setError('');
+    // After a finished render, Back dismisses the "Ready to share" frame and starts a fresh video.
+    if (videoUrl) {
+      setVideoUrl(null);
+      setLocalVideoUri(null);
+      setStatus('');
+      setVideoAction('');
+      setStep(0);
+      return;
+    }
+    setStep((n) => Math.max(0, n - 1));
+  };
 
   const activeStep = STEPS[step];
 
@@ -208,8 +243,9 @@ export default function App() {
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           {/* Header */}
           <View style={styles.brandRow}>
-            <Image source={require('./assets/icon.png')} style={styles.brandLogo} />
-            <Text style={styles.brand}>InvitaVideos</Text>
+            <View style={styles.brandPlate}>
+              <Image source={require('./assets/logo-text.png')} style={styles.brandLogo} resizeMode="contain" />
+            </View>
             {user ? <View style={styles.avatarChip}><Text style={styles.avatarText}>{(user.name || user.email || '?').slice(0, 1).toUpperCase()}</Text></View> : null}
           </View>
 
@@ -235,7 +271,7 @@ export default function App() {
             <>
               <View style={styles.chips}>
                 {(categories.length ? categories : ['Wedding', 'Engagement', 'Birthday']).map((item) => (
-                  <Pressable key={item} onPress={() => { setCategory(item); setTemplate(null); setMusicId(''); }} style={[styles.chip, category === item && styles.chipActive]}>
+                  <Pressable key={item} onPress={() => selectCategory(item)} style={[styles.chip, category === item && styles.chipActive]}>
                     <Text style={styles.chipIcon}>{CATEGORY_ICONS[item] || '✨'}</Text>
                     <Text style={[styles.chipText, category === item && styles.chipTextActive]}>{item}</Text>
                   </Pressable>
@@ -288,13 +324,56 @@ export default function App() {
                   <Field label="Partner 2" value={details.partnerTwo} onChangeText={(v) => setField('partnerTwo', v)} placeholder="Meera" style={styles.flex} />
                 </View>
               )}
-              <Field label="Event date" value={details.eventDate} onChangeText={(v) => setField('eventDate', v)} placeholder="14 December 2026" />
+              <View style={styles.field}>
+                <Text style={styles.label}>Event date</Text>
+                <Pressable onPress={() => setDatePickerOpen(true)} style={styles.input}>
+                  <View style={styles.dateRow}>
+                    <Text style={details.eventDate ? styles.dateValue : styles.datePlaceholder}>{details.eventDate || 'Select a date'}</Text>
+                    <Text style={styles.dateIcon}>📅</Text>
+                  </View>
+                </Pressable>
+              </View>
               <View style={styles.fieldRow}>
                 <Field label="Venue" value={details.venueName} onChangeText={(v) => setField('venueName', v)} placeholder="The Grand Palace" style={styles.flex} />
                 <Field label="City" value={details.city} onChangeText={(v) => setField('city', v)} placeholder="Jaipur" style={styles.flex} />
               </View>
               <Field label="Message to guests" value={details.message} onChangeText={(v) => setField('message', v)} placeholder="Join us as we begin our forever…" multiline />
               <Field label="Video duration (seconds)" value={details.durationInSeconds} onChangeText={(v) => setField('durationInSeconds', v)} keyboardType="number-pad" />
+
+              {category === 'Wedding' && (
+                <View style={styles.scheduleSection}>
+                  <View style={styles.scheduleHeader}>
+                    <Text style={styles.scheduleTitle}>Event schedule</Text>
+                    <Pressable onPress={addScheduleItem} disabled={schedule.length >= 6} style={[styles.addEventButton, schedule.length >= 6 && styles.buttonDisabled]}>
+                      <Text style={styles.addEventText}>＋ Add event</Text>
+                    </Pressable>
+                  </View>
+                  {schedule.map((item, index) => (
+                    <View key={index} style={styles.scheduleRow}>
+                      <TextInput
+                        value={item.name}
+                        onChangeText={(v) => updateScheduleItem(index, 'name', v)}
+                        placeholder="Haldi"
+                        placeholderTextColor={palette.textMuted}
+                        selectionColor={palette.gold}
+                        style={[styles.input, styles.scheduleName]}
+                      />
+                      <TextInput
+                        value={item.time}
+                        onChangeText={(v) => updateScheduleItem(index, 'time', v)}
+                        placeholder="10:00 AM"
+                        placeholderTextColor={palette.textMuted}
+                        selectionColor={palette.gold}
+                        style={[styles.input, styles.scheduleTime]}
+                      />
+                      <Pressable onPress={() => removeScheduleItem(index)} style={styles.scheduleRemove} hitSlop={8}>
+                        <Text style={styles.scheduleRemoveText}>✕</Text>
+                      </Pressable>
+                    </View>
+                  ))}
+                  {schedule.length === 0 && <Text style={styles.helper}>No events — the schedule section will show empty in the video.</Text>}
+                </View>
+              )}
             </View>
           )}
 
@@ -400,7 +479,72 @@ export default function App() {
           <Text style={styles.footer} onPress={() => Linking.openURL('https://invitavideos.com')}>InvitaVideos.com</Text>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <DatePickerModal
+        visible={datePickerOpen}
+        value={details.eventDate}
+        onClose={() => setDatePickerOpen(false)}
+        onSelect={(formatted) => { setField('eventDate', formatted); setDatePickerOpen(false); }}
+      />
     </SafeAreaView>
+  );
+}
+
+function DatePickerModal({ visible, value, onClose, onSelect }) {
+  const parsed = useMemo(() => {
+    if (!value) return { date: new Date(), valid: false };
+    // Stored as "14 December 2026" — rearrange to "December 14 2026" for reliable parsing.
+    const match = value.match(/^(\d{1,2}) (\w+) (\d{4})$/);
+    const date = match ? new Date(`${match[2]} ${match[1]}, ${match[3]}`) : new Date(value);
+    return Number.isNaN(date.getTime()) ? { date: new Date(), valid: false } : { date, valid: true };
+  }, [value]);
+  const [viewYear, setViewYear] = useState(parsed.date.getFullYear());
+  const [viewMonth, setViewMonth] = useState(parsed.date.getMonth());
+  useEffect(() => { if (visible) { setViewYear(parsed.date.getFullYear()); setViewMonth(parsed.date.getMonth()); } }, [visible, parsed]);
+
+  const firstDay = new Date(viewYear, viewMonth, 1).getDay();
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const cells = [...Array(firstDay).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)];
+  const today = new Date();
+  const isToday = (day) => day === today.getDate() && viewMonth === today.getMonth() && viewYear === today.getFullYear();
+  const isSelected = (day) => parsed.valid && day === parsed.date.getDate() && viewMonth === parsed.date.getMonth() && viewYear === parsed.date.getFullYear();
+
+  const shiftMonth = (delta) => {
+    const next = new Date(viewYear, viewMonth + delta, 1);
+    setViewYear(next.getFullYear());
+    setViewMonth(next.getMonth());
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.modalBackdrop} onPress={onClose}>
+        <Pressable style={styles.calendarCard} onPress={() => {}}>
+          <View style={styles.calendarHeader}>
+            <Pressable onPress={() => shiftMonth(-1)} style={styles.calendarArrow} hitSlop={8}><Text style={styles.calendarArrowText}>‹</Text></Pressable>
+            <Text style={styles.calendarMonth}>{MONTHS[viewMonth]} {viewYear}</Text>
+            <Pressable onPress={() => shiftMonth(1)} style={styles.calendarArrow} hitSlop={8}><Text style={styles.calendarArrowText}>›</Text></Pressable>
+          </View>
+          <View style={styles.calendarWeekRow}>
+            {WEEKDAYS.map((day, i) => <Text key={`${day}-${i}`} style={styles.calendarWeekday}>{day}</Text>)}
+          </View>
+          <View style={styles.calendarGrid}>
+            {cells.map((day, index) => (
+              <View key={index} style={styles.calendarCell}>
+                {day ? (
+                  <Pressable
+                    onPress={() => onSelect(`${day} ${MONTHS[viewMonth]} ${viewYear}`)}
+                    style={[styles.calendarDay, isToday(day) && styles.calendarToday, isSelected(day) && styles.calendarSelected]}
+                  >
+                    <Text style={[styles.calendarDayText, isSelected(day) && styles.calendarSelectedText]}>{day}</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ))}
+          </View>
+          <Pressable onPress={onClose} style={styles.calendarClose}><Text style={styles.calendarCloseText}>Cancel</Text></Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -450,8 +594,10 @@ const styles = StyleSheet.create({
   container: { padding: 20, paddingBottom: 48, paddingTop: Platform.OS === 'android' ? 44 : 12 },
 
   // Header
-  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 22 },
-  brandLogo: { width: 36, height: 36, borderRadius: 10 },
+  brandRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 22 },
+  // Light plate behind the wordmark — the logo's purple "Invita" is unreadable on the dark bg.
+  brandPlate: { backgroundColor: '#FFF8F0', borderRadius: 14, paddingVertical: 8, paddingHorizontal: 14, ...cardShadow },
+  brandLogo: { width: 148, height: 38 },
   brand: { color: palette.gold, fontSize: 19, fontWeight: '800', letterSpacing: 0.8, flex: 1 },
   avatarChip: { width: 34, height: 34, borderRadius: 17, backgroundColor: palette.surfaceRaised, borderWidth: 1, borderColor: palette.borderStrong, alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: palette.gold, fontWeight: '800', fontSize: 14 },
@@ -505,6 +651,41 @@ const styles = StyleSheet.create({
   input: { backgroundColor: palette.bg, color: palette.text, borderWidth: 1.5, borderColor: palette.border, borderRadius: 12, paddingVertical: Platform.OS === 'ios' ? 13 : 10, paddingHorizontal: 14, fontSize: 15 },
   inputFocused: { borderColor: palette.gold },
   multiline: { minHeight: 90, textAlignVertical: 'top' },
+
+  // Date picker
+  dateRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  dateValue: { color: palette.text, fontSize: 15 },
+  datePlaceholder: { color: palette.textMuted, fontSize: 15 },
+  dateIcon: { fontSize: 15 },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  calendarCard: { width: '100%', maxWidth: 360, backgroundColor: palette.surfaceRaised, borderRadius: 20, borderWidth: 1, borderColor: palette.borderStrong, padding: 18, ...cardShadow },
+  calendarHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+  calendarArrow: { width: 36, height: 36, borderRadius: 18, backgroundColor: palette.surface, alignItems: 'center', justifyContent: 'center' },
+  calendarArrowText: { color: palette.gold, fontSize: 22, fontWeight: '700', marginTop: -2 },
+  calendarMonth: { color: palette.text, fontSize: 16, fontWeight: '800' },
+  calendarWeekRow: { flexDirection: 'row', marginBottom: 6 },
+  calendarWeekday: { flex: 1, textAlign: 'center', color: palette.textMuted, fontSize: 12, fontWeight: '700' },
+  calendarGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  calendarCell: { width: `${100 / 7}%`, aspectRatio: 1, padding: 2 },
+  calendarDay: { flex: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 999 },
+  calendarToday: { borderWidth: 1.5, borderColor: palette.borderStrong },
+  calendarSelected: { backgroundColor: palette.gold },
+  calendarDayText: { color: palette.text, fontSize: 14, fontWeight: '600' },
+  calendarSelectedText: { color: palette.bg, fontWeight: '800' },
+  calendarClose: { alignItems: 'center', paddingVertical: 12, marginTop: 6 },
+  calendarCloseText: { color: palette.textSoft, fontWeight: '700' },
+
+  // Event schedule (Wedding)
+  scheduleSection: { borderTopWidth: 1, borderTopColor: palette.border, paddingTop: 16, marginTop: 4 },
+  scheduleHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  scheduleTitle: { color: palette.text, fontSize: 15, fontWeight: '700' },
+  addEventButton: { borderWidth: 1.5, borderColor: palette.borderStrong, borderRadius: 20, paddingVertical: 7, paddingHorizontal: 14 },
+  addEventText: { color: palette.gold, fontSize: 12.5, fontWeight: '700' },
+  scheduleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  scheduleName: { flex: 1 },
+  scheduleTime: { width: 104 },
+  scheduleRemove: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  scheduleRemoveText: { color: palette.textMuted, fontSize: 14, fontWeight: '700' },
 
   // Photos
   photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
