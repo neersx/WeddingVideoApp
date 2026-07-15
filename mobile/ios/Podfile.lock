@@ -1,9 +1,6 @@
 PODS:
   - EXApplication (57.0.0):
     - ExpoModulesCore
-  - EXAV (16.0.8):
-    - ExpoModulesCore
-    - ReactCommon/turbomodule/core
   - EXConstants (57.0.3):
     - ExpoModulesCore
   - EXJSONUtils (57.0.0)
@@ -231,6 +228,8 @@ PODS:
   - ExpoModulesWorklets (57.0.3):
     - ExpoModulesCore
     - ExpoModulesJSI
+  - ExpoVideo (57.0.0):
+    - ExpoModulesCore
   - ExpoWebBrowser (57.0.0):
     - ExpoModulesCore
   - EXUpdatesInterface (57.0.0):
@@ -2063,7 +2062,6 @@ PODS:
 
 DEPENDENCIES:
   - EXApplication (from `../node_modules/expo-auth-session/node_modules/expo-application/ios`)
-  - EXAV (from `../node_modules/expo-av/ios`)
   - EXConstants (from `../node_modules/expo-auth-session/node_modules/expo-constants/ios`)
   - EXJSONUtils (from `../node_modules/expo-json-utils/ios`)
   - EXManifests (from `../node_modules/expo-manifests/ios`)
@@ -2084,6 +2082,7 @@ DEPENDENCIES:
   - ExpoModulesCore (from `../node_modules/expo-modules-core/ExpoModulesCore.podspec`)
   - ExpoModulesJSI (from `../node_modules/expo-modules-jsi/apple`)
   - ExpoModulesWorklets (from `../node_modules/expo-modules-core/ExpoModulesWorklets.podspec`)
+  - ExpoVideo (from `../node_modules/expo-video/ios/ExpoVideo.podspec`)
   - ExpoWebBrowser (from `../node_modules/expo-web-browser/ios`)
   - EXUpdatesInterface (from `../node_modules/expo-updates-interface/ios`)
   - FBLazyVector (from `../node_modules/react-native/Libraries/FBLazyVector`)
@@ -2166,8 +2165,6 @@ DEPENDENCIES:
 EXTERNAL SOURCES:
   EXApplication:
     :path: "../node_modules/expo-auth-session/node_modules/expo-application/ios"
-  EXAV:
-    :path: "../node_modules/expo-av/ios"
   EXConstants:
     :path: "../node_modules/expo-auth-session/node_modules/expo-constants/ios"
   EXJSONUtils:
@@ -2208,6 +2205,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-modules-jsi/apple"
   ExpoModulesWorklets:
     :podspec: "../node_modules/expo-modules-core/ExpoModulesWorklets.podspec"
+  ExpoVideo:
+    :podspec: "../node_modules/expo-video/ios/ExpoVideo.podspec"
   ExpoWebBrowser:
     :path: "../node_modules/expo-web-browser/ios"
   EXUpdatesInterface:
@@ -2366,7 +2365,6 @@ EXTERNAL SOURCES:
 
 SPEC CHECKSUMS:
   EXApplication: 7283a281903a90230466ab545ab87a8c48cf4e12
-  EXAV: b60fcf142fae6684d295bc28cd7cfcb3335570ea
   EXConstants: d069b4a2dd469d5a3a4d3d7b09757e708fda8f64
   EXJSONUtils: 55eca2b6f8fc320cb36933cf45c4f2200a441589
   EXManifests: 66a0e4af8cdb58c0983d462d886136b6d56eee38
@@ -2387,6 +2385,7 @@ SPEC CHECKSUMS:
   ExpoModulesCore: a28becaea6a256cd1d0f1c83e3ee944bcc5072d7
   ExpoModulesJSI: 0fad44a0464a4469b83a06e34e529c13043f2f69
   ExpoModulesWorklets: f6b71b8ddeb8dceb2ce3504544ecfbd708ba79a2
+  ExpoVideo: 11cd8703a21fbeb87980017f6912c1f3145dad52
   ExpoWebBrowser: 32dfd25ad5d384028137a0de71991f28663562e0
   EXUpdatesInterface: 492cdb30f3889cc35d9e737a4b5fc3aec39d1131
   FBLazyVector: b3e7ad108f0d882e30445c5527d774e3fd432f3d

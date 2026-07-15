@@ -9,7 +9,7 @@
     "scheme": "invitavideos",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.invitavideos"
+      "bundleIdentifier": "com.invitavideos.app"
     },
     "android": {
       "adaptiveIcon": {
@@ -17,10 +17,23 @@
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+      },
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
+      "package": "com.invitavideos.app"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
-    }
+      "favicon": "./assets/icon.png"
+    },
+    "plugins": [
+      "expo-video",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "InvitaVideos needs access to your photos to create invitation videos."
+        }
+      ]
+    ]
   }
 }

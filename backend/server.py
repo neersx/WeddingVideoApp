@@ -27,6 +27,8 @@ if storage_backend not in {'memory', 'mongodb'}:
 RENDER_SERVICE_URL = os.environ.get('RENDER_SERVICE_URL', 'http://localhost:4001')
 INTERNAL_BASE_URL = os.environ.get('INTERNAL_BASE_URL', 'http://localhost:8001')
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '').strip()
+GOOGLE_CLIENT_IDS = [client_id.strip() for client_id in GOOGLE_CLIENT_ID.split(',') if client_id.strip()]
+DISABLE_GOOGLE_AUTH = os.environ.get('DISABLE_GOOGLE_AUTH', 'false').strip().lower() in {'1', 'true', 'yes', 'on'}
 CONFIGURED_ADMIN_EMAILS = {
     email.strip().lower()
     for email in os.environ.get('ADMIN_EMAILS', '').split(',')
@@ -443,14 +445,14 @@ async def _save_google_user(user: GoogleUser):
 
 
 def _verify_google_credential(credential: str) -> GoogleUser:
-    if not GOOGLE_CLIENT_ID:
+    if not GOOGLE_CLIENT_IDS:
         raise HTTPException(status_code=503, detail="Google login is not configured")
 
     try:
         payload = id_token.verify_oauth2_token(
             credential,
             google_requests.Request(),
-            GOOGLE_CLIENT_ID,
+            GOOGLE_CLIENT_IDS,
         )
     except ValueError as exc:
         raise HTTPException(status_code=401, detail="Invalid Google credential") from exc
@@ -473,6 +475,14 @@ def _verify_google_credential(credential: str) -> GoogleUser:
 
 
 async def require_google_user(authorization: str = Header(default="")) -> GoogleUser:
+    if DISABLE_GOOGLE_AUTH:
+        return GoogleUser(
+            sub="local-development-user",
+            email=os.environ.get('DEV_USER_EMAIL', 'local-dev@invitavideos.test'),
+            name="Local Development User",
+            picture="",
+            email_verified=True,
+        )
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer" or not token:
         raise HTTPException(status_code=401, detail="Login is required to render a video")
