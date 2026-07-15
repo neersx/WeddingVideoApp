@@ -10,6 +10,7 @@ The built-in catalog now also includes category-specific templates:
 - Engagement: `Engagement Glow`, `Ring Reveal`
 - Birthday: `Confetti Pop`
 - Birthday: `Birthday Era` (`birthday-era-v1`), an emotional cinematic 30-second reel with a branded InvitaVideos outro.
+- Birthday: `Golden Hour` (`golden-hour`), a luxury editorial birthday short film with moving golden reflections and the same InvitaVideos branding treatment.
 
 For Birthday templates, the current shared form uses Partner One as the birthday person's name and Partner Two as the host or family name.
 

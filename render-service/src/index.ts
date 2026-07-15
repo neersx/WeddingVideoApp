@@ -52,6 +52,7 @@ const buildInputProps = (body: any) => {
     'confetti-pop': 'ConfettiPop',
     'birthday-era-v1': 'BirthdayEra',
     'birthday-era': 'BirthdayEra',
+    'golden-hour': 'GoldenHour',
   };
   const compositionId = compMap[template] || 'Marigold';
   const inputProps = {

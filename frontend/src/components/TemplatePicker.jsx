@@ -137,6 +137,21 @@ export const DEFAULT_TEMPLATES = [
     isActive: true,
     sortOrder: 5,
   },
+  {
+    id: "golden-hour",
+    name: "Golden Hour",
+    desc: "Luxury cinematic birthday short film with warm sunset light, editorial typography, moving golden reflections and a branded InvitaVideos outro.",
+    category: "Birthday",
+    style: "Cinematic Editorial",
+    duration: 30,
+    maxImages: 4,
+    swatch: ["#0D0A09", "#2C1A15", "#D9AE65", "#FFF7EA"],
+    bg: "#2C1A15",
+    text: "#FFF7EA",
+    font: "'Cormorant Garamond', serif",
+    isActive: true,
+    sortOrder: 15,
+  },
 ];
 
 export const TemplatePicker = ({ value, onChange, templates = DEFAULT_TEMPLATES }) => {
