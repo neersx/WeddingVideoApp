@@ -37,7 +37,7 @@ const Field = ({ label, testId, children }) => (
   </div>
 );
 
-export const DetailsForm = ({ details, onChange, category = "Wedding" }) => {
+export const DetailsForm = ({ details, onChange, category = "Wedding", isShowcase = false }) => {
   const set = (key) => (e) => onChange({ ...details, [key]: e.target.value });
   const selectedDate = parseEventDate(details.eventDate);
   const isEngagement = category === "Engagement";
@@ -147,17 +147,19 @@ export const DetailsForm = ({ details, onChange, category = "Wedding" }) => {
             <p className="text-xs text-neutral-400">Separate tags with commas. Up to 12 tags are saved with the video.</p>
           </Field>
         </div>
-        <div className="sm:col-span-2">
-          <Field label="Showcase Final Screen Message">
-            <Textarea
-              data-testid="display-message-input"
-              value={details.displayMessage}
-              onChange={set("displayMessage")}
-              rows={3}
-              placeholder="The moment we've all been waiting for..."
-            />
-          </Field>
-        </div>
+        {isShowcase && (
+          <div className="sm:col-span-2">
+            <Field label="Showcase Final Screen Message">
+              <Textarea
+                data-testid="display-message-input"
+                value={details.displayMessage}
+                onChange={set("displayMessage")}
+                rows={3}
+                placeholder="The moment we've all been waiting for..."
+              />
+            </Field>
+          </div>
+        )}
       </div>
     </section>
   );
