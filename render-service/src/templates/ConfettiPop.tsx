@@ -15,7 +15,30 @@ const Hero: React.FC<WeddingProps> = (props) => { const frame = useCurrentFrame(
 
 const Message: React.FC<WeddingProps> = (props) => <AbsoluteFill style={{justifyContent: 'center', padding: 100, fontFamily: font, textAlign: 'center'}}><Rise style={{background: 'rgba(255,255,255,.88)', borderRadius: 70, padding: '100px 70px', boxShadow: '18px 20px 0 rgba(116,84,216,.2)', border: '5px solid #FFD447'}}><div style={{fontSize: 34, fontWeight: 900, color: '#FF5A7A', letterSpacing: 8, textTransform: 'uppercase'}}>Cake · music · memories</div><div style={{fontSize: 64, fontWeight: 800, color: '#24213A', lineHeight: 1.3, marginTop: 55}}>{props.message || 'Come celebrate an amazing year and make the next one unforgettable!'}</div><div style={{fontSize: 30, color: '#7454D8', fontWeight: 700, marginTop: 55}}>Hosted with love by {props.couple.partnerTwo}</div></Rise></AbsoluteFill>;
 
-const Photo: React.FC<WeddingProps & {duration: number}> = (props) => { const frame = useCurrentFrame(); const photos = props.photos || []; return <AbsoluteFill style={{justifyContent: 'center', alignItems: 'center', fontFamily: font}}>{photos.length ? <div style={{position: 'relative', width: 820, height: 1180}}>{photos.slice(0, 3).map((src, i) => <div key={src} style={{position: 'absolute', inset: 0, padding: 22, background: '#FFF', boxShadow: '0 25px 70px rgba(70,40,80,.22)', transform: `rotate(${[-7, 6, -2][i]}deg) translate(${i * 13}px, ${i * 12}px) scale(${interpolate(frame, [0, props.duration], [1.04, 1])})`, opacity: i === Math.min(2, Math.floor(frame / Math.max(1, props.duration / Math.min(3, photos.length)))) ? 1 : .28}}><Img src={src} pauseWhenLoading style={{width: '100%', height: '100%', objectFit: 'cover'}} /></div>)}</div> : <div style={{fontSize: 260, fontWeight: 900, color: '#FF5A7A', textShadow: '10px 10px #FFD447'}}>HAPPY!</div>}</AbsoluteFill>; };
+const Photo: React.FC<WeddingProps & {duration: number}> = (props) => {
+  const frame = useCurrentFrame();
+  const photos = props.photos || [];
+  if (!photos.length) {
+    return <AbsoluteFill style={{justifyContent: 'center', alignItems: 'center', fontFamily: font}}><div style={{fontSize: 260, fontWeight: 900, color: '#FF5A7A', textShadow: '10px 10px #FFD447'}}>HAPPY!</div></AbsoluteFill>;
+  }
+
+  // Show one card at a time. The previous implementation rendered three
+  // semi-transparent cards together, which caused duplicated/ghosted faces.
+  const cardDuration = Math.max(1, Math.ceil(props.duration / photos.length));
+  const activeIndex = Math.min(photos.length - 1, Math.floor(frame / cardDuration));
+  const localFrame = frame - activeIndex * cardDuration;
+  const fade = Math.min(
+    interpolate(localFrame, [0, 12], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'}),
+    interpolate(localFrame, [Math.max(12, cardDuration - 16), cardDuration], [1, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'}),
+  );
+  const scale = interpolate(localFrame, [0, cardDuration], [1.04, 1], {extrapolateRight: 'clamp'});
+  const rotation = [-4, 3, -2, 2][activeIndex % 4];
+  return <AbsoluteFill style={{justifyContent: 'center', alignItems: 'center', fontFamily: font}}>
+    <div style={{width: 820, height: 1180, padding: 22, boxSizing: 'border-box', background: '#FFF', boxShadow: '0 25px 70px rgba(70,40,80,.24)', transform: `rotate(${rotation}deg) scale(${scale})`, opacity: fade}}>
+      <Img src={photos[activeIndex]} pauseWhenLoading style={{width: '100%', height: '100%', objectFit: 'cover'}} />
+    </div>
+  </AbsoluteFill>;
+};
 
 const Details: React.FC<WeddingProps> = (props) => <AbsoluteFill style={{justifyContent: 'center', padding: 105, fontFamily: font}}><Rise style={{fontSize: 85, fontWeight: 900, color: '#24213A', marginBottom: 55}}>Party Plan</Rise>{(props.schedule?.length ? props.schedule : [{name: 'Birthday Party', time: props.eventDate || 'Save the date'}]).slice(0, 4).map((item, i) => <Rise key={`${item.name}-${i}`} delay={i * 7} style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '32px 36px', margin: '16px 0', borderRadius: 28, background: colors[i % colors.length], color: i === 1 ? '#24213A' : '#FFF', fontSize: 37, fontWeight: 900, boxShadow: '8px 9px 0 rgba(40,30,50,.12)'}}><span>{item.name}</span><span style={{fontSize: 30}}>{item.time}</span></Rise>)}</AbsoluteFill>;
 
