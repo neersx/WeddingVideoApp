@@ -4,7 +4,7 @@ import { Music, Pause, Play } from "lucide-react";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "http://localhost:8001";
 
-export const MusicPicker = ({ value, onChange }) => {
+export const MusicPicker = ({ value, onChange, category = "Wedding" }) => {
   const [tracks, setTracks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [playingId, setPlayingId] = useState(null);
@@ -27,6 +27,17 @@ export const MusicPicker = ({ value, onChange }) => {
       if (audioRef.current) audioRef.current.pause();
     };
   }, []);
+
+  const visibleTracks = tracks.filter((track) => {
+    const categories = Array.isArray(track.categories) ? track.categories : [];
+    return !categories.length || categories.includes(category);
+  });
+
+  useEffect(() => {
+    if (value && tracks.length && !visibleTracks.some((track) => track.id === value)) {
+      onChange(null);
+    }
+  }, [category, onChange, tracks, value, visibleTracks]);
 
   const togglePlay = (track) => {
     if (playingId === track.id) {
@@ -74,7 +85,7 @@ export const MusicPicker = ({ value, onChange }) => {
             <div className="col-span-full text-center text-xs text-neutral-500">Loading tracks…</div>
           )}
 
-          {tracks.map((t) => {
+          {visibleTracks.map((t) => {
             const selected = value === t.id;
             const isPlaying = playingId === t.id;
             return (

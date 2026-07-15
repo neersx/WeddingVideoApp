@@ -38,13 +38,17 @@ import {
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "http://localhost:8001";
 const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || "";
-const ADMIN_EMAILS = (process.env.REACT_APP_ADMIN_EMAILS || "")
+const CONFIGURED_ADMIN_EMAILS = (process.env.REACT_APP_ADMIN_EMAILS || "")
   .split(",")
   .map((email) => email.trim().toLowerCase())
   .filter(Boolean);
+const ADMIN_EMAILS = CONFIGURED_ADMIN_EMAILS.length ? CONFIGURED_ADMIN_EMAILS : ["neer19ultimate@gmail.com"];
 const RECAPTCHA_SITE_KEY = process.env.REACT_APP_RECAPTCHA_SITE_KEY || "";
 const RECAPTCHA_ACTION = "render_video";
 export const API = `${BACKEND_URL}/api`;
+const musicCategoryList = (categories) => Array.isArray(categories)
+  ? categories
+  : String(categories || "").split(",").map((item) => item.trim()).filter(Boolean);
 const AUTH_STORAGE_KEY = "invitavideos.googleUser";
 const AUTH_CREDENTIAL_STORAGE_KEY = "invitavideos.googleCredential";
 let recaptchaScriptPromise = null;
@@ -741,6 +745,10 @@ function CreateVideoPage() {
     setSchedule(category === "Wedding" ? [...weddingSchedule] : []);
   }, [category]);
 
+  useEffect(() => {
+    setMusicId(selectedTemplate?.defaultMusicId || null);
+  }, [template, selectedTemplate?.defaultMusicId]);
+
   useEffect(() => () => clearInterval(pollRef.current), []);
 
   useEffect(() => {
@@ -979,7 +987,7 @@ function CreateVideoPage() {
                 {category === "Wedding" && <div className="border-t border-[#ECD5E2] pt-5"><ScheduleBuilder schedule={schedule} onChange={setSchedule} /></div>}
               </div>}
               {wizardStep === 2 && <PhotoUploader photos={photos} onChange={setPhotos} />}
-              {wizardStep === 3 && <MusicPicker value={musicId} onChange={setMusicId} />}
+              {wizardStep === 3 && <MusicPicker value={musicId} onChange={setMusicId} category={category} />}
 
               <div className="mt-7 flex items-center justify-between gap-3 border-t border-[#ECD5E2] pt-5">
                 <button type="button" onClick={goBack} disabled={wizardStep === 0} className="rounded-full border border-[#E8C9DB] px-5 py-2.5 text-sm font-bold text-[#8D1B63] transition hover:bg-[#FFF0F7] disabled:cursor-not-allowed disabled:opacity-35">Back</button>
@@ -1075,25 +1083,35 @@ function AdminTemplatesPage() {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState("");
+  const [musicTracks, setMusicTracks] = useState([]);
+  const [musicUpload, setMusicUpload] = useState({ file: null, title: "", mood: "", credit: "", duration: 30, categories: "", templateId: "" });
+  const [uploadingMusic, setUploadingMusic] = useState(false);
+  const [savingMusicId, setSavingMusicId] = useState("");
 
   const loadTemplates = useCallback(async () => {
-    if (!credential) return;
+    if (!credential || !isAdminUser(user)) return;
     setLoading(true);
     try {
-      const response = await axios.get(`${API}/admin/templates`, {
-        headers: { Authorization: `Bearer ${credential}` },
-      });
-      setTemplates(response.data);
+      const [templatesResponse, musicResponse] = await Promise.all([
+        axios.get(`${API}/admin/templates`, { headers: { Authorization: `Bearer ${credential}` } }),
+        axios.get(`${API}/music`),
+      ]);
+      setTemplates(templatesResponse.data);
+      setMusicTracks(musicResponse.data);
     } catch (error) {
       toast.error(error?.response?.data?.detail || "Failed to load template mappings");
     } finally {
       setLoading(false);
     }
-  }, [credential]);
+  }, [credential, user]);
 
   useEffect(() => {
     loadTemplates();
   }, [loadTemplates]);
+
+  if (!isAdminUser(user)) {
+    return <NotFoundPage />;
+  }
 
   const updateLocalTemplate = (templateId, field, value) => {
     setTemplates((current) =>
@@ -1112,6 +1130,7 @@ function AdminTemplatesPage() {
           category: template.category,
           isActive: template.isActive,
           sortOrder: Number(template.sortOrder) || 100,
+          defaultMusicId: template.defaultMusicId || null,
         },
         {
           headers: { Authorization: `Bearer ${credential}` },
@@ -1125,6 +1144,53 @@ function AdminTemplatesPage() {
       toast.error(error?.response?.data?.detail || "Failed to save template mapping");
     } finally {
       setSavingId("");
+    }
+  };
+
+  const uploadMusic = async (event) => {
+    event.preventDefault();
+    if (!musicUpload.file || !musicUpload.title.trim()) {
+      toast.error("Choose an MP3 file and enter a title");
+      return;
+    }
+    setUploadingMusic(true);
+    try {
+      const form = new FormData();
+      form.append("file", musicUpload.file);
+      form.append("title", musicUpload.title);
+      form.append("mood", musicUpload.mood);
+      form.append("credit", musicUpload.credit);
+      form.append("duration", String(musicUpload.duration || 30));
+      form.append("categories", musicUpload.categories);
+      form.append("templateId", musicUpload.templateId);
+      await axios.post(`${API}/admin/music`, form, {
+        headers: { Authorization: `Bearer ${credential}` },
+      });
+      toast.success(musicUpload.templateId ? "Music uploaded and assigned to the template" : "Music uploaded");
+      setMusicUpload({ file: null, title: "", mood: "", credit: "", duration: 30, categories: "", templateId: "" });
+      await loadTemplates();
+    } catch (error) {
+      toast.error(error?.response?.data?.detail || "Failed to upload music");
+    } finally {
+      setUploadingMusic(false);
+    }
+  };
+
+  const saveMusicCategories = async (track) => {
+    const categories = String(track.categories || "").split(",").map((item) => item.trim()).filter(Boolean);
+    if (!categories.length) {
+      toast.error("Add at least one category");
+      return;
+    }
+    setSavingMusicId(track.id);
+    try {
+      const response = await axios.patch(`${API}/admin/music/${track.id}`, { categories }, { headers: { Authorization: `Bearer ${credential}` } });
+      setMusicTracks((current) => current.map((item) => item.id === track.id ? response.data : item));
+      toast.success(`${track.title} categories saved`);
+    } catch (error) {
+      toast.error(error?.response?.data?.detail || "Failed to save music categories");
+    } finally {
+      setSavingMusicId("");
     }
   };
 
@@ -1182,17 +1248,50 @@ function AdminTemplatesPage() {
                 </div>
               </div>
 
+              <form onSubmit={uploadMusic} className="mt-6 rounded-3xl border border-[#ECD5E2] bg-white p-6 shadow-[0_14px_46px_rgba(81,25,62,0.05)]">
+                <div className="section-label text-left text-[#9B256D]">Music library</div>
+                <h2 className="mt-2 font-heading text-2xl font-extrabold text-[#32113A]">Upload MP3 and assign it</h2>
+                <p className="mt-1 text-sm text-neutral-500">The uploaded track will be available in the creator and can become a template’s default soundtrack.</p>
+                <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <input type="file" accept="audio/mpeg,.mp3" onChange={(event) => setMusicUpload((current) => ({ ...current, file: event.target.files?.[0] || null }))} className="rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm text-[#32113A] file:mr-3 file:rounded-full file:border-0 file:bg-[#F8EAF2] file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-[#8D1B63]" />
+                  <input value={musicUpload.title} onChange={(event) => setMusicUpload((current) => ({ ...current, title: event.target.value }))} placeholder="Track title" className="rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B22176]" />
+                  <input value={musicUpload.mood} onChange={(event) => setMusicUpload((current) => ({ ...current, mood: event.target.value }))} placeholder="Mood (e.g. Cinematic · Warm)" className="rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B22176]" />
+                  <input value={musicUpload.credit} onChange={(event) => setMusicUpload((current) => ({ ...current, credit: event.target.value }))} placeholder="Credit / artist" className="rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B22176]" />
+                  <input type="number" min="1" max="900" value={musicUpload.duration} onChange={(event) => setMusicUpload((current) => ({ ...current, duration: event.target.value }))} placeholder="Duration (seconds)" className="rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B22176]" />
+                  <input value={musicUpload.categories} onChange={(event) => setMusicUpload((current) => ({ ...current, categories: event.target.value }))} placeholder="Categories: Wedding, Birthday" className="rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B22176]" />
+                  <select value={musicUpload.templateId} onChange={(event) => setMusicUpload((current) => ({ ...current, templateId: event.target.value }))} className="rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B22176]">
+                    <option value="">Do not assign yet</option>
+                    {templates.map((template) => <option key={template.id} value={template.id}>Assign to {template.name}</option>)}
+                  </select>
+                </div>
+                <button type="submit" disabled={uploadingMusic} className="mt-4 rounded-full bg-[#32113A] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#52184D] disabled:cursor-not-allowed disabled:opacity-60">{uploadingMusic ? "Uploading..." : "Upload MP3"}</button>
+              </form>
+
+              <div className="mt-6 rounded-3xl border border-[#ECD5E2] bg-white p-6 shadow-[0_14px_46px_rgba(81,25,62,0.05)]">
+                <div className="section-label text-left text-[#9B256D]">Existing songs</div>
+                <div className="mt-4 space-y-3">
+                  {musicTracks.map((track) => (
+                    <div key={track.id} className="grid gap-3 rounded-2xl border border-[#F0DDE7] bg-[#FFFDFD] p-4 lg:grid-cols-[1.2fr_1fr_auto] lg:items-center">
+                      <div><div className="font-semibold text-[#32113A]">{track.title}</div><div className="text-xs text-neutral-500">{track.mood} · {track.credit}</div></div>
+                      <input value={musicCategoryList(track.categories).join(", ")} onChange={(event) => setMusicTracks((current) => current.map((item) => item.id === track.id ? { ...item, categories: event.target.value } : item))} placeholder="Wedding, Engagement" className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B22176]" />
+                      <button type="button" onClick={() => saveMusicCategories(track)} disabled={savingMusicId === track.id} className="rounded-full bg-[#F8EAF2] px-4 py-2 text-sm font-semibold text-[#8D1B63] transition hover:bg-[#F1D7E5] disabled:opacity-60">{savingMusicId === track.id ? "Saving..." : "Save categories"}</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
               <div className="mt-6 overflow-hidden rounded-3xl border border-[#ECD5E2] bg-white shadow-[0_14px_46px_rgba(81,25,62,0.05)]">
-                <div className="grid grid-cols-[1.2fr_1fr_0.55fr_0.55fr_0.55fr] gap-3 border-b border-[#F0DDE7] bg-[#FFF8FB] px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-neutral-500">
+                <div className="grid grid-cols-[1.2fr_1fr_1fr_0.55fr_0.55fr_0.55fr] gap-3 border-b border-[#F0DDE7] bg-[#FFF8FB] px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-neutral-500">
                   <div>Template</div>
                   <div>Category</div>
+                  <div>Default music</div>
                   <div>Sort</div>
                   <div>Active</div>
                   <div className="text-right">Action</div>
                 </div>
                 <div className="divide-y divide-[#F0DDE7]">
                   {templates.map((templateItem) => (
-                    <div key={templateItem.id} className="grid grid-cols-1 gap-4 px-5 py-5 lg:grid-cols-[1.2fr_1fr_0.55fr_0.55fr_0.55fr] lg:items-center">
+                    <div key={templateItem.id} className="grid grid-cols-1 gap-4 px-5 py-5 lg:grid-cols-[1.2fr_1fr_1fr_0.55fr_0.55fr_0.55fr] lg:items-center">
                       <div>
                         <div className="flex items-center gap-3">
                           <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-black/10 text-lg italic" style={{ backgroundColor: templateItem.bg, color: templateItem.text, fontFamily: templateItem.font }}>
@@ -1201,6 +1300,7 @@ function AdminTemplatesPage() {
                           <div>
                             <div className="font-heading text-lg font-extrabold text-[#32113A]">{templateItem.name}</div>
                             <div className="text-xs text-neutral-500">{templateItem.id}</div>
+                            <div className="mt-1 text-xs font-semibold text-[#A4176D]">{Number(templateItem.renderCount || 0)} {Number(templateItem.renderCount || 0) === 1 ? "video" : "videos"} created</div>
                           </div>
                         </div>
                         <p className="mt-2 max-w-xl text-sm leading-6 text-neutral-500">{templateItem.desc}</p>
@@ -1214,6 +1314,17 @@ function AdminTemplatesPage() {
                           className="w-full rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm font-normal normal-case tracking-normal text-[#32113A] outline-none transition focus:border-[#B22176] focus:ring-2 focus:ring-[#EFCBDD]"
                           placeholder="Wedding"
                         />
+                      </label>
+                      <label className="grid gap-1 text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400 lg:block">
+                        <span className="lg:hidden">Default music</span>
+                        <select
+                          value={templateItem.defaultMusicId || ""}
+                          onChange={(event) => updateLocalTemplate(templateItem.id, "defaultMusicId", event.target.value || null)}
+                          className="w-full rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm font-normal normal-case tracking-normal text-[#32113A] outline-none transition focus:border-[#B22176] focus:ring-2 focus:ring-[#EFCBDD]"
+                        >
+                          <option value="">No default music</option>
+                          {musicTracks.filter((track) => { const trackCategories = musicCategoryList(track.categories); return !trackCategories.length || trackCategories.includes(templateItem.category || "Wedding"); }).map((track) => <option key={track.id} value={track.id}>{track.title} · {musicCategoryList(track.categories).join(", ")}</option>)}
+                        </select>
                       </label>
                       <label className="grid gap-1 text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400 lg:block">
                         <span className="lg:hidden">Sort order</span>

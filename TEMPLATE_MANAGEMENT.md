@@ -24,6 +24,14 @@ The creator adapts its details form to the selected category:
 
 The render API continues to use the existing `couple.partnerOne` and `couple.partnerTwo` fields. For Birthday videos these contain the first and last name values, which keeps older render compositions compatible.
 
+## Default music per template
+
+Admins can choose a bundled soundtrack in the `Default music` column for every template. The selected track is stored as `defaultMusicId`. It is used automatically when a render does not specify a manual music selection; a user's selection in the Music step always takes precedence. Select `No default music` to keep a template silent.
+
+The same Admin page includes a Music library upload form. Upload an `.mp3`, enter its title and optional mood/credit/duration, then optionally choose a template to assign it immediately. Uploaded tracks are stored in MongoDB metadata plus the backend `music/` directory and are returned by `GET /api/music`.
+
+Music tracks also have a `categories` array. Enter multiple categories as comma-separated values, for example `Wedding, Engagement`. The creator only shows tracks linked to the selected video category, and assigning a template default requires the track to include that template's category.
+
 ## Video tags
 
 The creation form accepts comma-separated tags such as `wedding`, `showcase`, `premium invitation`, `traditional`, `family celebration`, `engagement`, `birthday`, or `milestone`. Suggested tags change with the selected category. Tags are normalized, deduplicated, limited to 12 values, and stored on each render document in the `tags` array.
@@ -74,7 +82,7 @@ The page lets you:
 - enable/disable templates
 - update sort order
 
-Write access uses Google login.
+Write access uses Google login. The frontend route and backend API are restricted to `neer19ultimate@gmail.com` by default; unauthorized users receive the normal 404 page in the frontend and a 403 response from the API.
 
 To restrict admin access in production, set `ADMIN_EMAILS` in `/etc/invitawedds/backend.env`:
 

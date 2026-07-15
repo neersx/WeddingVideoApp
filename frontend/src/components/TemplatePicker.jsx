@@ -229,7 +229,7 @@ export const TemplatePicker = ({ value, onChange, templates = DEFAULT_TEMPLATES 
       <p className="mb-2 text-xs font-semibold text-neutral-500">
         Choose a {activeCategory.toLowerCase()} template
       </p>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
         {categoryTemplates.map((t) => {
           const isSelected = value === t.id;
           return (
@@ -240,39 +240,50 @@ export const TemplatePicker = ({ value, onChange, templates = DEFAULT_TEMPLATES 
               aria-pressed={isSelected}
               title={t.desc}
               onClick={() => onChange(t.id)}
-              className={`group relative overflow-hidden rounded-xl border bg-white text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
+              className={`group relative overflow-hidden rounded-2xl border bg-white text-left shadow-[0_10px_30px_rgba(81,25,62,0.06)] transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_18px_42px_rgba(81,25,62,0.14)] ${
                 isSelected
-                  ? "border-[#C80A76] ring-2 ring-[#C80A76] ring-offset-1"
-                  : "border-black/10 hover:border-[#D9A9C6]"
+                  ? "border-[#C80A76] ring-2 ring-[#C80A76] ring-offset-2"
+                  : "border-[#ECD5E2] hover:border-[#D9A9C6]"
               }`}
             >
+              <span className="absolute left-3 top-3 z-10 rounded-full bg-black/55 px-2.5 py-1 text-[10px] font-semibold text-white backdrop-blur-sm">
+                {Number(t.renderCount || 0)} {Number(t.renderCount || 0) === 1 ? "video" : "videos"}
+              </span>
               <div
-                className="flex h-12 items-center justify-center"
-                style={{ backgroundColor: t.bg }}
+                className="relative flex h-28 items-center justify-center overflow-hidden sm:h-32"
+                style={{ background: `linear-gradient(135deg, ${t.bg || "#32113A"}, ${t.swatch?.[1] || t.bg || "#32113A"})` }}
               >
+                <div className="absolute inset-0 opacity-20" style={{ background: "radial-gradient(circle at 20% 10%, white, transparent 34%), radial-gradient(circle at 80% 90%, white, transparent 25%)" }} />
                 <span
-                  className="truncate px-2 text-lg italic"
+                  className="relative truncate px-5 text-center text-2xl italic drop-shadow-sm"
                   style={{ color: t.text, fontFamily: t.font }}
                 >
                   {t.name}
                 </span>
               </div>
               {isSelected && (
-                <span className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-[#C80A76] text-white shadow-sm">
-                  <Check className="h-3 w-3" strokeWidth={3} />
+                <span className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-full bg-[#C80A76] text-white shadow-md">
+                  <Check className="h-4 w-4" strokeWidth={3} />
                 </span>
               )}
-              <div className="flex items-center justify-between gap-2 px-2.5 py-1.5">
-                <span className="font-heading text-sm font-extrabold tracking-tight text-[#32113A]">{t.name}</span>
-                <span className="flex gap-1">
+              <div className="space-y-2.5 px-4 py-4">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-heading text-lg font-extrabold tracking-tight text-[#32113A]">{t.name}</span>
+                  <span className="flex shrink-0 gap-1">
                   {t.swatch.slice(0, 4).map((c) => (
                     <span
                       key={c}
-                      className="h-2.5 w-2.5 rounded-full border border-black/10"
+                      className="h-3 w-3 rounded-full border border-black/10"
                       style={{ backgroundColor: c }}
                     />
                   ))}
-                </span>
+                  </span>
+                </div>
+                <p className="line-clamp-2 min-h-[2.5rem] text-xs leading-5 text-neutral-500">{t.desc}</p>
+                <div className="flex items-center justify-between border-t border-[#F0DDE7] pt-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[#A4176D]">
+                  <span>{t.category || "Wedding"}</span>
+                  <span>{isSelected ? "Selected" : "Choose style"}</span>
+                </div>
               </div>
             </button>
           );

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, BackgroundTasks, Header, Depends, Request
+from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, Form, BackgroundTasks, Header, Depends, Request
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -10,6 +10,7 @@ import logging
 import httpx
 import uuid
 import asyncio
+import re
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -26,11 +27,12 @@ if storage_backend not in {'memory', 'mongodb'}:
 RENDER_SERVICE_URL = os.environ.get('RENDER_SERVICE_URL', 'http://localhost:4001')
 INTERNAL_BASE_URL = os.environ.get('INTERNAL_BASE_URL', 'http://localhost:8001')
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '').strip()
-ADMIN_EMAILS = {
+CONFIGURED_ADMIN_EMAILS = {
     email.strip().lower()
     for email in os.environ.get('ADMIN_EMAILS', '').split(',')
     if email.strip()
 }
+ADMIN_EMAILS = CONFIGURED_ADMIN_EMAILS or {'neer19ultimate@gmail.com'}
 RECAPTCHA_SECRET_KEY = os.environ.get('RECAPTCHA_SECRET_KEY', '').strip()
 RECAPTCHA_EXPECTED_ACTION = os.environ.get('RECAPTCHA_EXPECTED_ACTION', 'render_video').strip()
 try:
@@ -54,6 +56,7 @@ MUSIC_LIBRARY = [
         "filename": "tere-sang.mp3",
         "duration": 120,
         "credit": "Selectric Music & Lyrics",
+        "categories": ["Wedding", "Engagement"],
     },
     {
         "id": "wedding-romantic",
@@ -62,6 +65,7 @@ MUSIC_LIBRARY = [
         "filename": "wedding-romantic.mp3",
         "duration": 86,
         "credit": "Leberch",
+        "categories": ["Wedding"],
     },
     {
         "id": "romantic-adventure",
@@ -70,6 +74,7 @@ MUSIC_LIBRARY = [
         "filename": "romantic-adventure.mp3",
         "duration": 140,
         "credit": "Paul Yudin",
+        "categories": ["Wedding", "Engagement"],
     },
     {
         "id": "romantic",
@@ -78,6 +83,7 @@ MUSIC_LIBRARY = [
         "filename": "romantic.mp3",
         "duration": 35,
         "credit": "PrettyJohn1",
+        "categories": ["Wedding", "Engagement", "Birthday"],
     },
     {
         "id": "hindi-love-rap",
@@ -86,9 +92,28 @@ MUSIC_LIBRARY = [
         "filename": "hindi-love-rap.mp3",
         "duration": 210,
         "credit": "Rahul Sapkal",
+        "categories": ["Birthday"],
     },
 ]
 MUSIC_BY_ID = {t["id"]: t for t in MUSIC_LIBRARY}
+
+
+async def list_music_tracks():
+    """Return bundled tracks plus admin-uploaded tracks persisted in MongoDB."""
+    dynamic = await db.music.find().to_list(500)
+    overrides = {track.get("id"): track for track in dynamic}
+    bundled = [{**track, **overrides[track["id"]]} if track["id"] in overrides else track for track in MUSIC_LIBRARY]
+    return bundled + [track for track in dynamic if track.get("id") not in MUSIC_BY_ID]
+
+
+async def find_music_track(music_id: str):
+    override = await db.music.find_one({"id": music_id})
+    if override:
+        return override
+    track = MUSIC_BY_ID.get(music_id)
+    if track:
+        return track
+    return None
 
 DEFAULT_TEMPLATE_DOCUMENTS = [
     {
@@ -310,6 +335,12 @@ class _InMemoryCollection:
         )
         return dict(document) if document else None
 
+    async def count_documents(self, filter_query):
+        return sum(
+            1 for document in self._documents.values()
+            if all(document.get(key) == value for key, value in filter_query.items())
+        )
+
     def find(self, filter_query=None):
         filter_query = filter_query or {}
         documents = [
@@ -325,6 +356,7 @@ class _InMemoryDB:
         self.renders = _InMemoryCollection()
         self.users = _InMemoryCollection()
         self.templates = _InMemoryCollection()
+        self.music = _InMemoryCollection()
 
 
 client = None
@@ -378,6 +410,11 @@ class TemplateUpdateRequest(BaseModel):
     category: str
     isActive: bool = True
     sortOrder: int = 100
+    defaultMusicId: Optional[str] = None
+
+
+class MusicUpdateRequest(BaseModel):
+    categories: List[str] = Field(default_factory=list)
 
 
 def _user_doc_from_google_user(user: GoogleUser):
@@ -464,10 +501,18 @@ def _serialize_template(document):
         "style": document.get("style", ""),
         "duration": document.get("duration"),
         "maxImages": document.get("maxImages"),
+        "defaultMusicId": document["defaultMusicId"] if "defaultMusicId" in document else "tere-sang",
+        "renderCount": int(document.get("renderCount", 0)),
         "isActive": bool(document.get("isActive", True)),
         "sortOrder": int(document.get("sortOrder", 100)),
         "updated_at": document.get("updated_at"),
     }
+
+
+async def _attach_template_render_counts(templates):
+    for template in templates:
+        template["renderCount"] = await db.renders.count_documents({"template": template["id"]})
+    return templates
 
 
 async def seed_default_templates():
@@ -562,6 +607,7 @@ async def get_upload(filename: str):
 
 @api_router.get("/music")
 async def list_music():
+    tracks = await list_music_tracks()
     return [
         {
             "id": t["id"],
@@ -570,14 +616,15 @@ async def list_music():
             "duration": t["duration"],
             "credit": t["credit"],
             "url": f"/api/music/{t['id']}",
+            "categories": t.get("categories", []),
         }
-        for t in MUSIC_LIBRARY
+        for t in tracks
     ]
 
 
 @api_router.get("/music/{music_id}")
 async def get_music(music_id: str):
-    track = MUSIC_BY_ID.get(music_id)
+    track = await find_music_track(music_id)
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
     path = MUSIC_DIR / track["filename"]
@@ -586,13 +633,93 @@ async def get_music(music_id: str):
     return FileResponse(path, media_type="audio/mpeg", filename=track["filename"])
 
 
+@api_router.post("/admin/music")
+async def admin_upload_music(
+    file: UploadFile = File(...),
+    title: str = Form(...),
+    mood: str = Form("Uploaded track"),
+    credit: str = Form("Uploaded by admin"),
+    duration: int = Form(30),
+    categories: str = Form(""),
+    templateId: str = Form(""),
+    _: GoogleUser = Depends(require_admin_user),
+):
+    filename = file.filename or ""
+    if Path(filename).suffix.lower() != ".mp3":
+        raise HTTPException(status_code=400, detail="Only MP3 files are supported")
+    clean_title = title.strip()
+    if not clean_title:
+        raise HTTPException(status_code=400, detail="Track title is required")
+    data = await file.read()
+    if len(data) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="MP3 file too large (max 50MB)")
+    safe_id = re.sub(r"[^a-z0-9]+", "-", clean_title.lower()).strip("-") or "track"
+    track_categories = list(dict.fromkeys(item.strip() for item in categories.split(",") if item.strip()))
+    if not track_categories:
+        raise HTTPException(status_code=400, detail="Select at least one music category")
+    assigned_template = None
+    if templateId:
+        assigned_template = await db.templates.find_one({"_id": templateId})
+        if not assigned_template:
+            raise HTTPException(status_code=404, detail="Template not found")
+        if assigned_template.get("category") not in track_categories:
+            raise HTTPException(status_code=400, detail="Music categories must include the assigned template category")
+    music_id = f"{safe_id}-{uuid.uuid4().hex[:8]}"
+    stored_filename = f"{music_id}.mp3"
+    (MUSIC_DIR / stored_filename).write_bytes(data)
+    track = {
+        "_id": music_id,
+        "id": music_id,
+        "title": clean_title,
+        "mood": mood.strip() or "Uploaded track",
+        "duration": max(1, min(900, int(duration or 30))),
+        "credit": credit.strip() or "Uploaded by admin",
+        "categories": track_categories,
+        "filename": stored_filename,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.music.insert_one(track)
+    if templateId:
+        await db.templates.update_one(
+            {"_id": templateId},
+            {"$set": {"defaultMusicId": music_id, "updated_at": datetime.now(timezone.utc).isoformat()}},
+        )
+    return {"track": {**track, "url": f"/api/music/{music_id}"}, "assignedTemplateId": templateId or None}
+
+
+@api_router.patch("/admin/music/{music_id}")
+async def admin_update_music(
+    music_id: str,
+    req: MusicUpdateRequest,
+    _: GoogleUser = Depends(require_admin_user),
+):
+    current = await find_music_track(music_id)
+    if not current:
+        raise HTTPException(status_code=404, detail="Track not found")
+    categories = list(dict.fromkeys(item.strip() for item in req.categories if item.strip()))
+    if not categories:
+        raise HTTPException(status_code=400, detail="Select at least one music category")
+    existing = await db.music.find_one({"id": music_id})
+    if existing:
+        await db.music.update_one({"_id": existing["_id"]}, {"$set": {"categories": categories, "updated_at": datetime.now(timezone.utc).isoformat()}})
+    else:
+        override = dict(current)
+        override["_id"] = music_id
+        override["id"] = music_id
+        override["categories"] = categories
+        override["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db.music.insert_one(override)
+    updated = await find_music_track(music_id)
+    return {"id": updated["id"], "title": updated["title"], "mood": updated.get("mood", ""), "duration": updated.get("duration", 0), "credit": updated.get("credit", ""), "categories": updated.get("categories", []), "url": f"/api/music/{music_id}"}
+
+
 @api_router.get("/templates")
 async def list_templates(category: Optional[str] = None):
     filter_query = {"isActive": True}
     if category:
         filter_query["category"] = category
     docs = await db.templates.find(filter_query).to_list(200)
-    templates = [_serialize_template(d) for d in docs]
+    templates = await _attach_template_render_counts([_serialize_template(d) for d in docs])
     templates.sort(key=lambda t: (t["category"].lower(), t["sortOrder"], t["name"].lower()))
     return templates
 
@@ -607,7 +734,7 @@ async def list_template_categories():
 @api_router.get("/admin/templates")
 async def admin_list_templates(_: GoogleUser = Depends(require_admin_user)):
     docs = await db.templates.find().to_list(200)
-    templates = [_serialize_template(d) for d in docs]
+    templates = await _attach_template_render_counts([_serialize_template(d) for d in docs])
     templates.sort(key=lambda t: (t["category"].lower(), t["sortOrder"], t["name"].lower()))
     return templates
 
@@ -630,11 +757,19 @@ async def admin_update_template(
         "category": category,
         "isActive": req.isActive,
         "sortOrder": req.sortOrder,
+        "defaultMusicId": req.defaultMusicId.strip() if req.defaultMusicId else None,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
+    if updates["defaultMusicId"]:
+        music_track = await find_music_track(updates["defaultMusicId"])
+        if not music_track:
+            raise HTTPException(status_code=400, detail="Unknown default music track")
+        music_categories = music_track.get("categories", [])
+        if music_categories and category not in music_categories:
+            raise HTTPException(status_code=400, detail="Default music is not linked to this template category")
     await db.templates.update_one({"_id": template_id}, {"$set": updates})
     updated = await db.templates.find_one({"_id": template_id})
-    return _serialize_template(updated)
+    return (await _attach_template_render_counts([_serialize_template(updated)]))[0]
 
 
 async def _run_render_job(job_id: str, payload: dict):
@@ -714,11 +849,20 @@ async def create_render(
     payload = req.model_dump(exclude={"recaptchaToken"})
     payload["tags"] = list(dict.fromkeys(tag.strip() for tag in req.tags if tag.strip()))[:12]
 
+    effective_music_id = req.musicId
+    if not effective_music_id:
+        template_doc = await db.templates.find_one({"_id": req.template})
+        if template_doc and "defaultMusicId" in template_doc:
+            effective_music_id = template_doc.get("defaultMusicId")
+        else:
+            effective_music_id = "tere-sang"
+        payload["musicId"] = effective_music_id
+
     # Resolve bundled music id -> served url (takes precedence over musicUrl).
-    if req.musicId:
-        track = MUSIC_BY_ID.get(req.musicId)
+    if effective_music_id:
+        track = await find_music_track(effective_music_id)
         if not track:
-            raise HTTPException(status_code=400, detail=f"Unknown musicId: {req.musicId}")
+            raise HTTPException(status_code=400, detail=f"Unknown musicId: {effective_music_id}")
         payload["musicUrl"] = f"{INTERNAL_BASE_URL}/api/music/{track['id']}"
 
     payload['photos'] = [
@@ -738,7 +882,7 @@ async def create_render(
         "displayMessage": req.displayMessage,
         "durationInSeconds": req.durationInSeconds,
         "tags": payload["tags"],
-        "musicId": req.musicId,
+        "musicId": effective_music_id,
         "status": "queued",
         "progress": 0.0,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -849,6 +993,7 @@ async def initialize_storage():
         await db.renders.create_index("created_at")
         await db.templates.create_index("category")
         await db.templates.create_index("sortOrder")
+        await db.music.create_index("id", unique=True)
         await seed_default_templates()
         logger.info("Connected to MongoDB at %s", mongo_url)
     except Exception as exc:  # noqa: BLE001
