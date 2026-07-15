@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Image, Linking, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Image, Linking, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
 import { VideoView, useVideoPlayer } from 'expo-video';
+import { File } from 'expo-file-system';
+import { fetch as expoFetch } from 'expo/fetch';
 
 WebBrowser.maybeCompleteAuthSession();
 const API = process.env.EXPO_PUBLIC_API_URL || 'https://invitavideos.com/api';
@@ -14,6 +16,9 @@ const GOOGLE_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
 // iOS client ID for production sign-in.
 const IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || GOOGLE_CLIENT_ID;
 const ANDROID_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || GOOGLE_CLIENT_ID;
+const IOS_GOOGLE_REDIRECT_URI = IOS_CLIENT_ID
+  ? `${IOS_CLIENT_ID.split('.').reverse().join('.')}:/oauthredirect`
+  : undefined;
 const DISABLE_GOOGLE_AUTH = ['1', 'true', 'yes', 'on'].includes((process.env.EXPO_PUBLIC_DISABLE_GOOGLE_AUTH || '').toLowerCase());
 const STEPS = ['Category', 'Details', 'Photos', 'Music'];
 
@@ -21,6 +26,16 @@ async function json(path, options = {}) {
   const response = await fetch(`${API}${path}`, options);
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.detail || 'Request failed');
+  return body;
+}
+
+async function uploadPhoto(photo) {
+  const file = new File(photo.uri);
+  const form = new FormData();
+  form.append('file', file);
+  const response = await expoFetch(`${API}/upload`, { method: 'POST', body: form });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.detail || `Photo upload failed (${response.status})`);
   return body;
 }
 
@@ -38,7 +53,12 @@ export default function App() {
   const [status, setStatus] = useState('');
   const [videoUrl, setVideoUrl] = useState(null);
   const [error, setError] = useState('');
-  const [request, response, promptAsync] = Google.useAuthRequest({ webClientId: GOOGLE_CLIENT_ID, iosClientId: IOS_CLIENT_ID, androidClientId: ANDROID_CLIENT_ID });
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    webClientId: GOOGLE_CLIENT_ID,
+    iosClientId: IOS_CLIENT_ID,
+    androidClientId: ANDROID_CLIENT_ID,
+    redirectUri: Platform.OS === 'ios' ? IOS_GOOGLE_REDIRECT_URI : undefined,
+  });
 
   useEffect(() => { json('/templates').then(setTemplates).catch((e) => setError(e.message)); json('/music').then(setTracks).catch(() => {}); }, []);
   useEffect(() => {
@@ -69,13 +89,13 @@ export default function App() {
     try {
       setStatus('Uploading photos…');
       const uploaded = [];
-      for (const photo of photos) { const form = new FormData(); form.append('file', { uri: photo.uri, name: photo.fileName || `photo-${Date.now()}.jpg`, type: photo.mimeType || 'image/jpeg' }); const result = await json('/upload', { method: 'POST', body: form }); uploaded.push(result.url); }
+      for (const photo of photos) { const result = await uploadPhoto(photo); uploaded.push(result.url); }
       setStatus('Starting render…');
       const nameOne = category === 'Birthday' ? details.firstName : details.partnerOne;
       const nameTwo = category === 'Birthday' ? details.lastName : details.partnerTwo;
-      const render = await json('/renders', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${credential}` }, body: JSON.stringify({ templateId: template.id, couple: { partnerOne: nameOne || 'Your', partnerTwo: nameTwo || 'Story' }, eventDate: details.eventDate, venue: `${details.venueName}${details.city ? `, ${details.city}` : ''}`, message: details.message, photos: uploaded, musicId: musicId || template.defaultMusicId || undefined, durationInSeconds: Number(details.durationInSeconds) || 10, tags: [category.toLowerCase()] }) });
+      const render = await json('/renders', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${credential}` }, body: JSON.stringify({ template: template.id, couple: { partnerOne: nameOne || 'Your', partnerTwo: nameTwo || 'Story' }, eventDate: details.eventDate, venue: { name: details.venueName, city: details.city }, message: details.message, photos: uploaded, musicId: musicId || template.defaultMusicId || undefined, durationInSeconds: Number(details.durationInSeconds) || 10, tags: [category.toLowerCase()] }) });
       let current = render;
-      for (let i = 0; i < 90 && !['completed', 'failed'].includes(current.status); i += 1) { await new Promise((resolve) => setTimeout(resolve, 2000)); current = await json(`/renders/${render.id}`, { headers: { Authorization: `Bearer ${credential}` } }); setStatus(`Rendering… ${current.progress || ''}`); }
+      for (let i = 0; i < 90 && !['done', 'failed'].includes(current.status); i += 1) { await new Promise((resolve) => setTimeout(resolve, 2000)); current = await json(`/renders/${render.jobId}`, { headers: { Authorization: `Bearer ${credential}` } }); setStatus(`Rendering… ${Math.round((current.progress || 0) * 100)}%`); }
       if (current.status === 'failed') throw new Error(current.error || 'Render failed');
       setVideoUrl(current.videoUrl || current.video_url); setStatus('Your video is ready!');
     } catch (e) { setError(e.message); setStatus(''); }

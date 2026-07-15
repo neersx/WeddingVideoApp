@@ -28,6 +28,7 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>invitavideos</string>
+				<string>com.googleusercontent.apps.95024189124-07a3q7r0vbi7n7vbf9a32qta0766k8e0</string>
 				<string>com.invitavideos.app</string>
 			</array>
 		</dict>
