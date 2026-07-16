@@ -2,8 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
-import * as WebBrowser from 'expo-web-browser';
-import * as Google from 'expo-auth-session/providers/google';
+import { GoogleSignin, isSuccessResponse, isErrorWithCode, statusCodes } from '@react-native-google-signin/google-signin';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { useEvent } from 'expo';
 import { File, Paths } from 'expo-file-system';
@@ -12,18 +11,21 @@ import * as Sharing from 'expo-sharing';
 import { fetch as expoFetch } from 'expo/fetch';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 
-WebBrowser.maybeCompleteAuthSession();
 const API = process.env.EXPO_PUBLIC_API_URL || 'https://invitavideos.com/api';
+// Native Google Sign-In only needs the WEB client ID — it's the audience the
+// idToken is issued for. The Android/iOS client IDs stay in Google Cloud
+// Console for SHA-1/bundle-ID verification but aren't referenced in JS.
 const GOOGLE_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
-// Google requires a platform client ID on iOS/Android. Falling back to the web
-// client keeps the app usable while local OAuth is being configured; use a real
-// iOS client ID for production sign-in.
-const IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || GOOGLE_CLIENT_ID;
-const ANDROID_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || GOOGLE_CLIENT_ID;
-const IOS_GOOGLE_REDIRECT_URI = IOS_CLIENT_ID
-  ? `${IOS_CLIENT_ID.split('.').reverse().join('.')}:/oauthredirect`
-  : undefined;
+const IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
 const DISABLE_GOOGLE_AUTH = ['1', 'true', 'yes', 'on'].includes((process.env.EXPO_PUBLIC_DISABLE_GOOGLE_AUTH || '').toLowerCase());
+
+if (!DISABLE_GOOGLE_AUTH) {
+  GoogleSignin.configure({
+    webClientId: GOOGLE_CLIENT_ID,
+    iosClientId: IOS_CLIENT_ID,
+    offlineAccess: false,
+  });
+}
 
 const STEPS = [
   { key: 'Category', title: 'Pick a style', caption: 'Choose the occasion and a template that fits your story.' },
@@ -120,20 +122,28 @@ export default function App() {
   const [localVideoUri, setLocalVideoUri] = useState(null);
   const [videoAction, setVideoAction] = useState('');
   const [error, setError] = useState('');
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    webClientId: GOOGLE_CLIENT_ID,
-    iosClientId: IOS_CLIENT_ID,
-    androidClientId: ANDROID_CLIENT_ID,
-    redirectUri: Platform.OS === 'ios' ? IOS_GOOGLE_REDIRECT_URI : undefined,
-  });
+  const [signingIn, setSigningIn] = useState(false);
 
   useEffect(() => { json('/templates').then(setTemplates).catch((e) => setError(e.message)); json('/music').then(setTracks).catch(() => {}); }, []);
-  useEffect(() => {
-    if (response?.type !== 'success') return;
-    const token = response.authentication?.idToken || response.params?.id_token;
-    if (!token) return setError('Google did not return an ID token. Check your Expo client IDs.');
-    json('/auth/google', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credential: token }) }).then((data) => { setUser(data.user || data); setCredential(token); }).catch((e) => setError(e.message));
-  }, [response]);
+
+  async function signInWithGoogle() {
+    setError(''); setSigningIn(true);
+    try {
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+      const result = await GoogleSignin.signIn();
+      if (!isSuccessResponse(result)) return; // user cancelled
+      const token = result.data?.idToken;
+      if (!token) return setError('Google did not return an ID token. Check your Google client IDs.');
+      const data = await json('/auth/google', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credential: token }) });
+      setUser(data.user || data);
+      setCredential(token);
+    } catch (e) {
+      if (isErrorWithCode(e) && e.code === statusCodes.SIGN_IN_CANCELLED) return;
+      setError(e.message || 'Google sign-in failed.');
+    } finally {
+      setSigningIn(false);
+    }
+  }
 
   const categories = useMemo(() => [...new Set(templates.map((t) => t.category).filter(Boolean))], [templates]);
   const visibleTemplates = useMemo(() => templates.filter((t) => (t.category || '').toLowerCase() === category.toLowerCase()), [templates, category]);
@@ -421,9 +431,9 @@ export default function App() {
                   {DISABLE_GOOGLE_AUTH ? 'Google login disabled (development mode)' : user ? `Signed in as ${user.email || user.name || 'Google user'}` : 'Sign in to create your video'}
                 </Text>
                 {!user && (
-                  <Pressable disabled={!request} onPress={() => promptAsync()} style={styles.googleButton}>
-                    <Text style={styles.googleG}>G</Text>
-                    <Text style={styles.googleText}>Continue with Google</Text>
+                  <Pressable disabled={signingIn} onPress={signInWithGoogle} style={[styles.googleButton, signingIn && styles.buttonDisabled]}>
+                    {signingIn ? <ActivityIndicator color="#1f1f1f" /> : <Text style={styles.googleG}>G</Text>}
+                    <Text style={styles.googleText}>{signingIn ? 'Signing in…' : 'Continue with Google'}</Text>
                   </Pressable>
                 )}
               </View>

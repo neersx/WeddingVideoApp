@@ -297,4 +297,17 @@ cp .env.example .env
 npm start
 ```
 
-Set `EXPO_PUBLIC_API_URL` to `http://YOUR-LAN-IP:8001/api` when testing against a local backend on a physical phone. Configure the Expo Google client IDs in `.env` before using the Google sign-in button.
+Set the API URL for the device being used:
+
+```env
+# iOS Simulator
+EXPO_PUBLIC_API_URL=http://127.0.0.1:8001/api
+
+# Android Emulator
+EXPO_PUBLIC_API_URL=http://10.0.2.2:8001/api
+
+# Physical iPhone or Android phone (replace with the Mac's LAN IP)
+EXPO_PUBLIC_API_URL=http://YOUR-LAN-IP:8001/api
+```
+
+For a physical phone, start Uvicorn with `--host 0.0.0.0` and keep the phone and Mac on the same network. Restart Metro with `npx expo start --clear` after changing any `EXPO_PUBLIC_*` value. Configure the Expo Google client IDs in `.env` before using the Google sign-in button.

@@ -41,7 +41,8 @@
         "expo-build-properties",
         {
           "ios": {
-            "usePrecompiledModules": false
+            "usePrecompiledModules": false,
+            "useFrameworks": "static"
           }
         }
       ],
@@ -55,7 +56,13 @@
           ]
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.95024189124-07a3q7r0vbi7n7vbf9a32qta0766k8e0"
+        }
+      ]
     ]
   }
 }
