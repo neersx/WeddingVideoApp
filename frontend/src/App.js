@@ -13,6 +13,7 @@ import {
   Music,
   Palette,
   PartyPopper,
+  ShieldCheck,
   Sparkles,
   Users,
   Volume2,
@@ -300,6 +301,11 @@ const pageMeta = {
     description:
       "Contact Invita Videos for help creating, customising or sharing your wedding invitation video.",
   },
+  "/privacy": {
+    title: "Privacy Policy | Invita Videos",
+    description:
+      "How Invita Videos collects, uses and protects your information across our website and mobile apps.",
+  },
   "/admin/templates": {
     title: "Template Admin | Invita Videos",
     description: "Manage invitation template categories and availability.",
@@ -395,6 +401,7 @@ function SiteFooter() {
             <Link to="/create-video" className="hover:text-white">Create Video</Link>
             <Link to="/about" className="hover:text-white">About us</Link>
             <Link to="/contact" className="hover:text-white">Contact us</Link>
+            <Link to="/privacy" className="hover:text-white">Privacy policy</Link>
           </div>
         </div>
         <div>
@@ -1486,6 +1493,122 @@ function ContactPage() {
   );
 }
 
+const privacySections = [
+  {
+    title: "Information we collect",
+    body: [
+      "Account details — when you sign in with Google, we receive your name, email address and profile picture from your Google account. We never see or store your Google password.",
+      "Event details you provide — names, event dates, venue, city, event schedule and personal messages you enter while creating an invitation video.",
+      "Photos you upload — the photos you choose to include in your invitation video are uploaded to our servers so they can be rendered into your video.",
+      "Rendered videos — the finished invitation videos created from your details and photos.",
+      "Basic usage information — such as render job status and timestamps, used to operate the service and diagnose problems.",
+    ],
+  },
+  {
+    title: "How we use your information",
+    body: [
+      "To create your invitation videos — your details, photos and music selection are used solely to render the video you requested.",
+      "To operate your account — your Google email identifies your account and the videos you have created.",
+      "To support you — if you contact us, we use your message and email address to respond.",
+      "We do not sell your personal information, and we do not use your photos or event details for advertising.",
+    ],
+  },
+  {
+    title: "Photos and videos",
+    body: [
+      "Photos are uploaded only when you choose them for a video, and they are used only to render that video.",
+      "Your rendered videos are stored so you can preview, download and share them.",
+      "You may request deletion of your uploaded photos and rendered videos at any time by contacting us.",
+    ],
+  },
+  {
+    title: "Sharing",
+    body: [
+      "We do not share your personal information with third parties for their own marketing.",
+      "Google Sign-In is provided by Google and is subject to Google's own privacy policy.",
+      "Videos are shared only when you choose to share them — through the share options on our website or mobile apps.",
+    ],
+  },
+  {
+    title: "Data retention and deletion",
+    body: [
+      "We keep your account details, photos and videos while your account is active so your creations remain available to you.",
+      "To delete your data — including your account, uploaded photos and rendered videos — email us at info@invitavideos.com and we will remove it within 30 days.",
+    ],
+  },
+  {
+    title: "Security",
+    body: [
+      "All communication between your device and our servers is encrypted using HTTPS.",
+      "Access to stored data is limited to what is needed to operate the service.",
+    ],
+  },
+  {
+    title: "Children's privacy",
+    body: [
+      "Invita Videos is not directed at children under 13, and we do not knowingly collect personal information from children. If you believe a child has provided us information, contact us and we will delete it.",
+    ],
+  },
+  {
+    title: "Changes to this policy",
+    body: [
+      "If we make meaningful changes to this policy, we will update this page and revise the date shown above. Continued use of the service after changes take effect means you accept the updated policy.",
+    ],
+  },
+];
+
+function PrivacyPage() {
+  return (
+    <MarketingLayout>
+      <main>
+        <section className="px-6 pb-10 pt-16 lg:px-10 lg:pt-24">
+          <div className="mx-auto max-w-4xl">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#FFF0F7] text-[#B31571]">
+              <ShieldCheck className="h-6 w-6" aria-hidden="true" />
+            </div>
+            <div className="section-label mt-6 text-left text-[#9B256D]">Privacy policy</div>
+            <h1 className="mt-3 font-heading text-5xl font-extrabold leading-[1.03] tracking-tight text-[#32113A] sm:text-6xl">
+              Your story stays yours.
+            </h1>
+            <p className="mt-6 max-w-2xl text-lg leading-8 text-neutral-600">
+              This policy explains what information Invita Videos collects, how we use it, and the choices you have. It applies to our website at invitavideos.com and our iOS and Android apps.
+            </p>
+            <p className="mt-4 text-sm font-semibold text-neutral-400">Last updated: 16 July 2026</p>
+          </div>
+        </section>
+
+        <section className="px-6 pb-16 lg:px-10 lg:pb-24">
+          <div className="mx-auto grid max-w-4xl gap-5">
+            {privacySections.map((section) => (
+              <article key={section.title} className="rounded-3xl border border-[#ECD5E2] bg-white p-7 sm:p-8">
+                <h2 className="font-heading text-2xl font-extrabold text-[#32113A]">{section.title}</h2>
+                <ul className="mt-4 space-y-3">
+                  {section.body.map((line) => (
+                    <li key={line} className="flex gap-3 leading-7 text-neutral-600">
+                      <CheckCircle2 className="mt-1.5 h-4 w-4 shrink-0 text-[#B31571]" aria-hidden="true" />
+                      <span>{line}</span>
+                    </li>
+                  ))}
+                </ul>
+              </article>
+            ))}
+
+            <article className="rounded-3xl border border-[#EBCFDE] bg-[#FFF6FA] p-7 sm:p-8">
+              <h2 className="font-heading text-2xl font-extrabold text-[#32113A]">Questions or requests</h2>
+              <p className="mt-3 leading-7 text-neutral-600">
+                For privacy questions, data access or deletion requests, contact us and we&rsquo;ll respond as soon as we can.
+              </p>
+              <a className="mt-5 inline-flex items-center gap-2 font-heading text-xl font-extrabold text-[#32113A] hover:text-[#A3166A]" href="mailto:info@invitavideos.com">
+                <Mail className="h-5 w-5 text-[#B31571]" aria-hidden="true" /> info@invitavideos.com
+              </a>
+            </article>
+          </div>
+        </section>
+      </main>
+    </MarketingLayout>
+  );
+}
+
 function NotFoundPage() {
   return (
     <MarketingLayout>
@@ -1512,6 +1635,7 @@ function App() {
           <Route path="/create-video" element={<CreateVideoPage />} />
           <Route path="/about" element={<AboutPage />} />
           <Route path="/contact" element={<ContactPage />} />
+          <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="/admin" element={<AdminGate><AdminDashboardPage /></AdminGate>} />
           <Route path="/admin/templates" element={<AdminGate><AdminTemplatesPage /></AdminGate>} />
           <Route path="/admin/users" element={<AdminGate><AdminUsersPage /></AdminGate>} />
