@@ -145,6 +145,25 @@ export default function App() {
     }
   }
 
+  async function signOutOfGoogle() {
+    if (DISABLE_GOOGLE_AUTH) return;
+    try {
+      await GoogleSignin.signOut();
+    } catch (e) {
+      // Ignore — we still clear local state below so the UI reflects signed-out.
+    }
+    setUser(null);
+    setCredential(null);
+  }
+
+  function confirmSignOut() {
+    if (DISABLE_GOOGLE_AUTH) return;
+    Alert.alert('Sign out?', user?.email ? `Signed in as ${user.email}` : undefined, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Sign out', style: 'destructive', onPress: signOutOfGoogle },
+    ]);
+  }
+
   const categories = useMemo(() => [...new Set(templates.map((t) => t.category).filter(Boolean))], [templates]);
   const visibleTemplates = useMemo(() => templates.filter((t) => (t.category || '').toLowerCase() === category.toLowerCase()), [templates, category]);
   const visibleTracks = useMemo(() => tracks.filter((t) => !t.categories || t.categories.length === 0 || t.categories.includes(category)), [tracks, category]);
@@ -257,7 +276,9 @@ export default function App() {
               <Image source={require('./assets/logo-text.png')} style={styles.brandLogo} resizeMode="contain" />
             </View>
             {user ? (
-              <View style={styles.avatarChip}><Text style={styles.avatarText}>{(user.name || user.email || '?').slice(0, 1).toUpperCase()}</Text></View>
+              <Pressable onPress={confirmSignOut} style={styles.avatarChip} hitSlop={8}>
+                <Text style={styles.avatarText}>{(user.name || user.email || '?').slice(0, 1).toUpperCase()}</Text>
+              </Pressable>
             ) : (
               <Pressable disabled={signingIn} onPress={signInWithGoogle} style={[styles.headerGoogleButton, signingIn && styles.buttonDisabled]}>
                 {signingIn ? <ActivityIndicator size="small" color="#1f1f1f" /> : <Text style={styles.googleG}>G</Text>}
@@ -355,7 +376,20 @@ export default function App() {
                 <Field label="City" value={details.city} onChangeText={(v) => setField('city', v)} placeholder="Jaipur" style={styles.flex} />
               </View>
               <Field label="Message to guests" value={details.message} onChangeText={(v) => setField('message', v)} placeholder="Join us as we begin our forever…" multiline />
-              <Field label="Video duration (seconds)" value={details.durationInSeconds} onChangeText={(v) => setField('durationInSeconds', v)} keyboardType="number-pad" />
+              <View style={styles.field}>
+                <Text style={styles.label}>Video duration</Text>
+                <View style={styles.durationRow}>
+                  {['10', '20', '30'].map((seconds) => {
+                    const selected = details.durationInSeconds === seconds;
+                    return (
+                      <Pressable key={seconds} onPress={() => setField('durationInSeconds', seconds)} style={[styles.durationOption, selected && styles.durationOptionSelected]}>
+                        <View style={[styles.radioOuter, selected && styles.radioOuterActive]}>{selected ? <View style={styles.radioInner} /> : null}</View>
+                        <Text style={[styles.durationText, selected && styles.durationTextSelected]}>{seconds} sec</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
 
               {category === 'Wedding' && (
                 <View style={styles.scheduleSection}>
@@ -601,8 +635,8 @@ const styles = StyleSheet.create({
   // Header
   brandRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 22 },
   // Light plate behind the wordmark — the logo's purple "Invita" is unreadable on the dark bg.
-  brandPlate: { backgroundColor: '#FFF8F0', borderRadius: 14, paddingVertical: 8, paddingHorizontal: 14, ...cardShadow },
-  brandLogo: { width: 148, height: 38 },
+  brandPlate: { backgroundColor: '#FFF8F0', borderRadius: 15, paddingVertical: 3, paddingHorizontal: 10, ...cardShadow },
+  brandLogo: { width: 140, height: 40 },
   brand: { color: palette.gold, fontSize: 19, fontWeight: '800', letterSpacing: 0.8, flex: 1 },
   avatarChip: { width: 34, height: 34, borderRadius: 17, backgroundColor: palette.surfaceRaised, borderWidth: 1, borderColor: palette.borderStrong, alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: palette.gold, fontWeight: '800', fontSize: 14 },
@@ -656,6 +690,11 @@ const styles = StyleSheet.create({
   input: { backgroundColor: palette.bg, color: palette.text, borderWidth: 1.5, borderColor: palette.border, borderRadius: 12, paddingVertical: Platform.OS === 'ios' ? 13 : 10, paddingHorizontal: 14, fontSize: 15 },
   inputFocused: { borderColor: palette.gold },
   multiline: { minHeight: 90, textAlignVertical: 'top' },
+  durationRow: { flexDirection: 'row', gap: 10 },
+  durationOption: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: palette.bg, borderWidth: 1.5, borderColor: palette.border, borderRadius: 12, paddingVertical: 12 },
+  durationOptionSelected: { borderColor: palette.gold, backgroundColor: palette.surfaceRaised },
+  durationText: { color: palette.textSoft, fontWeight: '600', fontSize: 14 },
+  durationTextSelected: { color: palette.text },
 
   // Date picker
   dateRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
