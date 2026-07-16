@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "InvitaVideos",
-    "slug": "invitavideos",
+    "slug": "invita-videos",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -22,7 +22,11 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "permissions": [
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.READ_MEDIA_VIDEO"
       ],
       "package": "com.invitavideos.app"
     },
@@ -63,6 +67,12 @@
           "iosUrlScheme": "com.googleusercontent.apps.95024189124-07a3q7r0vbi7n7vbf9a32qta0766k8e0"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "d5bc332b-36f2-4b02-a000-c7337fa789b1"
+      }
+    },
+    "owner": "neeraj-singh"
   }
 }
