@@ -35,6 +35,13 @@ CONFIGURED_ADMIN_EMAILS = {
     if email.strip()
 }
 ADMIN_EMAILS = CONFIGURED_ADMIN_EMAILS or {'neer19ultimate@gmail.com'}
+# Native app sign-ins carry the iOS/Android OAuth client ID in the token's azp
+# claim; those clients can't produce a reCAPTCHA v3 web token, so they bypass it.
+MOBILE_GOOGLE_CLIENT_IDS = {
+    client_id.strip()
+    for client_id in os.environ.get('MOBILE_GOOGLE_CLIENT_IDS', '').split(',')
+    if client_id.strip()
+}
 RECAPTCHA_SECRET_KEY = os.environ.get('RECAPTCHA_SECRET_KEY', '').strip()
 RECAPTCHA_EXPECTED_ACTION = os.environ.get('RECAPTCHA_EXPECTED_ACTION', 'render_video').strip()
 try:
@@ -406,6 +413,7 @@ class GoogleUser(BaseModel):
     name: str = ""
     picture: str = ""
     email_verified: bool = False
+    azp: str = ""
 
 
 class TemplateUpdateRequest(BaseModel):
@@ -466,6 +474,7 @@ def _verify_google_credential(credential: str) -> GoogleUser:
         name=str(payload.get("name", "")),
         picture=str(payload.get("picture", "")),
         email_verified=bool(payload.get("email_verified", False)),
+        azp=str(payload.get("azp", "")),
     )
 
     if not user.sub or not user.email:
@@ -894,7 +903,10 @@ async def create_render(
     request: Request,
     user: GoogleUser = Depends(require_google_user),
 ):
-    recaptcha_result = await verify_recaptcha_token(req.recaptchaToken, request.client.host if request.client else None)
+    if user.azp and user.azp in MOBILE_GOOGLE_CLIENT_IDS:
+        recaptcha_result = None
+    else:
+        recaptcha_result = await verify_recaptcha_token(req.recaptchaToken, request.client.host if request.client else None)
     payload = req.model_dump(exclude={"recaptchaToken"})
     payload["tags"] = list(dict.fromkeys(tag.strip() for tag in req.tags if tag.strip()))[:12]
 

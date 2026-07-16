@@ -311,3 +311,45 @@ EXPO_PUBLIC_API_URL=http://YOUR-LAN-IP:8001/api
 ```
 
 For a physical phone, start Uvicorn with `--host 0.0.0.0` and keep the phone and Mac on the same network. Restart Metro with `npx expo start --clear` after changing any `EXPO_PUBLIC_*` value. Configure the Expo Google client IDs in `.env` before using the Google sign-in button.
+
+### Deploy iOS to TestFlight / App Store
+
+App identity (already configured, no need to regenerate):
+
+```text
+Bundle ID: com.invitavideos.app
+SKU (App Store Connect, internal only): invitavideos-ios
+EAS project ID: d5bc332b-36f2-4b02-a000-c7337fa789b1
+```
+
+Before building, point `mobile/.env` at the production API:
+
+```env
+EXPO_PUBLIC_API_URL=https://invitavideos.com/api
+```
+
+Install EAS CLI once (global, not inside `mobile/`, to avoid dependency conflicts with the app's own `node_modules`):
+
+```bash
+npm install -g eas-cli
+eas login
+```
+
+Build and submit:
+
+```bash
+cd mobile
+eas build --platform ios --profile production
+eas submit --platform ios --latest
+```
+
+- `eas build:configure` already generated `mobile/eas.json` and linked the EAS project ID above — no need to rerun it unless the project link is lost.
+- `eas build` prompts for Apple ID login the first time and lets EAS auto-manage the distribution certificate and provisioning profile.
+- `eas submit` prompts for the App Store Connect app record. If it doesn't exist yet, create it with bundle ID `com.invitavideos.app` and SKU `invitavideos-ios`.
+- Both commands need interactive login (Apple ID + 2FA) — they cannot run non-interactively.
+
+After the build is uploaded and Apple finishes processing (5–30 min, emailed when ready):
+
+1. In [App Store Connect](https://appstoreconnect.apple.com) → your app → **TestFlight**, answer the export compliance question on the new build ("Uses Encryption?" — No, if only standard HTTPS is used).
+2. **TestFlight → Internal Testing** → create a group → add your Apple ID email as a tester. Internal testers get access immediately, no review needed (external testing groups require a first-time Beta App Review).
+3. On the test device, install **TestFlight** from the App Store, sign in with the tester Apple ID, accept the invite, and install the build.

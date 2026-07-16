@@ -256,7 +256,14 @@ export default function App() {
             <View style={styles.brandPlate}>
               <Image source={require('./assets/logo-text.png')} style={styles.brandLogo} resizeMode="contain" />
             </View>
-            {user ? <View style={styles.avatarChip}><Text style={styles.avatarText}>{(user.name || user.email || '?').slice(0, 1).toUpperCase()}</Text></View> : null}
+            {user ? (
+              <View style={styles.avatarChip}><Text style={styles.avatarText}>{(user.name || user.email || '?').slice(0, 1).toUpperCase()}</Text></View>
+            ) : (
+              <Pressable disabled={signingIn} onPress={signInWithGoogle} style={[styles.headerGoogleButton, signingIn && styles.buttonDisabled]}>
+                {signingIn ? <ActivityIndicator size="small" color="#1f1f1f" /> : <Text style={styles.googleG}>G</Text>}
+                <Text style={styles.headerGoogleText}>{signingIn ? 'Signing in…' : 'Sign in'}</Text>
+              </Pressable>
+            )}
           </View>
 
           {/* Progress */}
@@ -425,18 +432,6 @@ export default function App() {
                 );
               })}
               {!visibleTracks.length && <Text style={styles.helper}>No music has been assigned to this category yet. You can render without selecting a track.</Text>}
-
-              <View style={styles.loginBox}>
-                <Text style={styles.loginTitle}>
-                  {DISABLE_GOOGLE_AUTH ? 'Google login disabled (development mode)' : user ? `Signed in as ${user.email || user.name || 'Google user'}` : 'Sign in to create your video'}
-                </Text>
-                {!user && (
-                  <Pressable disabled={signingIn} onPress={signInWithGoogle} style={[styles.googleButton, signingIn && styles.buttonDisabled]}>
-                    {signingIn ? <ActivityIndicator color="#1f1f1f" /> : <Text style={styles.googleG}>G</Text>}
-                    <Text style={styles.googleText}>{signingIn ? 'Signing in…' : 'Continue with Google'}</Text>
-                  </Pressable>
-                )}
-              </View>
 
               <Pressable disabled={isWorking} onPress={createVideo} style={[styles.renderButton, isWorking && styles.buttonDisabled]}>
                 {isWorking ? <ActivityIndicator color={palette.bg} /> : null}
@@ -721,12 +716,10 @@ const styles = StyleSheet.create({
   radioInner: { width: 11, height: 11, borderRadius: 5.5, backgroundColor: palette.gold },
 
   // Auth + render
-  loginBox: { backgroundColor: palette.surface, borderRadius: 16, borderWidth: 1, borderColor: palette.border, padding: 16, marginTop: 16, marginBottom: 14 },
-  loginTitle: { color: palette.textSoft, fontWeight: '600', fontSize: 13.5, marginBottom: 0 },
-  googleButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: '#fff', borderRadius: 12, padding: 13, marginTop: 12 },
+  headerGoogleButton: { flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: '#fff', borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14, ...cardShadow },
+  headerGoogleText: { color: '#1f1f1f', fontWeight: '700', fontSize: 13.5 },
   googleG: { color: '#4285F4', fontWeight: '900', fontSize: 16 },
-  googleText: { color: '#1f1f1f', fontWeight: '700', fontSize: 15 },
-  renderButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: palette.gold, borderRadius: 14, padding: 17, ...cardShadow },
+  renderButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: palette.gold, borderRadius: 14, padding: 17, marginTop: 16, ...cardShadow },
   buttonDisabled: { opacity: 0.55 },
   renderText: { color: palette.bg, fontSize: 16, fontWeight: '800', letterSpacing: 0.2 },
 
