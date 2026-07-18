@@ -140,6 +140,32 @@ async function executeRecaptcha() {
 
 const AuthContext = createContext(null);
 
+function decodeJwtPayload(token) {
+  try {
+    const part = token.split(".")[1];
+    if (!part) return null;
+    const base64 = part.replace(/-/g, "+").replace(/_/g, "/");
+    const json = decodeURIComponent(
+      atob(base64)
+        .split("")
+        .map((c) => "%" + c.charCodeAt(0).toString(16).padStart(2, "0"))
+        .join("")
+    );
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
+// Google ID tokens carry `exp` (seconds). Treat as expired 30s early to avoid a
+// token dying mid-request. If we cannot read `exp`, defer to the server's 401.
+function isTokenExpired(token) {
+  if (!token) return true;
+  const payload = decodeJwtPayload(token);
+  if (!payload?.exp) return false;
+  return Date.now() >= payload.exp * 1000 - 30000;
+}
+
 function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
     try {
@@ -161,7 +187,7 @@ function AuthProvider({ children }) {
     return nextUser;
   }, []);
 
-  const signOut = useCallback(() => {
+  const signOut = useCallback((options = {}) => {
     setUser(null);
     setCredential("");
     localStorage.removeItem(AUTH_STORAGE_KEY);
@@ -169,8 +195,23 @@ function AuthProvider({ children }) {
     if (window.google?.accounts?.id) {
       window.google.accounts.id.disableAutoSelect();
     }
-    toast.info("Signed out");
+    if (!options.silent) toast.info("Signed out");
   }, []);
+
+  // Watchdog: when an idle user's token expires, sign them out so the UI stops
+  // showing them as logged in. Form state lives elsewhere and is preserved.
+  useEffect(() => {
+    if (!credential) return undefined;
+    const check = () => {
+      if (isTokenExpired(credential)) {
+        signOut({ silent: true });
+        toast.info("Your session expired — please sign in again.");
+      }
+    };
+    check();
+    const timer = window.setInterval(check, 30000);
+    return () => window.clearInterval(timer);
+  }, [credential, signOut]);
 
   const value = useMemo(() => ({ user, credential, signInWithGoogle, signOut }), [user, credential, signInWithGoogle, signOut]);
 
@@ -708,7 +749,7 @@ function LandingPage() {
 }
 
 function CreateVideoPage() {
-  const { user, credential } = useAuth();
+  const { user, credential, signOut } = useAuth();
   const [template, setTemplate] = useState("marigold");
   const [templates, setTemplates] = useState(DEFAULT_TEMPLATES);
   const [details, setDetails] = useState(initialDetails);
@@ -835,8 +876,13 @@ function CreateVideoPage() {
     } catch (error) {
       setJobStatus("failed");
       if (error?.response?.status === 401) {
-        setLoginPromptOpen(true);
+        // Session expired mid-flow: clear the stale credential so the resume
+        // effect's `!credential` guard blocks the retry loop, and re-prompt.
+        // Form state is preserved (it lives outside auth), so the render resumes
+        // automatically once the user signs in again.
+        signOut({ silent: true });
         setResumeRenderAfterLogin(true);
+        setLoginPromptOpen(true);
         toast.error("Please sign in again to render your video");
       } else if (!error?.response && error?.message?.includes("reCAPTCHA")) {
         toast.error("Security check could not be completed. Please refresh and try again.");
@@ -844,14 +890,17 @@ function CreateVideoPage() {
         toast.error(error?.response?.data?.detail || "Failed to queue render");
       }
     }
-  }, [credential, template, details, photos, musicId, schedule, category]);
+  }, [credential, template, details, photos, musicId, schedule, category, signOut]);
 
   const handleRender = async () => {
     if (!details.partnerOne.trim() || !details.partnerTwo.trim()) {
       toast.error("Both partner names are required");
       return;
     }
-    if (!user || !credential) {
+    // Proactively catch an expired/stale session before hitting the API, so we
+    // redirect to login instead of firing a doomed request. Details are kept.
+    if (!user || !credential || isTokenExpired(credential)) {
+      if (credential && isTokenExpired(credential)) signOut({ silent: true });
       setResumeRenderAfterLogin(true);
       setLoginPromptOpen(true);
       return;

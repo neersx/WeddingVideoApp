@@ -48,6 +48,7 @@ If the application files and dependencies are already installed, copy the provid
 ```bash
 sudo mkdir -p /etc/invitawedds
 sudo tee /etc/invitawedds/backend.env >/dev/null <<'EOF'
+APP_ENV=production
 STORAGE_BACKEND=memory
 MONGO_URL=mongodb://127.0.0.1:27017
 DB_NAME=invitavideodb

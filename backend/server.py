@@ -13,11 +13,24 @@ import asyncio
 import re
 from pathlib import Path
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 
 ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+
+# Select the backend configuration before reading any application settings.
+# Values supplied by the host environment keep priority over dotenv files.
+APP_ENV = os.environ.get('APP_ENV', 'development').strip().lower()
+if APP_ENV not in {'development', 'production'}:
+    raise RuntimeError("APP_ENV must be either 'development' or 'production'")
+
+load_dotenv(ROOT_DIR / f'.env.{APP_ENV}')
+
+# Preserve the original local .env as a development-only fallback while the
+# project transitions to environment-specific files. It is never loaded in
+# production, which prevents local settings from leaking into a production run.
+if APP_ENV == 'development':
+    load_dotenv(ROOT_DIR / '.env')
 
 mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
 db_name = os.environ.get('DB_NAME', 'invitavideodb')
@@ -287,6 +300,86 @@ DEFAULT_TEMPLATE_DOCUMENTS = [
         "isActive": True,
         "sortOrder": 15,
     },
+    {
+        "_id": "from-my-heart-cinematic",
+        "id": "from-my-heart-cinematic",
+        "name": "From My Heart",
+        "desc": "A heartfelt, relationship-aware birthday reel with warm cinematic tones, per-photo messages and a personal sign-off.",
+        "category": "From My Heart",
+        "style": "Emotional Cinematic",
+        "duration": 30,
+        "maxImages": 5,
+        "swatch": ["#7A1E3A", "#D98774", "#F1B56B", "#FFF7EA"],
+        "bg": "#2A0E1B",
+        "text": "#FFF7EA",
+        "font": "'Cormorant Garamond', serif",
+        # Capabilities describe what THIS video can render. The client shows a
+        # capability-gated field only when the selected template supports it.
+        "capabilities": {
+            "minImages": 3,
+            "maxImages": 5,
+            "introMessage": {"supported": True, "maxLength": 140},
+            "perImageMessage": {"supported": True, "maxLength": 70},
+            "finalMessage": {"supported": True, "maxLength": 120},
+            "eventDate": {"supported": True},
+            "relationship": {"supported": True},
+        },
+        "isActive": True,
+        "sortOrder": 5,
+    },
+]
+
+# Relationship catalog for relationship-driven templates ("From My Heart").
+# One row per sender->recipient pairing; drives select options AND copy tokens
+# so template text personalizes without any hardcoded "wife"/"mother".
+RELATIONSHIPS = {
+    "husband-wife":    {"label": "To my Wife",     "recipientTerm": "wife",     "senderTerm": "husband",  "recipientPronoun": "her"},
+    "wife-husband":    {"label": "To my Husband",  "recipientTerm": "husband",  "senderTerm": "wife",     "recipientPronoun": "his"},
+    "brother-sister":  {"label": "To my Sister",   "recipientTerm": "sister",   "senderTerm": "brother",  "recipientPronoun": "her"},
+    "sister-brother":  {"label": "To my Brother",  "recipientTerm": "brother",  "senderTerm": "sister",   "recipientPronoun": "his"},
+    "son-mother":      {"label": "To my Mother",   "recipientTerm": "mother",   "senderTerm": "son",      "recipientPronoun": "her"},
+    "daughter-father": {"label": "To my Father",   "recipientTerm": "father",   "senderTerm": "daughter", "recipientPronoun": "his"},
+    "friend-friend":   {"label": "To my Friend",   "recipientTerm": "friend",   "senderTerm": "friend",   "recipientPronoun": "their"},
+}
+
+
+def _relationship_options():
+    return [{"value": key, "label": value["label"]} for key, value in RELATIONSHIPS.items()]
+
+
+# First-class category documents. A category owns the IDENTITY fields (who the
+# video is about); capability-gated fields (marked with "capability") appear only
+# when the chosen template supports that capability. Categories without a doc
+# here (Wedding/Engagement/Birthday) fall back to the client's legacy form.
+DEFAULT_CATEGORY_DOCUMENTS = [
+    {
+        "_id": "from-my-heart",
+        "id": "from-my-heart",
+        "name": "From My Heart",
+        "description": "Emotional, relationship-driven birthday reels for the people you love.",
+        "icon": "❤️",
+        "sharedSteps": ["photos", "music"],
+        "form": {
+            "fields": [
+                {"key": "celebrantName", "type": "text", "label": "Whose birthday is it?",
+                 "placeholder": "Nisha", "required": True},
+                {"key": "senderName", "type": "text", "label": "Your name",
+                 "placeholder": "Neeraj", "required": False},
+                {"key": "relationshipType", "type": "select", "label": "Your relationship",
+                 "optionsRef": "relationships", "required": True},
+                {"key": "eventDate", "type": "date", "label": "Birthday",
+                 "required": False, "capability": "eventDate"},
+                {"key": "introMessage", "type": "textarea", "label": "Opening message",
+                 "placeholder": "Happy birthday to someone truly special…",
+                 "maxLength": 140, "capability": "introMessage"},
+                {"key": "finalMessage", "type": "textarea", "label": "Closing message",
+                 "placeholder": "Here's to you, today and always ❤️",
+                 "maxLength": 120, "capability": "finalMessage"},
+            ]
+        },
+        "isActive": True,
+        "sortOrder": 5,
+    },
 ]
 
 app = FastAPI(title="DreamWedds Render API")
@@ -366,6 +459,7 @@ class _InMemoryDB:
         self.users = _InMemoryCollection()
         self.templates = _InMemoryCollection()
         self.music = _InMemoryCollection()
+        self.categories = _InMemoryCollection()
 
 
 client = None
@@ -389,7 +483,11 @@ class ScheduleItem(BaseModel):
 
 class RenderRequest(BaseModel):
     template: str = "marigold"
-    couple: Couple
+    category: str = ""
+    # couple is optional now: data-driven categories send a generic `fields` bag
+    # instead, and the adapter derives couple from it for backward compatibility.
+    couple: Optional[Couple] = None
+    fields: Dict[str, Any] = Field(default_factory=dict)
     eventDate: str = ""
     venue: Venue = Field(default_factory=Venue)
     message: str = ""
@@ -520,6 +618,7 @@ def _serialize_template(document):
         "style": document.get("style", ""),
         "duration": document.get("duration"),
         "maxImages": document.get("maxImages"),
+        "capabilities": document.get("capabilities") or {},
         "defaultMusicId": document["defaultMusicId"] if "defaultMusicId" in document else "tere-sang",
         "renderCount": int(document.get("renderCount", 0)),
         "isActive": bool(document.get("isActive", True)),
@@ -539,11 +638,76 @@ async def seed_default_templates():
     for template in DEFAULT_TEMPLATE_DOCUMENTS:
         existing = await db.templates.find_one({"_id": template["_id"]})
         if existing:
+            # Backfill capabilities onto templates seeded before this field existed.
+            if "capabilities" in template and not existing.get("capabilities"):
+                await db.templates.update_one(
+                    {"_id": template["_id"]},
+                    {"$set": {"capabilities": template["capabilities"], "updated_at": now}},
+                )
             continue
         doc = dict(template)
         doc["created_at"] = now
         doc["updated_at"] = now
         await db.templates.insert_one(doc)
+
+
+async def seed_default_categories():
+    now = datetime.now(timezone.utc).isoformat()
+    for category in DEFAULT_CATEGORY_DOCUMENTS:
+        existing = await db.categories.find_one({"_id": category["_id"]})
+        if existing:
+            continue
+        doc = dict(category)
+        doc["created_at"] = now
+        doc["updated_at"] = now
+        await db.categories.insert_one(doc)
+
+
+def _serialize_category(document):
+    form = document.get("form") or {}
+    return {
+        "id": document.get("id") or document.get("_id"),
+        "name": document.get("name", ""),
+        "description": document.get("description", ""),
+        "icon": document.get("icon", "✨"),
+        "sharedSteps": document.get("sharedSteps", ["photos", "music"]),
+        "form": form,
+        # Resolve any optionsRef so the client gets ready-to-render select options.
+        "relationships": _relationship_options(),
+        "isActive": bool(document.get("isActive", True)),
+        "sortOrder": int(document.get("sortOrder", 100)),
+    }
+
+
+def resolve_render_copy(template: str, category: str, fields: Dict[str, Any]) -> Dict[str, Any]:
+    """Resolve relationship terms and substitute {{tokens}} in user copy — done
+    once here so every relationship-driven template renders personalized strings
+    without reimplementing token logic."""
+    fields = fields or {}
+    rel = RELATIONSHIPS.get(str(fields.get("relationshipType") or ""), {})
+    ctx = {
+        "celebrantName": str(fields.get("celebrantName") or "").strip(),
+        "senderName": str(fields.get("senderName") or "").strip(),
+        "recipientTerm": rel.get("recipientTerm", ""),
+        "senderTerm": rel.get("senderTerm", ""),
+        "recipientPronoun": rel.get("recipientPronoun", "their"),
+    }
+
+    def fill(text: str) -> str:
+        if not text:
+            return ""
+        for key, value in ctx.items():
+            text = text.replace("{{" + key + "}}", value)
+        return text
+
+    photo_messages = [fill(m) for m in (fields.get("photoMessages") or []) if isinstance(m, str)]
+    return {
+        **ctx,
+        "relationshipLabel": rel.get("label", ""),
+        "introMessage": fill(str(fields.get("introMessage") or "")),
+        "finalMessage": fill(str(fields.get("finalMessage") or "")),
+        "photoMessages": photo_messages,
+    }
 
 
 async def verify_recaptcha_token(token: Optional[str], remote_ip: Optional[str] = None):
@@ -750,6 +914,43 @@ async def list_template_categories():
     return [{"name": category} for category in categories]
 
 
+@api_router.get("/categories")
+async def list_categories():
+    """Data-driven category manifest. Categories with a seeded document carry a
+    `form` schema (dynamic form); categories that only exist as template tags
+    (Wedding/Engagement/Birthday) are returned with `form: null` so the client
+    uses its legacy form for them."""
+    template_docs = await db.templates.find({"isActive": True}).to_list(200)
+    template_category_names = {(d.get("category") or "Wedding") for d in template_docs}
+
+    category_docs = await db.categories.find({"isActive": True}).to_list(200)
+    defined = {c["name"]: _serialize_category(c) for c in category_docs}
+
+    legacy_icons = {"Wedding": "💍", "Engagement": "💐", "Birthday": "🎂"}
+    result = []
+    for name in sorted(template_category_names):
+        if name in defined:
+            result.append(defined[name])
+        else:
+            result.append({
+                "id": name.lower().replace(" ", "-"),
+                "name": name,
+                "description": "",
+                "icon": legacy_icons.get(name, "✨"),
+                "sharedSteps": ["photos", "music"],
+                "form": None,
+                "relationships": [],
+                "isActive": True,
+                "sortOrder": 100,
+            })
+    # Surface any defined category that has no active template yet, so it is not hidden.
+    for name, serialized in defined.items():
+        if name not in template_category_names:
+            result.append(serialized)
+    result.sort(key=lambda c: (c["sortOrder"], c["name"].lower()))
+    return result
+
+
 @api_router.get("/admin/templates")
 async def admin_list_templates(_: GoogleUser = Depends(require_admin_user)):
     docs = await db.templates.find().to_list(200)
@@ -907,8 +1108,18 @@ async def create_render(
         recaptcha_result = None
     else:
         recaptcha_result = await verify_recaptcha_token(req.recaptchaToken, request.client.host if request.client else None)
+    # Adapter: data-driven categories send a generic `fields` bag and no couple.
+    # Derive couple from it (render-service still expects couple) and resolve copy.
+    if req.couple is None:
+        celebrant = str(req.fields.get("celebrantName") or "").strip()
+        sender = str(req.fields.get("senderName") or "").strip()
+        req.couple = Couple(partnerOne=celebrant or "Someone", partnerTwo=sender or "Special")
+    if not req.eventDate and req.fields.get("eventDate"):
+        req.eventDate = str(req.fields.get("eventDate"))
+
     payload = req.model_dump(exclude={"recaptchaToken"})
     payload["tags"] = list(dict.fromkeys(tag.strip() for tag in req.tags if tag.strip()))[:12]
+    payload["resolved"] = resolve_render_copy(req.template, req.category, req.fields)
 
     effective_music_id = req.musicId
     if not effective_music_id:
@@ -937,7 +1148,9 @@ async def create_render(
         "userId": user.sub,
         "userEmail": user.email,
         "template": req.template,
+        "category": req.category,
         "couple": req.couple.model_dump(),
+        "fields": req.fields,
         "eventDate": req.eventDate,
         "venue": req.venue.model_dump(),
         "displayMessage": req.displayMessage,
@@ -1094,6 +1307,7 @@ async def initialize_storage():
     if storage_backend == 'memory':
         db = _InMemoryDB()
         await seed_default_templates()
+        await seed_default_categories()
         logger.info("Using in-memory storage")
         return
 
@@ -1109,6 +1323,7 @@ async def initialize_storage():
         await db.templates.create_index("sortOrder")
         await db.music.create_index("id", unique=True)
         await seed_default_templates()
+        await seed_default_categories()
         logger.info("Connected to MongoDB at %s", mongo_url)
     except Exception as exc:  # noqa: BLE001
         if client is not None:

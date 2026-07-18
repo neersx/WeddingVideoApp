@@ -2,6 +2,18 @@ export const FPS = 30;
 
 export type ScheduleItem = {name: string; time: string};
 
+export type ResolvedCopy = {
+  celebrantName?: string;
+  senderName?: string;
+  recipientTerm?: string;
+  senderTerm?: string;
+  recipientPronoun?: string;
+  relationshipLabel?: string;
+  introMessage?: string;
+  finalMessage?: string;
+  photoMessages?: string[];
+};
+
 export type WeddingProps = {
   couple: {partnerOne: string; partnerTwo: string};
   eventDate: string;
@@ -13,6 +25,11 @@ export type WeddingProps = {
   schedule?: ScheduleItem[];
   tags?: string[];
   durationInSeconds?: number;
+  // Data-driven categories (e.g. "From My Heart"): the raw field bag, the
+  // category name, and backend-resolved, token-substituted copy.
+  category?: string;
+  fields?: Record<string, unknown>;
+  resolved?: ResolvedCopy;
 };
 
 export const defaultProps: WeddingProps = {

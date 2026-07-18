@@ -12,6 +12,7 @@ import {RingReveal} from '../templates/RingReveal';
 import {ConfettiPop} from '../templates/ConfettiPop';
 import {BirthdayEra} from '../templates/BirthdayEra';
 import {GoldenHour} from '../templates/GoldenHour';
+import {FromMyHeart} from '../templates/FromMyHeart';
 import {defaultProps, FPS, WeddingProps} from '../templates/types';
 
 const meta = ({props}: {props: WeddingProps}) => ({
@@ -31,6 +32,7 @@ const compositions: {id: string; component: React.FC<WeddingProps>}[] = [
   {id: 'ConfettiPop', component: ConfettiPop},
   {id: 'BirthdayEra', component: BirthdayEra},
   {id: 'GoldenHour', component: GoldenHour},
+  {id: 'FromMyHeart', component: FromMyHeart},
 ];
 
 export const Root: React.FC = () => (

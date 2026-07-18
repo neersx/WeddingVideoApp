@@ -53,10 +53,12 @@ const buildInputProps = (body: any) => {
     'birthday-era-v1': 'BirthdayEra',
     'birthday-era': 'BirthdayEra',
     'golden-hour': 'GoldenHour',
+    'from-my-heart-cinematic': 'FromMyHeart',
+    'from-my-heart': 'FromMyHeart',
   };
   const compositionId = compMap[template] || 'Marigold';
   const inputProps = {
-    couple: body.couple,
+    couple: body.couple || {partnerOne: 'Someone', partnerTwo: 'Special'},
     eventDate: body.eventDate || '',
     venue: body.venue || {name: '', city: ''},
     message: body.message || '',
@@ -66,9 +68,17 @@ const buildInputProps = (body: any) => {
     schedule: Array.isArray(body.schedule) ? body.schedule.slice(0, 6) : [],
     tags: Array.isArray(body.tags) ? body.tags.slice(0, 12) : [],
     durationInSeconds: Math.min(60, Math.max(5, Number(body.durationInSeconds) || 30)),
+    category: body.category || '',
+    fields: body.fields || {},
+    resolved: body.resolved || {},
   };
   return {compositionId, inputProps};
 };
+
+// A render is valid if it carries a couple OR a data-driven fields bag.
+const hasRenderableSubject = (body: any) =>
+  (body?.couple?.partnerOne && body?.couple?.partnerTwo) ||
+  (body?.fields && Object.keys(body.fields).length > 0);
 
 const runRender = async (job: Job, body: any) => {
   const outPath = path.join(os.tmpdir(), `render-${job.id}.mp4`);
@@ -124,8 +134,8 @@ app.get('/health', (_req, res) => {
 // Legacy synchronous endpoint - kept for backwards compatibility.
 app.post('/render', async (req, res) => {
   const body = req.body || {};
-  if (!body?.couple?.partnerOne || !body?.couple?.partnerTwo) {
-    return res.status(400).json({error: 'couple.partnerOne and couple.partnerTwo are required'});
+  if (!hasRenderableSubject(body)) {
+    return res.status(400).json({error: 'couple names or a fields payload are required'});
   }
   const job: Job = {id: crypto.randomBytes(8).toString('hex'), status: 'queued', progress: 0, createdAt: Date.now()};
   jobs.set(job.id, job);
@@ -143,8 +153,8 @@ app.post('/render', async (req, res) => {
 // Async: start job, return id immediately.
 app.post('/render-async', (req, res) => {
   const body = req.body || {};
-  if (!body?.couple?.partnerOne || !body?.couple?.partnerTwo) {
-    return res.status(400).json({error: 'couple.partnerOne and couple.partnerTwo are required'});
+  if (!hasRenderableSubject(body)) {
+    return res.status(400).json({error: 'couple names or a fields payload are required'});
   }
   const job: Job = {id: crypto.randomBytes(8).toString('hex'), status: 'queued', progress: 0, createdAt: Date.now()};
   jobs.set(job.id, job);
