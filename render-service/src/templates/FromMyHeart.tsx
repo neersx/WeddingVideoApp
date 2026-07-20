@@ -192,7 +192,7 @@ const BrandFooter: React.FC<{visibleUntil: number}> = ({visibleUntil}) => {
   const opacity = interpolate(frame, [fps, fps * 1.6, visibleUntil - fps, visibleUntil], [0, 0.62, 0.62, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
   return (
     <div style={{position: 'absolute', bottom: 70, left: 0, right: 0, textAlign: 'center', opacity, zIndex: 30}}>
-      <span style={{fontFamily: sans, fontSize: 22, letterSpacing: 4, color: 'rgba(255,247,234,.9)', textShadow: '0 2px 14px rgba(0,0,0,.6)'}}>InvitaVideos.com</span>
+      <span style={{fontFamily: sans, fontSize: 27, letterSpacing: 4, color: 'rgba(255,247,234,.9)', textShadow: '0 2px 14px rgba(0,0,0,.6)'}}>InvitaVideos.com</span>
     </div>
   );
 };
