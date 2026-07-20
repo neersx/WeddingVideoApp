@@ -324,14 +324,45 @@ DEFAULT_TEMPLATE_DOCUMENTS = [
             # the chosen duration, falling back to maxImages.
             "imagesPerDuration": {"10": 3, "20": 4, "30": 5},
             "captionPerImage": True,
-            "introMessage": {"supported": True, "maxLength": 140},
-            "perImageMessage": {"supported": True, "maxLength": 70},
+            "introMessage": {"supported": True, "maxLength": 120},
+            "perImageMessage": {"supported": True, "maxLength": 120},
             "finalMessage": {"supported": True, "maxLength": 120},
             "eventDate": {"supported": True},
             "relationship": {"supported": True},
         },
         "isActive": True,
         "sortOrder": 5,
+    },
+    {
+        "_id": "forever-special",
+        "id": "forever-special",
+        "name": "Forever Special",
+        "desc": "A message-first reel in soft rose-gold — each photo holds for a breath before its words rise, alternating between a full-screen reveal and a bottom message panel.",
+        "category": "Heartfelt",
+        "style": "Emotional Cinematic",
+        "duration": 30,
+        "maxImages": 5,
+        "swatch": ["#3B1220", "#D98F7B", "#F3B6B0", "#FFF7F2"],
+        "bg": "#2A1016",
+        "text": "#FFF7F2",
+        "font": "'Cormorant Garamond', serif",
+        # Same settings contract as From My Heart — this template is a visual
+        # variant within the same Heartfelt category, not a different form.
+        "settings": {
+            "minImages": 3,
+            "maxImages": 5,
+            "maxSlides": 5,
+            "durations": [10, 20, 30],
+            "imagesPerDuration": {"10": 3, "20": 4, "30": 5},
+            "captionPerImage": True,
+            "introMessage": {"supported": True, "maxLength": 120},
+            "perImageMessage": {"supported": True, "maxLength": 120},
+            "finalMessage": {"supported": True, "maxLength": 120},
+            "eventDate": {"supported": True},
+            "relationship": {"supported": True},
+        },
+        "isActive": True,
+        "sortOrder": 6,
     },
 ]
 
@@ -392,7 +423,7 @@ DEFAULT_CATEGORY_DOCUMENTS = [
                 {"key": "venueName", "type": "text", "label": "Venue", "placeholder": "The Grand Palace"},
                 {"key": "city", "type": "text", "label": "City", "placeholder": "Jaipur"},
                 {"key": "message", "type": "textarea", "label": "Message to guests",
-                 "placeholder": "Join us as we begin our forever…"},
+                 "placeholder": "Join us as we begin our forever…", "maxLength": 120},
                 {"key": "schedule", "type": "repeater", "label": "Event schedule", "max": 6,
                  "itemFields": [
                      {"key": "name", "placeholder": "Haldi"},
@@ -423,7 +454,7 @@ DEFAULT_CATEGORY_DOCUMENTS = [
                 {"key": "venueName", "type": "text", "label": "Venue", "placeholder": "The Grand Palace"},
                 {"key": "city", "type": "text", "label": "City", "placeholder": "Jaipur"},
                 {"key": "message", "type": "textarea", "label": "Message to guests",
-                 "placeholder": "Celebrate our engagement with us…"},
+                 "placeholder": "Celebrate our engagement with us…", "maxLength": 120},
             ]
         },
         "isActive": True,
@@ -444,7 +475,7 @@ DEFAULT_CATEGORY_DOCUMENTS = [
                 {"key": "venueName", "type": "text", "label": "Venue", "placeholder": "The Grand Palace"},
                 {"key": "city", "type": "text", "label": "City", "placeholder": "Jaipur"},
                 {"key": "message", "type": "textarea", "label": "Message to guests",
-                 "placeholder": "Come celebrate with us…"},
+                 "placeholder": "Come celebrate with us…", "maxLength": 120},
             ]
         },
         "isActive": True,
@@ -471,7 +502,7 @@ DEFAULT_CATEGORY_DOCUMENTS = [
                  "required": False, "capability": "eventDate"},
                 {"key": "introMessage", "type": "textarea", "label": "Opening message",
                  "placeholder": "Happy birthday to someone truly special…",
-                 "maxLength": 140, "capability": "introMessage"},
+                 "maxLength": 120, "capability": "introMessage"},
                 {"key": "finalMessage", "type": "textarea", "label": "Closing message",
                  "placeholder": "Here's to you, today and always ❤️",
                  "maxLength": 120, "capability": "finalMessage"},
@@ -881,6 +912,41 @@ async def migrate_heartfelt_rename():
             )
 
 
+async def migrate_message_maxlength_120():
+    """Unify every message-type text box's default max length at 120 chars.
+    Seeding is insert-only, so templates/categories already in the database
+    need their existing maxLength values updated directly."""
+    now = datetime.now(timezone.utc).isoformat()
+    for template_id in ("from-my-heart-cinematic", "forever-special"):
+        doc = await db.templates.find_one({"_id": template_id})
+        if not doc:
+            continue
+        settings = dict(doc.get("settings") or {})
+        changed = False
+        for key in ("introMessage", "perImageMessage", "finalMessage"):
+            entry = settings.get(key)
+            if isinstance(entry, dict) and entry.get("maxLength") != 120:
+                settings[key] = {**entry, "maxLength": 120}
+                changed = True
+        if changed:
+            await db.templates.update_one({"_id": template_id}, {"$set": {"settings": settings, "updated_at": now}})
+
+    for category_id in ("wedding", "engagement", "birthday", "heartfelt"):
+        doc = await db.categories.find_one({"_id": category_id})
+        if not doc:
+            continue
+        form = dict(doc.get("form") or {})
+        fields = list(form.get("fields") or [])
+        changed = False
+        for field in fields:
+            if field.get("type") == "textarea" and field.get("maxLength") != 120:
+                field["maxLength"] = 120
+                changed = True
+        if changed:
+            form["fields"] = fields
+            await db.categories.update_one({"_id": category_id}, {"$set": {"form": form, "updated_at": now}})
+
+
 def _serialize_category(document):
     form = document.get("form") or {}
     return {
@@ -939,7 +1005,7 @@ def resolve_template_form(template_doc, category_doc):
                 "maxImages": int(settings.get("maxImages") or 6),
                 "imagesPerDuration": settings.get("imagesPerDuration") or {},
                 "captionPerImage": bool(settings.get("captionPerImage")),
-                "captionMaxLength": int(per_image.get("maxLength") or 70) if isinstance(per_image, dict) else 70,
+                "captionMaxLength": int(per_image.get("maxLength") or 120) if isinstance(per_image, dict) else 120,
             },
             "music": {"enabled": "music" in shared_steps},
         },
@@ -1694,14 +1760,15 @@ def _stream_file_range(path: Path, start: int, end: int, chunk_size: int = 1024 
 
 
 @api_router.get("/renders/{render_id}/video")
-async def get_render_video(render_id: str, request: Request):
+async def get_render_video(render_id: str, request: Request, download: bool = False):
     path = RENDERS_DIR / f"{Path(render_id).name}.mp4"
     if not path.exists():
         raise HTTPException(status_code=404, detail="Video not found")
     size = path.stat().st_size
+    disposition = "attachment" if download else "inline"
     common_headers = {
         "Accept-Ranges": "bytes",
-        "Content-Disposition": f'inline; filename="invitavideos-{render_id[:8]}.mp4"',
+        "Content-Disposition": f'{disposition}; filename="invitavideos-{render_id[:8]}.mp4"',
     }
     range_header = request.headers.get("range", "")
     match = re.fullmatch(r"bytes=(\d*)-(\d*)", range_header.strip()) if range_header else None
@@ -1733,13 +1800,13 @@ async def get_render_video(render_id: str, request: Request):
         path,
         media_type="video/mp4",
         headers=common_headers,
-        content_disposition_type="inline",
+        content_disposition_type=disposition,
     )
 
 
 @api_router.get("/renders/{render_id}/video.mp4")
-async def get_render_video_mp4(render_id: str, request: Request):
-    return await get_render_video(render_id, request)
+async def get_render_video_mp4(render_id: str, request: Request, download: bool = False):
+    return await get_render_video(render_id, request, download)
 
 
 app.include_router(api_router)
@@ -1764,6 +1831,7 @@ async def initialize_storage():
         await migrate_heartfelt_rename()
         await seed_default_templates()
         await seed_default_categories()
+        await migrate_message_maxlength_120()
         logger.info("Using in-memory storage")
         return
 
@@ -1781,6 +1849,7 @@ async def initialize_storage():
         await migrate_heartfelt_rename()
         await seed_default_templates()
         await seed_default_categories()
+        await migrate_message_maxlength_120()
         logger.info("Connected to MongoDB at %s", mongo_url)
     except Exception as exc:  # noqa: BLE001
         if client is not None:

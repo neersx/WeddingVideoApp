@@ -120,6 +120,7 @@ export const DetailsForm = ({ details, onChange, category = "Wedding", isShowcas
               value={details.message}
               onChange={set("message")}
               rows={2}
+              maxLength={120}
               placeholder={isBirthday ? "Come celebrate a wonderful birthday..." : isEngagement ? "With joy in their hearts..." : "Together with their families..."}
             />
           </Field>

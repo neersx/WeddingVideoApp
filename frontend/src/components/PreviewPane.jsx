@@ -1,6 +1,26 @@
 import { useEffect, useState } from "react";
-import { Clapperboard, Download, Film, Sparkles } from "lucide-react";
+import { Clapperboard, Download, Film, Loader2, Sparkles } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+
+// A plain `<a href download>` is silently ignored by browsers for cross-origin
+// URLs (frontend and backend run on different origins in local dev), so the
+// click would just open the video instead of downloading it. Fetching the
+// file as a blob and downloading via an object URL works regardless of origin.
+async function downloadVideoFile(videoUrl) {
+  const separator = videoUrl.includes("?") ? "&" : "?";
+  const response = await fetch(`${videoUrl}${separator}download=1`);
+  if (!response.ok) throw new Error("Download failed");
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = "invitavideos-reel.mp4";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+}
 
 const Timer = () => {
   const [s, setS] = useState(0);
@@ -48,6 +68,18 @@ const RenderMessages = () => {
 
 export const PreviewPane = ({ rendering, status = "idle", progress = 0, jobId, videoUrl, onRender, onReset, canRender = true, renderHint = "" }) => {
   const pct = Math.max(0, Math.min(100, Math.round(progress * 100)));
+  const [downloading, setDownloading] = useState(false);
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      await downloadVideoFile(videoUrl);
+    } catch {
+      toast.error("Could not download the video. Please try again.");
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <div className="sticky top-20 space-y-4">
@@ -161,11 +193,22 @@ export const PreviewPane = ({ rendering, status = "idle", progress = 0, jobId, v
         </>
       ) : (
         <div className="space-y-3">
-          <a href={videoUrl} download data-testid="download-video-btn" className="block">
-            <Button className="w-full rounded-full bg-gradient-to-r from-[#6012A8] via-[#C80A76] to-[#E66B24] py-6 text-sm font-semibold uppercase tracking-[0.12em] text-white hover:brightness-105">
-              <Download className="mr-2 h-4 w-4" /> Download Video
-            </Button>
-          </a>
+          <Button
+            data-testid="download-video-btn"
+            onClick={handleDownload}
+            disabled={downloading}
+            className="w-full rounded-full bg-gradient-to-r from-[#6012A8] via-[#C80A76] to-[#E66B24] py-6 text-sm font-semibold uppercase tracking-[0.12em] text-white hover:brightness-105 disabled:opacity-70"
+          >
+            {downloading ? (
+              <span className="inline-flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" /> Preparing download…
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-2">
+                <Download className="h-4 w-4" /> Download Video
+              </span>
+            )}
+          </Button>
           <Button
             variant="outline"
             data-testid="create-new-reel-btn"

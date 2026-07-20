@@ -798,7 +798,7 @@ function CreateVideoPage() {
   const durationOptions = manifest?.steps?.details?.durations || [10, 20, 30];
   const minImages = manifest?.steps?.photos?.minImages || 1;
   const captionPerImage = Boolean(manifest?.steps?.photos?.captionPerImage);
-  const captionMaxLength = manifest?.steps?.photos?.captionMaxLength || 70;
+  const captionMaxLength = manifest?.steps?.photos?.captionMaxLength || 120;
   // Effective image cap depends on the chosen duration (shorter reels hold fewer).
   const imagesPerDuration = manifest?.steps?.photos?.imagesPerDuration || {};
   const overallMaxImages = manifest?.steps?.photos?.maxImages || 4;

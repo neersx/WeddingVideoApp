@@ -13,6 +13,8 @@ import {ConfettiPop} from '../templates/ConfettiPop';
 import {BirthdayEra} from '../templates/BirthdayEra';
 import {GoldenHour} from '../templates/GoldenHour';
 import {FromMyHeart} from '../templates/FromMyHeart';
+import {ForeverSpecial} from '../templates/ForeverSpecial';
+import {BrandOutro} from '../templates/BrandOutro';
 import {defaultProps, FPS, WeddingProps} from '../templates/types';
 
 const meta = ({props}: {props: WeddingProps}) => ({
@@ -33,6 +35,7 @@ const compositions: {id: string; component: React.FC<WeddingProps>}[] = [
   {id: 'BirthdayEra', component: BirthdayEra},
   {id: 'GoldenHour', component: GoldenHour},
   {id: 'FromMyHeart', component: FromMyHeart},
+  {id: 'ForeverSpecial', component: ForeverSpecial},
 ];
 
 export const Root: React.FC = () => (
@@ -50,5 +53,7 @@ export const Root: React.FC = () => (
         calculateMetadata={meta}
       />
     ))}
+    {/* Standalone preview of the shared closing branding screen — 4.5s reference cut. */}
+    <Composition id="BrandOutro" component={BrandOutro} width={1080} height={1920} fps={FPS} durationInFrames={135} />
   </>
 );

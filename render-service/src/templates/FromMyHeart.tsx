@@ -5,13 +5,14 @@ import {
   Img,
   Sequence,
   interpolate,
-  staticFile,
   useCurrentFrame,
   useVideoConfig,
 } from 'remotion';
 import {loadFont as loadCormorant} from '@remotion/google-fonts/CormorantGaramond';
 import {loadFont as loadOutfit} from '@remotion/google-fonts/Outfit';
 import {WeddingProps, ResolvedCopy} from './types';
+import {BrandOutro} from './BrandOutro';
+import {ClosingMessageScene, estimateClosingContentFrames} from './ClosingMessageScene';
 
 const {fontFamily: serif} = loadCormorant();
 const {fontFamily: sans} = loadOutfit();
@@ -121,20 +122,20 @@ type SceneProps = {
   trans: number;
   eyebrow?: string;
   intro?: string;
-  finalLine?: string;
-  signature?: string;
 };
 
-const PhotoScene: React.FC<SceneProps> = ({src, caption, index, dur, trans, eyebrow, intro, finalLine, signature}) => {
+const PhotoScene: React.FC<SceneProps> = ({src, caption, index, dur, trans, eyebrow, intro}) => {
   const frame = useCurrentFrame();
   // Crossfade: fade the whole scene in and out over `trans` frames.
   const sceneOpacity = interpolate(frame, [0, trans, dur - trans, dur], [0, 1, 1, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
   // First scene: play the opening wish, then dissolve into this photo's caption.
-  const introOut = Math.round(dur * 0.5);
+  // Floor at trans+19 so the interpolate keyframes below ([trans, trans+18,
+  // introOut, introOut+16]) stay strictly increasing even when a very short
+  // scene (e.g. a long closing message eating most of the budget) would
+  // otherwise put dur*0.5 below trans+18.
+  const introOut = Math.max(trans + 19, Math.round(dur * 0.5));
   const captionIn = intro ? Math.round(dur * 0.44) : 6;
   const introOpacity = intro ? interpolate(frame, [trans, trans + 18, introOut, introOut + 16], [0, 1, 1, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'}) : 0;
-  // Last scene: bring in the closing line + signature in the final third.
-  const sigFrom = Math.round(dur * 0.52);
 
   return (
     <AbsoluteFill style={{opacity: sceneOpacity}}>
@@ -153,37 +154,11 @@ const PhotoScene: React.FC<SceneProps> = ({src, caption, index, dur, trans, eyeb
       ) : null}
 
       <Caption text={caption} from={captionIn} />
-
-      {finalLine ? (
-        <Reveal from={sigFrom} style={{position: 'absolute', left: 84, right: 84, bottom: 210, textAlign: 'center', color: C.glow, fontFamily: sans, fontSize: 40, letterSpacing: 1, textShadow: '0 3px 20px rgba(0,0,0,.6)'}}>
-          {finalLine}
-        </Reveal>
-      ) : null}
-      {signature ? (
-        <Reveal from={sigFrom + 10} style={{position: 'absolute', left: 84, right: 84, bottom: 146, textAlign: 'center', color: C.cream, fontFamily: serif, fontSize: 52, fontStyle: 'italic', textShadow: '0 3px 20px rgba(0,0,0,.6)'}}>
-          {signature}
-        </Reveal>
-      ) : null}
     </AbsoluteFill>
   );
 };
 
-const Outro: React.FC = () => {
-  const frame = useCurrentFrame();
-  const {fps} = useVideoConfig();
-  const logoOpacity = interpolate(frame, [12, 34], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
-  const logoScale = interpolate(frame, [12, 44], [0.9, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
-  const drift = interpolate(frame, [0, fps * 5], [0, 6], {extrapolateRight: 'clamp'});
-  return (
-    <AbsoluteFill style={{background: `radial-gradient(circle at 50% 32%, ${C.wine} 0%, #37121F 46%, ${C.ink} 100%)`, alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 96}}>
-      <AbsoluteFill style={{transform: `scale(1.05) translateY(${-drift}px)`, background: 'radial-gradient(50% 30% at 50% 26%, rgba(255,214,160,.22), transparent 70%)', mixBlendMode: 'screen'}} />
-      <Reveal style={{fontFamily: sans, fontSize: 34, letterSpacing: 7, textTransform: 'uppercase', color: C.glow}}>Made with love on</Reveal>
-      <Img src={staticFile('logo.png')} style={{width: 520, height: 'auto', marginTop: 44, opacity: logoOpacity, transform: `scale(${logoScale})`, filter: 'drop-shadow(0 0 26px rgba(255,214,160,.35))'}} />
-      <Reveal from={30} style={{marginTop: 30, fontFamily: sans, fontSize: 52, letterSpacing: 3, color: C.cream}}>InvitaVideos.com</Reveal>
-      <Reveal from={44} style={{marginTop: 22, fontFamily: serif, fontSize: 44, fontStyle: 'italic', color: 'rgba(255,247,234,.82)'}}>Create your own reel in minutes</Reveal>
-    </AbsoluteFill>
-  );
-};
+// The closing branding screen is shared across every template — see BrandOutro.tsx.
 
 // Subtle, non-intrusive branding shown across the photo scenes only.
 const BrandFooter: React.FC<{visibleUntil: number}> = ({visibleUntil}) => {
@@ -208,11 +183,16 @@ export const FromMyHeart: React.FC<WeddingProps> = (props) => {
   // image gets its own scene + caption, honouring the captionPerImage setting.
   const photoCount = Math.max(1, Math.min(photos.length || copy.photoMessages.length, maxSlides));
 
-  // Reserve a clean branded outro (~15% of runtime, 2–5s), then split the rest
-  // evenly across the photo scenes. Scales across 10/20/30s durations.
+  // Reserve a clean branded outro (~15% of runtime, 2–5s) and a dedicated
+  // closing-message beat, then split what's left evenly across the photo
+  // scenes. The closing beat is sized from the actual message length (via
+  // estimateClosingContentFrames) rather than a fixed proportion, so the
+  // longest supported message always has enough room to fully type out and
+  // reveal the signature before the crossfade to the outro begins.
   const trans = Math.round(fps * 0.4);
   const outroFrames = Math.min(Math.round(fps * 5), Math.max(Math.round(fps * 2), Math.round(durationInFrames * 0.15)));
-  const photoTotal = durationInFrames - outroFrames;
+  const closingFrames = Math.max(Math.round(fps * 1.2), estimateClosingContentFrames(copy.final, Boolean(copy.sender), trans));
+  const photoTotal = durationInFrames - outroFrames - closingFrames;
   const sceneBase = Math.floor(photoTotal / photoCount);
 
   const musicVolume = interpolate(
@@ -231,7 +211,7 @@ export const FromMyHeart: React.FC<WeddingProps> = (props) => {
         const isLast = i === photoCount - 1;
         const from = i * sceneBase;
         const base = isLast ? photoTotal - from : sceneBase;
-        // Overlap into the next scene (or outro) by `trans` for the crossfade.
+        // Overlap into the next scene (closing message, or outro) by `trans`.
         const dur = base + trans;
         const caption = copy.photoMessages[i] || copy.photoMessages[copy.photoMessages.length - 1] || copy.final;
         return (
@@ -244,8 +224,6 @@ export const FromMyHeart: React.FC<WeddingProps> = (props) => {
               trans={trans}
               eyebrow={isFirst ? copy.eyebrow : undefined}
               intro={isFirst ? copy.intro : undefined}
-              finalLine={isLast ? copy.final : undefined}
-              signature={isLast && copy.sender ? `With love, ${copy.sender}` : undefined}
             />
           </Sequence>
         );
@@ -253,8 +231,23 @@ export const FromMyHeart: React.FC<WeddingProps> = (props) => {
 
       <BrandFooter visibleUntil={photoTotal} />
 
-      <Sequence from={photoTotal} durationInFrames={durationInFrames - photoTotal}>
-        <Outro />
+      {/* Dedicated closing-message beat — the first photo again, large typed
+          final message in a focused overlay panel, separate from any caption. */}
+      <Sequence from={photoTotal} durationInFrames={closingFrames + trans}>
+        <ClosingMessageScene
+          src={photos[0]}
+          message={copy.final}
+          signature={copy.sender ? `With love, ${copy.sender}` : undefined}
+          dur={closingFrames + trans}
+          trans={trans}
+          palette={{ink: C.ink, cream: C.cream, accent: C.glow, overlayRgb: '22,10,15'}}
+          fontFamilySerif={serif}
+          fontFamilySans={sans}
+        />
+      </Sequence>
+
+      <Sequence from={photoTotal + closingFrames} durationInFrames={durationInFrames - photoTotal - closingFrames}>
+        <BrandOutro durationInFrames={durationInFrames - photoTotal - closingFrames} />
       </Sequence>
     </AbsoluteFill>
   );

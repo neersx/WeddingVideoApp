@@ -55,6 +55,7 @@ const buildInputProps = (body: any) => {
     'golden-hour': 'GoldenHour',
     'from-my-heart-cinematic': 'FromMyHeart',
     'from-my-heart': 'FromMyHeart',
+    'forever-special': 'ForeverSpecial',
   };
   const compositionId = compMap[template] || 'Marigold';
   const inputProps = {
