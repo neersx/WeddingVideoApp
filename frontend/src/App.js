@@ -27,6 +27,7 @@ import { DEFAULT_TEMPLATES, TemplatePicker } from "@/components/TemplatePicker";
 import { DetailsForm } from "@/components/DetailsForm";
 import { ScheduleBuilder } from "@/components/ScheduleBuilder";
 import { PhotoUploader } from "@/components/PhotoUploader";
+import { DynamicForm } from "@/components/DynamicForm";
 import { PreviewPane } from "@/components/PreviewPane";
 import { MusicPicker } from "@/components/MusicPicker";
 import {
@@ -94,6 +95,12 @@ const weddingSchedule = [
   { name: "Sangeet", time: "7:00 PM" },
   { name: "Wedding", time: "11:30 AM" },
 ];
+
+// Wedding/Engagement/Birthday keep their bespoke, already-polished forms
+// (calendar picker, tag suggestions, dedicated schedule builder). Any other
+// category — including future ones created via the admin Category forms page —
+// renders fully from the server's form manifest via DynamicForm.
+const LEGACY_CATEGORIES = ["Wedding", "Engagement", "Birthday"];
 
 function loadRecaptchaScript() {
   if (!RECAPTCHA_SITE_KEY) return Promise.resolve();
@@ -757,6 +764,13 @@ function CreateVideoPage() {
     ...weddingSchedule,
   ]);
   const [photos, setPhotos] = useState([]);
+  // Generic value bag + per-photo captions for data-driven (non-legacy) categories.
+  // Captions are index-aligned with `photos` so the first caption box can exist
+  // (and be typed into) before the first upload finishes.
+  const [fields, setFields] = useState({});
+  const [photoCaptions, setPhotoCaptions] = useState([]);
+  const [categoryDefs, setCategoryDefs] = useState([]);
+  const [formManifest, setFormManifest] = useState(null);
   const [musicId, setMusicId] = useState("tere-sang");
   const [jobStatus, setJobStatus] = useState("idle");
   const [jobProgress, setJobProgress] = useState(0);
@@ -770,6 +784,27 @@ function CreateVideoPage() {
   const rendering = jobStatus === "queued" || jobStatus === "rendering";
   const selectedTemplate = templates.find((item) => item.id === template);
   const category = selectedTemplate?.category || "Wedding";
+  const isLegacyCategory = LEGACY_CATEGORIES.includes(category);
+  const activeCategoryDef = categoryDefs.find((c) => c.name === category) || null;
+
+  // Server-resolved form manifest for the selected template — category fields
+  // already capability-gated and merged with template settings.
+  const manifest = formManifest && formManifest.templateId === template ? formManifest : null;
+  const isDataDriven = !isLegacyCategory && Boolean(manifest?.hasForm ?? activeCategoryDef?.form);
+  const formSchema = useMemo(
+    () => (manifest?.hasForm ? { fields: manifest.steps.details.fields } : activeCategoryDef?.form),
+    [manifest, activeCategoryDef],
+  );
+  const durationOptions = manifest?.steps?.details?.durations || [10, 20, 30];
+  const minImages = manifest?.steps?.photos?.minImages || 1;
+  const captionPerImage = Boolean(manifest?.steps?.photos?.captionPerImage);
+  const captionMaxLength = manifest?.steps?.photos?.captionMaxLength || 70;
+  // Effective image cap depends on the chosen duration (shorter reels hold fewer).
+  const imagesPerDuration = manifest?.steps?.photos?.imagesPerDuration || {};
+  const overallMaxImages = manifest?.steps?.photos?.maxImages || 4;
+  const maxImages = Number(imagesPerDuration[String(details.durationInSeconds)]) || overallMaxImages;
+  const missingCaption = captionPerImage && photos.some((_, i) => !((photoCaptions[i] || "").trim()));
+
   const wizardSteps = [
     { label: "Category", title: "Choose your occasion and style", hint: "Start with a category, then choose a template." },
     { label: "Details", title: "Add the essentials", hint: "Tell us who and what you are celebrating." },
@@ -778,9 +813,29 @@ function CreateVideoPage() {
   ];
 
   const goNext = () => {
-    if (wizardStep === 1 && (!details.partnerOne.trim() || !details.partnerTwo.trim())) {
-      toast.error(category === "Birthday" ? "First and last name are required" : "Both names are required");
-      return;
+    if (wizardStep === 1) {
+      if (isDataDriven) {
+        const missing = (formSchema?.fields || []).find(
+          (f) => f.required && f.type !== "repeater" && !String(fields[f.key] ?? "").trim(),
+        );
+        if (missing) {
+          toast.error(`"${missing.label}" is required`);
+          return;
+        }
+      } else if (!details.partnerOne.trim() || !details.partnerTwo.trim()) {
+        toast.error(category === "Birthday" ? "First and last name are required" : "Both names are required");
+        return;
+      }
+    }
+    if (wizardStep === 2) {
+      if (photos.length < minImages) {
+        toast.error(`Add at least ${minImages} photo${minImages > 1 ? "s" : ""} to continue`);
+        return;
+      }
+      if (missingCaption) {
+        toast.error("Add a message for every photo before continuing");
+        return;
+      }
     }
     setWizardStep((step) => Math.min(wizardSteps.length - 1, step + 1));
   };
@@ -791,7 +846,51 @@ function CreateVideoPage() {
     const defaults = categoryDefaults[category] || categoryDefaults.Wedding;
     setDetails((current) => ({ ...current, ...defaults }));
     setSchedule(category === "Wedding" ? [...weddingSchedule] : []);
+    setFields({});
+    setPhotoCaptions([]);
   }, [category]);
+
+  useEffect(() => {
+    axios.get(`${API}/categories`).then((r) => setCategoryDefs(r.data)).catch(() => setCategoryDefs([]));
+  }, []);
+
+  useEffect(() => {
+    if (!template) { setFormManifest(null); return; }
+    let cancelled = false;
+    axios.get(`${API}/templates/${template}/form`).then((r) => { if (!cancelled) setFormManifest(r.data); }).catch(() => { if (!cancelled) setFormManifest(null); });
+    return () => { cancelled = true; };
+  }, [template]);
+
+  // Keep the selected duration valid when the template's allowed durations change.
+  useEffect(() => {
+    if (!durationOptions.includes(Number(details.durationInSeconds))) {
+      setDetails((current) => ({ ...current, durationInSeconds: durationOptions[0] }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [template, manifest]);
+
+  // Seed schema defaults (e.g. a repeater's default rows) once per template,
+  // without clobbering anything the user already entered.
+  useEffect(() => {
+    if (!formSchema) return;
+    const defaults = {};
+    (formSchema.fields || []).forEach((f) => { if (f.default !== undefined) defaults[f.key] = f.default; });
+    if (Object.keys(defaults).length) setFields((current) => ({ ...defaults, ...current }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formSchema]);
+
+  const setFieldValue = (key, value) => setFields((current) => ({ ...current, [key]: value }));
+
+  // If the chosen duration lowers the image cap below what's already selected,
+  // trim the extras (and their captions) so the user can't submit too many.
+  useEffect(() => {
+    if (photos.length > maxImages) {
+      setPhotos((cur) => cur.slice(0, maxImages));
+      setPhotoCaptions((cur) => cur.slice(0, maxImages));
+      toast.info(`A ${details.durationInSeconds}s reel fits up to ${maxImages} photos — extra photos were removed.`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maxImages]);
 
   useEffect(() => {
     setMusicId(selectedTemplate?.defaultMusicId || null);
@@ -849,24 +948,36 @@ function CreateVideoPage() {
     setJobStatus("queued");
     try {
       const recaptchaToken = await executeRecaptcha();
-      const payload = {
-        template,
-        couple: { partnerOne: details.partnerOne, partnerTwo: details.partnerTwo },
-        eventDate: details.eventDate,
-        venue: { name: details.venueName, city: details.venueCity },
-        message: details.message,
-        displayMessage: details.displayMessage,
-        photos,
-        musicId: musicId || null,
-        schedule: category === "Engagement" ? [{ name: "Engagement", time: details.eventDate }] : category === "Birthday" ? [] : schedule,
-        durationInSeconds: Number(details.durationInSeconds) || 30,
-        tags: String(details.tags || "")
-          .split(",")
-          .map((tag) => tag.trim())
-          .filter(Boolean)
-          .slice(0, 12),
-        recaptchaToken,
-      };
+      const tags = String(details.tags || "")
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+        .slice(0, 12);
+      const payload = isDataDriven
+        ? {
+            template,
+            category,
+            fields,
+            images: photos.map((url, index) => ({ imageUrl: url, text: photoCaptions[index] || "" })),
+            musicId: musicId || null,
+            durationInSeconds: Number(details.durationInSeconds) || 30,
+            tags,
+            recaptchaToken,
+          }
+        : {
+            template,
+            couple: { partnerOne: details.partnerOne, partnerTwo: details.partnerTwo },
+            eventDate: details.eventDate,
+            venue: { name: details.venueName, city: details.venueCity },
+            message: details.message,
+            displayMessage: details.displayMessage,
+            photos,
+            musicId: musicId || null,
+            schedule: category === "Engagement" ? [{ name: "Engagement", time: details.eventDate }] : category === "Birthday" ? [] : schedule,
+            durationInSeconds: Number(details.durationInSeconds) || 30,
+            tags,
+            recaptchaToken,
+          };
       const response = await axios.post(`${API}/renders`, payload, {
         headers: { Authorization: `Bearer ${credential}` },
       });
@@ -890,11 +1001,19 @@ function CreateVideoPage() {
         toast.error(error?.response?.data?.detail || "Failed to queue render");
       }
     }
-  }, [credential, template, details, photos, musicId, schedule, category, signOut]);
+  }, [credential, template, details, photos, musicId, schedule, category, signOut, isDataDriven, fields, photoCaptions]);
 
   const handleRender = async () => {
-    if (!details.partnerOne.trim() || !details.partnerTwo.trim()) {
+    if (!isDataDriven && (!details.partnerOne.trim() || !details.partnerTwo.trim())) {
       toast.error("Both partner names are required");
+      return;
+    }
+    if (photos.length < minImages) {
+      toast.error(`Add at least ${minImages} photo${minImages > 1 ? "s" : ""} before rendering`);
+      return;
+    }
+    if (missingCaption) {
+      toast.error("Add a message for every photo before rendering");
       return;
     }
     // Proactively catch an expired/stale session before hitting the API, so we
@@ -906,6 +1025,19 @@ function CreateVideoPage() {
       return;
     }
     await submitRender();
+  };
+
+  // "Create New Reel" — clear the finished render and the form, back to step 1.
+  const handleReset = () => {
+    clearInterval(pollRef.current);
+    setVideoUrl(null);
+    setJobId(null);
+    setJobStatus("idle");
+    setJobProgress(0);
+    setPhotos([]);
+    setPhotoCaptions([]);
+    setFields({});
+    setWizardStep(0);
   };
 
   useEffect(() => {
@@ -957,7 +1089,7 @@ function CreateVideoPage() {
             <div className="grid grid-cols-3 gap-2 rounded-2xl border border-[#EBD3E0] bg-white/80 p-2 text-center shadow-[0_12px_40px_rgba(81,25,62,0.06)] backdrop-blur sm:min-w-[390px]">
               {[
                 ["Template", template],
-                ["Photos", `${photos.length}/4`],
+                ["Photos", `${photos.length}/${maxImages}`],
                 ["Events", category === "Engagement" ? 1 : category === "Birthday" ? 0 : schedule.length],
               ].map(([label, value]) => (
                 <div key={label} className="rounded-xl bg-[#FFF8FB] px-3 py-2">
@@ -1039,10 +1171,54 @@ function CreateVideoPage() {
 
               {wizardStep === 0 && <TemplatePicker value={template} onChange={setTemplate} templates={templates} />}
               {wizardStep === 1 && <div className="space-y-5">
-                <DetailsForm details={details} onChange={setDetails} category={category} isShowcase={template === "showcase" && category === "Wedding"} />
-                {category === "Wedding" && <div className="border-t border-[#ECD5E2] pt-5"><ScheduleBuilder schedule={schedule} onChange={setSchedule} /></div>}
+                {isDataDriven ? (
+                  <>
+                    <DynamicForm schema={formSchema} values={fields} onChange={setFieldValue} />
+                    <fieldset className="space-y-2">
+                      <legend className="mb-1 block text-xs font-medium uppercase tracking-[0.1em] text-neutral-500">Video length</legend>
+                      <div className="grid grid-cols-3 gap-2">
+                        {durationOptions.map((seconds) => {
+                          const selected = Number(details.durationInSeconds) === Number(seconds);
+                          const cap = Number(imagesPerDuration[String(seconds)]) || overallMaxImages;
+                          return (
+                            <button
+                              type="button"
+                              key={seconds}
+                              onClick={() => setDetails((cur) => ({ ...cur, durationInSeconds: Number(seconds) }))}
+                              className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-sm transition ${selected ? "border-[#C80A76] bg-[#FFF0F7]" : "border-[#ECD5E2] bg-white hover:border-[#D9A9C6]"}`}
+                            >
+                              <span className={`flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border ${selected ? "border-[#C80A76]" : "border-neutral-400"}`}>
+                                {selected && <span className="h-2 w-2 rounded-full bg-[#C80A76]" />}
+                              </span>
+                              <span>
+                                <span className="font-semibold text-[#32113A]">{seconds}s</span>
+                                <span className="block text-[11px] text-neutral-500">up to {cap} photos</span>
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </fieldset>
+                  </>
+                ) : (
+                  <>
+                    <DetailsForm details={details} onChange={setDetails} category={category} isShowcase={template === "showcase" && category === "Wedding"} durationOptions={durationOptions} />
+                    {category === "Wedding" && <div className="border-t border-[#ECD5E2] pt-5"><ScheduleBuilder schedule={schedule} onChange={setSchedule} /></div>}
+                  </>
+                )}
               </div>}
-              {wizardStep === 2 && <PhotoUploader photos={photos} onChange={setPhotos} />}
+              {wizardStep === 2 && (
+                <PhotoUploader
+                  photos={photos}
+                  onChange={setPhotos}
+                  maxImages={maxImages}
+                  minImages={minImages}
+                  captionPerImage={captionPerImage}
+                  captions={photoCaptions}
+                  onCaptionsChange={setPhotoCaptions}
+                  captionMaxLength={captionMaxLength}
+                />
+              )}
               {wizardStep === 3 && <MusicPicker value={musicId} onChange={setMusicId} category={category} />}
 
               <div className="mt-7 flex items-center justify-between gap-3 border-t border-[#ECD5E2] pt-5">
@@ -1063,6 +1239,9 @@ function CreateVideoPage() {
               jobId={jobId}
               videoUrl={videoUrl}
               onRender={handleRender}
+              onReset={handleReset}
+              canRender={photos.length >= minImages}
+              renderHint={`Add at least ${minImages} photo${minImages > 1 ? "s" : ""} to render`}
             />
           </div>
         </section>
@@ -1137,6 +1316,8 @@ function AboutPage() {
 const ADMIN_TABS = [
   ["/admin", "Dashboard"],
   ["/admin/templates", "Templates"],
+  ["/admin/template-settings", "Template settings"],
+  ["/admin/categories", "Category forms"],
   ["/admin/users", "Users"],
   ["/admin/renders", "Video renders"],
   ["/admin/settings", "Settings"],
@@ -1155,6 +1336,268 @@ function AdminPageFrame({ eyebrow, title, description, children }) {
 function AdminGate({ children }) {
   const { user } = useAuth();
   return isAdminUser(user) ? children : <NotFoundPage />;
+}
+
+const FIELD_TYPES = ["text", "textarea", "date", "select", "repeater"];
+
+function AdminTemplateSettingsPage() {
+  const { credential } = useAuth();
+  const [templates, setTemplates] = useState(null);
+  const [drafts, setDrafts] = useState({}); // id -> editable settings draft
+  const [savingId, setSavingId] = useState(null);
+  const [jsonId, setJsonId] = useState(null);
+  const [jsonText, setJsonText] = useState("");
+  const authHeader = useMemo(() => ({ headers: { Authorization: `Bearer ${credential}` } }), [credential]);
+
+  const load = useCallback(() => {
+    axios.get(`${API}/admin/templates`, authHeader).then((r) => {
+      setTemplates(r.data);
+      const next = {};
+      r.data.forEach((t) => {
+        const s = t.settings || {};
+        next[t.id] = { maxImages: s.maxImages ?? 6, maxSlides: s.maxSlides ?? 6, durations: (s.durations || [10, 20, 30]).join(", "), captionPerImage: Boolean(s.captionPerImage), imagesPerDuration: { ...(s.imagesPerDuration || {}) }, raw: s };
+      });
+      setDrafts(next);
+    }).catch(() => setTemplates([]));
+  }, [authHeader]);
+  useEffect(() => { load(); }, [load]);
+
+  const updateDraft = (id, patch) => setDrafts((d) => ({ ...d, [id]: { ...d[id], ...patch } }));
+
+  const save = async (t) => {
+    const d = drafts[t.id];
+    const durations = String(d.durations).split(",").map((x) => Number(x.trim())).filter((x) => Number.isFinite(x) && x > 0);
+    if (!durations.length) return toast.error("Enter at least one duration (e.g. 10, 20, 30)");
+    // Merge structured edits over the raw object so advanced keys (message
+    // capabilities) survive untouched.
+    // Keep only per-duration caps for durations that still exist and have a value.
+    const imagesPerDuration = {};
+    durations.forEach((sec) => {
+      const v = Number((d.imagesPerDuration || {})[String(sec)]);
+      if (Number.isFinite(v) && v > 0) imagesPerDuration[String(sec)] = v;
+    });
+    const settings = { ...d.raw, maxImages: Number(d.maxImages) || 1, maxSlides: Number(d.maxSlides) || 1, durations, captionPerImage: Boolean(d.captionPerImage), imagesPerDuration };
+    setSavingId(t.id);
+    try {
+      await axios.patch(`${API}/admin/templates/${t.id}/settings`, { settings }, authHeader);
+      toast.success(`Settings saved for ${t.name}`);
+      load();
+    } catch (error) {
+      toast.error(error?.response?.data?.detail || "Failed to save settings");
+    } finally { setSavingId(null); }
+  };
+
+  const openJson = (t) => { setJsonId(t.id); setJsonText(JSON.stringify(drafts[t.id]?.raw || {}, null, 2)); };
+  const applyJson = (t) => {
+    try {
+      const parsed = JSON.parse(jsonText);
+      updateDraft(t.id, { raw: parsed, maxImages: parsed.maxImages ?? drafts[t.id].maxImages, maxSlides: parsed.maxSlides ?? drafts[t.id].maxSlides, durations: (parsed.durations || []).join(", ") || drafts[t.id].durations, captionPerImage: Boolean(parsed.captionPerImage) });
+      setJsonId(null);
+      toast.info("JSON applied — press Save to persist");
+    } catch { toast.error("Invalid JSON"); }
+  };
+
+  const inputClass = "w-full rounded-xl border border-[#ECD5E2] bg-white px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B4405F]";
+
+  return <AdminPageFrame eyebrow="Template settings" title="Template settings" description="Per-template video limits: how many images users can add, how many slides the video plays, allowed durations, and whether each image carries its own caption.">
+    <div className="mt-6 space-y-4">
+      {templates === null ? <div className="rounded-3xl border border-[#ECD5E2] bg-white p-8 text-sm text-neutral-500">Loading templates…</div>
+        : templates.map((t) => {
+          const d = drafts[t.id] || {};
+          return (
+            <div key={t.id} className="rounded-3xl border border-[#ECD5E2] bg-white p-6">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="font-heading text-xl font-extrabold text-[#32113A]">{t.name} <span className="ml-2 rounded-full bg-[#FFF3F8] px-2.5 py-0.5 text-xs font-semibold text-[#8D1B63]">{t.category}</span></div>
+                  <div className="mt-1 text-xs text-neutral-500">{t.id} · {t.renderCount || 0} renders</div>
+                </div>
+                <button onClick={() => (jsonId === t.id ? setJsonId(null) : openJson(t))} className="rounded-lg border border-[#ECD5E2] px-3 py-1.5 text-xs font-semibold text-[#8D1B63] hover:bg-[#FFF0F7]">{jsonId === t.id ? "Close JSON" : "Advanced (JSON)"}</button>
+              </div>
+              {jsonId === t.id ? (
+                <div className="mt-4">
+                  <textarea className={`${inputClass} font-mono`} rows={12} value={jsonText} onChange={(e) => setJsonText(e.target.value)} spellCheck={false} />
+                  <button onClick={() => applyJson(t)} className="mt-2 rounded-lg bg-[#32113A] px-4 py-2 text-xs font-semibold text-white">Apply JSON</button>
+                </div>
+              ) : (
+                <div className="mt-4 grid gap-4 sm:grid-cols-5">
+                  <label className="text-xs"><span className="mb-1 block font-semibold text-neutral-500">Max images</span><input type="number" min={1} max={12} className={inputClass} value={d.maxImages ?? ""} onChange={(e) => updateDraft(t.id, { maxImages: e.target.value })} /></label>
+                  <label className="text-xs"><span className="mb-1 block font-semibold text-neutral-500">Max slides</span><input type="number" min={1} max={24} className={inputClass} value={d.maxSlides ?? ""} onChange={(e) => updateDraft(t.id, { maxSlides: e.target.value })} /></label>
+                  <label className="text-xs sm:col-span-2"><span className="mb-1 block font-semibold text-neutral-500">Durations (seconds, comma-separated)</span><input className={inputClass} value={d.durations ?? ""} onChange={(e) => updateDraft(t.id, { durations: e.target.value })} placeholder="10, 20, 30" /></label>
+                  <label className="flex items-center gap-2 pt-6 text-xs font-semibold text-[#32113A]"><input type="checkbox" checked={Boolean(d.captionPerImage)} onChange={(e) => updateDraft(t.id, { captionPerImage: e.target.checked })} /> Caption per image</label>
+                  <div className="sm:col-span-5">
+                    <span className="mb-1 block text-xs font-semibold text-neutral-500">Max images per duration <span className="font-normal text-neutral-400">(blank = use Max images)</span></span>
+                    <div className="flex flex-wrap gap-3">
+                      {String(d.durations || "").split(",").map((x) => Number(x.trim())).filter((x) => Number.isFinite(x) && x > 0).map((sec) => (
+                        <label key={sec} className="text-xs">
+                          <span className="mb-1 block text-neutral-500">{sec}s</span>
+                          <input
+                            type="number" min={1} max={Number(d.maxImages) || 12}
+                            className={`${inputClass} w-24`}
+                            value={(d.imagesPerDuration || {})[String(sec)] ?? ""}
+                            onChange={(e) => updateDraft(t.id, { imagesPerDuration: { ...(d.imagesPerDuration || {}), [String(sec)]: e.target.value } })}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div className="mt-4 border-t border-[#F0DDE7] pt-3">
+                <button disabled={savingId === t.id} onClick={() => save(t)} className="rounded-xl bg-[#32113A] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{savingId === t.id ? "Saving…" : "Save settings"}</button>
+              </div>
+            </div>
+          );
+        })}
+    </div>
+  </AdminPageFrame>;
+}
+
+function AdminCategoryFormsPage() {
+  const { credential } = useAuth();
+  const [categories, setCategories] = useState(null);
+  const [draft, setDraft] = useState(null); // null = list view; object = editing
+  const [jsonMode, setJsonMode] = useState(false);
+  const [jsonText, setJsonText] = useState("");
+  const [saving, setSaving] = useState(false);
+  const authHeader = useMemo(() => ({ headers: { Authorization: `Bearer ${credential}` } }), [credential]);
+
+  const loadCategories = useCallback(() => {
+    axios.get(`${API}/admin/categories`, authHeader).then((r) => setCategories(r.data)).catch(() => setCategories([]));
+  }, [authHeader]);
+  useEffect(() => { loadCategories(); }, [loadCategories]);
+
+  const startNew = () => {
+    setJsonMode(false);
+    setDraft({ isNew: true, id: null, name: "", icon: "✨", description: "", sortOrder: 100, isActive: true, sharedSteps: ["photos", "music"], fields: [] });
+  };
+  const startEdit = (cat) => {
+    setJsonMode(false);
+    setDraft({ isNew: false, id: cat.id, name: cat.name, icon: cat.icon || "✨", description: cat.description || "", sortOrder: cat.sortOrder ?? 100, isActive: cat.isActive !== false, sharedSteps: cat.sharedSteps || ["photos", "music"], fields: (cat.form?.fields || []).map((f) => ({ ...f })) });
+  };
+  const cancel = () => { setDraft(null); setJsonMode(false); };
+
+  const updateField = (index, patch) => setDraft((d) => ({ ...d, fields: d.fields.map((f, i) => (i === index ? { ...f, ...patch } : f)) }));
+  const removeField = (index) => setDraft((d) => ({ ...d, fields: d.fields.filter((_, i) => i !== index) }));
+  const addField = () => setDraft((d) => ({ ...d, fields: [...d.fields, { key: "", type: "text", label: "", placeholder: "", required: false }] }));
+
+  const enterJsonMode = () => { setJsonText(JSON.stringify({ fields: draft.fields }, null, 2)); setJsonMode(true); };
+  const exitJsonMode = () => {
+    try {
+      const parsed = JSON.parse(jsonText);
+      setDraft((d) => ({ ...d, fields: Array.isArray(parsed.fields) ? parsed.fields : d.fields }));
+      setJsonMode(false);
+    } catch { toast.error("Invalid JSON — fix it before switching back"); }
+  };
+
+  const save = async () => {
+    if (!draft.name.trim()) return toast.error("Category name is required");
+    let form;
+    if (jsonMode) {
+      try { form = JSON.parse(jsonText); } catch { return toast.error("Invalid JSON in the form editor"); }
+    } else {
+      form = { fields: draft.fields };
+    }
+    const payload = { name: draft.name.trim(), description: draft.description, icon: draft.icon || "✨", sharedSteps: draft.sharedSteps, isActive: draft.isActive, sortOrder: Number(draft.sortOrder) || 100, form };
+    setSaving(true);
+    try {
+      if (draft.isNew) await axios.post(`${API}/admin/categories`, payload, authHeader);
+      else await axios.patch(`${API}/admin/categories/${draft.id}`, payload, authHeader);
+      toast.success(`Category ${draft.isNew ? "created" : "updated"}`);
+      cancel();
+      loadCategories();
+    } catch (error) {
+      toast.error(error?.response?.data?.detail || "Failed to save category");
+    } finally { setSaving(false); }
+  };
+
+  const remove = async (cat) => {
+    if (!window.confirm(`Delete category "${cat.name}"? This cannot be undone.`)) return;
+    try { await axios.delete(`${API}/admin/categories/${cat.id}`, authHeader); toast.success("Category deleted"); loadCategories(); }
+    catch (error) { toast.error(error?.response?.data?.detail || "Failed to delete"); }
+  };
+
+  const inputClass = "w-full rounded-xl border border-[#ECD5E2] bg-white px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B4405F]";
+
+  if (draft) {
+    return <AdminPageFrame eyebrow="Category forms" title={draft.isNew ? "New category form" : `Edit: ${draft.name}`} description="Define the fields shown on the Details step for this category. Fields with a capability only appear when the chosen template supports it.">
+      <div className="mt-6 space-y-5 rounded-3xl border border-[#ECD5E2] bg-white p-6">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="text-sm"><span className="mb-1 block font-semibold text-[#32113A]">Name</span><input className={inputClass} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Heartfelt" /></label>
+          <label className="text-sm"><span className="mb-1 block font-semibold text-[#32113A]">Icon (emoji)</span><input className={inputClass} value={draft.icon} onChange={(e) => setDraft({ ...draft, icon: e.target.value })} placeholder="❤️" /></label>
+          <label className="text-sm sm:col-span-2"><span className="mb-1 block font-semibold text-[#32113A]">Description</span><input className={inputClass} value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} /></label>
+          <label className="text-sm"><span className="mb-1 block font-semibold text-[#32113A]">Sort order</span><input type="number" className={inputClass} value={draft.sortOrder} onChange={(e) => setDraft({ ...draft, sortOrder: e.target.value })} /></label>
+          <label className="flex items-center gap-2 pt-6 text-sm font-semibold text-[#32113A]"><input type="checkbox" checked={draft.isActive} onChange={(e) => setDraft({ ...draft, isActive: e.target.checked })} /> Active</label>
+        </div>
+
+        <div className="flex items-center justify-between border-t border-[#F0DDE7] pt-4">
+          <h3 className="font-heading text-xl font-extrabold text-[#32113A]">Fields</h3>
+          <button onClick={jsonMode ? exitJsonMode : enterJsonMode} className="rounded-lg border border-[#ECD5E2] px-3 py-1.5 text-xs font-semibold text-[#8D1B63] hover:bg-[#FFF0F7]">{jsonMode ? "◂ Structured editor" : "Edit as JSON ▸"}</button>
+        </div>
+
+        {jsonMode ? (
+          <textarea className={`${inputClass} font-mono`} rows={16} value={jsonText} onChange={(e) => setJsonText(e.target.value)} spellCheck={false} />
+        ) : (
+          <div className="space-y-3">
+            {draft.fields.map((f, i) => (
+              <div key={i} className="rounded-2xl border border-[#F0DDE7] bg-[#FFF8FB] p-4">
+                <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
+                  <label className="text-xs"><span className="mb-1 block font-semibold text-neutral-500">Key</span><input className={inputClass} value={f.key || ""} onChange={(e) => updateField(i, { key: e.target.value })} placeholder="celebrantName" /></label>
+                  <label className="text-xs"><span className="mb-1 block font-semibold text-neutral-500">Label</span><input className={inputClass} value={f.label || ""} onChange={(e) => updateField(i, { label: e.target.value })} placeholder="Whose birthday?" /></label>
+                  <button onClick={() => removeField(i)} className="self-end rounded-lg border border-[#EAB8C6] px-3 py-2 text-xs font-semibold text-[#B4405F] hover:bg-[#FFE9EF]">Remove</button>
+                </div>
+                <div className="mt-3 grid gap-3 sm:grid-cols-4">
+                  <label className="text-xs"><span className="mb-1 block font-semibold text-neutral-500">Type</span><select className={inputClass} value={f.type || "text"} onChange={(e) => updateField(i, { type: e.target.value })}>{FIELD_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select></label>
+                  <label className="text-xs"><span className="mb-1 block font-semibold text-neutral-500">Placeholder</span><input className={inputClass} value={f.placeholder || ""} onChange={(e) => updateField(i, { placeholder: e.target.value })} /></label>
+                  <label className="text-xs"><span className="mb-1 block font-semibold text-neutral-500">Capability (optional)</span><input className={inputClass} value={f.capability || ""} onChange={(e) => updateField(i, { capability: e.target.value || undefined })} placeholder="introMessage" /></label>
+                  <label className="flex items-center gap-2 pt-6 text-xs font-semibold text-[#32113A]"><input type="checkbox" checked={Boolean(f.required)} onChange={(e) => updateField(i, { required: e.target.checked })} /> Required</label>
+                </div>
+                {(f.optionsRef || f.itemFields || f.default || f.options) && <div className="mt-2 text-xs text-neutral-400">Advanced: {f.optionsRef ? `optionsRef=${f.optionsRef} ` : ""}{f.itemFields ? `itemFields=${f.itemFields.length} ` : ""}{f.default ? "has default " : ""}{f.options ? `options=${f.options.length}` : ""}(edit via JSON)</div>}
+              </div>
+            ))}
+            <button onClick={addField} className="rounded-xl border border-dashed border-[#D9AEBE] px-4 py-2 text-sm font-semibold text-[#8D1B63] hover:bg-[#FFF0F7]">＋ Add field</button>
+          </div>
+        )}
+
+        <div className="flex gap-3 border-t border-[#F0DDE7] pt-4">
+          <button disabled={saving} onClick={save} className="rounded-xl bg-[#32113A] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{saving ? "Saving…" : draft.isNew ? "Create category" : "Save changes"}</button>
+          <button onClick={cancel} className="rounded-xl border border-[#ECD5E2] px-5 py-2.5 text-sm font-semibold text-[#8D1B63] hover:bg-[#FFF0F7]">Cancel</button>
+        </div>
+      </div>
+    </AdminPageFrame>;
+  }
+
+  return <AdminPageFrame eyebrow="Category forms" title="Category forms" description="Each category defines the Details-step form for its videos. Photos and music are shared across all categories.">
+    <div className="mt-6 flex justify-end"><button onClick={startNew} className="rounded-xl bg-[#32113A] px-5 py-2.5 text-sm font-semibold text-white">＋ New category form</button></div>
+    <div className="mt-4 space-y-4">
+      {categories === null ? <div className="rounded-3xl border border-[#ECD5E2] bg-white p-8 text-sm text-neutral-500">Loading categories…</div>
+        : !categories.length ? <div className="rounded-3xl border border-[#ECD5E2] bg-white p-8 text-sm text-neutral-500">No category forms yet.</div>
+        : categories.map((cat) => (
+          <div key={cat.id} className="rounded-3xl border border-[#ECD5E2] bg-white p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="font-heading text-2xl font-extrabold text-[#32113A]">{cat.icon} {cat.name} {cat.isActive === false && <span className="ml-2 rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-semibold text-neutral-500">inactive</span>}</div>
+                <div className="mt-1 text-sm text-neutral-500">{cat.description || "No description"}</div>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => startEdit(cat)} className="rounded-lg border border-[#ECD5E2] px-3 py-1.5 text-xs font-semibold text-[#8D1B63] hover:bg-[#FFF0F7]">Edit</button>
+                <button onClick={() => remove(cat)} className="rounded-lg border border-[#EAB8C6] px-3 py-1.5 text-xs font-semibold text-[#B4405F] hover:bg-[#FFE9EF]">Delete</button>
+              </div>
+            </div>
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full min-w-[520px] text-left text-sm">
+                <thead><tr className="text-xs uppercase tracking-wide text-neutral-400"><th className="py-2 pr-4">Field</th><th className="py-2 pr-4">Type</th><th className="py-2 pr-4">Label</th><th className="py-2 pr-4">Required</th><th className="py-2">Capability</th></tr></thead>
+                <tbody className="divide-y divide-[#F0DDE7]">
+                  {(cat.form?.fields || []).map((f) => (
+                    <tr key={f.key}><td className="py-2 pr-4 font-mono text-xs text-[#32113A]">{f.key}</td><td className="py-2 pr-4">{f.type}</td><td className="py-2 pr-4 text-neutral-600">{f.label}</td><td className="py-2 pr-4">{f.required ? "Yes" : "—"}</td><td className="py-2 text-neutral-500">{f.capability || "—"}</td></tr>
+                  ))}
+                  {!(cat.form?.fields || []).length && <tr><td colSpan={5} className="py-3 text-neutral-400">No fields (legacy category — uses the built-in form).</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
+    </div>
+  </AdminPageFrame>;
 }
 
 function AdminDashboardPage() {
@@ -1687,6 +2130,8 @@ function App() {
           <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="/admin" element={<AdminGate><AdminDashboardPage /></AdminGate>} />
           <Route path="/admin/templates" element={<AdminGate><AdminTemplatesPage /></AdminGate>} />
+          <Route path="/admin/categories" element={<AdminGate><AdminCategoryFormsPage /></AdminGate>} />
+          <Route path="/admin/template-settings" element={<AdminGate><AdminTemplateSettingsPage /></AdminGate>} />
           <Route path="/admin/users" element={<AdminGate><AdminUsersPage /></AdminGate>} />
           <Route path="/admin/renders" element={<AdminGate><AdminRendersPage /></AdminGate>} />
           <Route path="/admin/settings" element={<AdminGate><AdminSettingsPage /></AdminGate>} />

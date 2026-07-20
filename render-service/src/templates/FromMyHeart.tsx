@@ -5,7 +5,6 @@ import {
   Img,
   Sequence,
   interpolate,
-  spring,
   staticFile,
   useCurrentFrame,
   useVideoConfig,
@@ -17,123 +16,184 @@ import {WeddingProps, ResolvedCopy} from './types';
 const {fontFamily: serif} = loadCormorant();
 const {fontFamily: sans} = loadOutfit();
 
-const C = {ink: '#1A0710', cream: '#FFF7EA', rose: '#D98774', wine: '#7A1E3A', amber: '#F1B56B'};
+// Warm, emotional palette — soft cinematic, no party colours.
+const C = {ink: '#160A0F', cream: '#FFF7EA', rose: '#D98774', wine: '#5E1A2E', amber: '#F1B56B', glow: '#FFD9A8'};
 
-// Pull resolved copy with sensible fallbacks so the template never renders blank
-// even if the user skipped optional message fields.
+// Resolve copy with graceful fallbacks so no scene is ever blank.
 const useCopy = (props: WeddingProps) => {
   const r: ResolvedCopy = props.resolved || {};
   const celebrant = r.celebrantName || props.couple?.partnerOne || 'You';
   const sender = r.senderName || '';
   const recipientTerm = r.recipientTerm || '';
-  const senderTerm = r.senderTerm || '';
-  const intro = r.introMessage || `Happy Birthday, ${celebrant}`;
-  const final = r.finalMessage || `Here's to you, today and always.`;
-  const photoMessages = (r.photoMessages && r.photoMessages.length
-    ? r.photoMessages
-    : [
-        `To my ${recipientTerm || 'favourite person'},`,
-        'every moment with you is a gift.',
-        'You make ordinary days feel golden.',
-        'Thank you for being you.',
-        'Happy birthday, with all my heart.',
-      ]);
-  return {celebrant, sender, recipientTerm, senderTerm, intro, final, photoMessages};
+  const occasionLabel = r.occasionLabel || '';
+  const intro = r.introMessage || (occasionLabel ? `${occasionLabel} wishes, ${celebrant}` : `This one's for you, ${celebrant}`);
+  const final = r.finalMessage || 'Here’s to you, today and always.';
+  const fallbacks = [
+    `To my ${recipientTerm || 'favourite person'}…`,
+    'every moment with you is a gift.',
+    'You make ordinary days feel golden.',
+    'Thank you for being exactly you.',
+    'With all my heart, always.',
+  ];
+  const photoMessages = r.photoMessages && r.photoMessages.length ? r.photoMessages : fallbacks;
+  const eyebrow = [occasionLabel, recipientTerm ? `For my ${recipientTerm}` : '']
+    .filter(Boolean)
+    .join('  ·  ');
+  return {celebrant, sender, recipientTerm, occasionLabel, intro, final, photoMessages, eyebrow};
 };
 
-const Fade: React.FC<{children: React.ReactNode; duration?: number; delay?: number; style?: React.CSSProperties}> = ({children, duration = 24, delay = 0, style}) => {
+// ---------- Reusable motion primitives ----------
+
+// Gentle fade + slight upward reveal.
+const Reveal: React.FC<{children: React.ReactNode; from?: number; dur?: number; y?: number; style?: React.CSSProperties}> = ({children, from = 0, dur = 26, y = 26, style}) => {
   const frame = useCurrentFrame();
-  const opacity = interpolate(frame - delay, [0, duration], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
-  const y = interpolate(frame - delay, [0, duration], [26, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
-  return <div style={{opacity, transform: `translateY(${y}px)`, ...style}}>{children}</div>;
+  const opacity = interpolate(frame - from, [0, dur], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
+  const ty = interpolate(frame - from, [0, dur], [y, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
+  return <div style={{opacity, transform: `translateY(${ty}px)`, ...style}}>{children}</div>;
 };
 
-const Background: React.FC = () => {
+// Full-screen slow Ken Burns move; alternates zoom/pan per index so repeated
+// crops never feel identical.
+const KenBurns: React.FC<{src?: string; index: number; dur: number}> = ({src, index, dur}) => {
   const frame = useCurrentFrame();
-  const drift = interpolate(frame, [0, 900], [0, 10], {extrapolateRight: 'clamp'});
+  const zoomIn = index % 2 === 0;
+  const scale = interpolate(frame, [0, dur], zoomIn ? [1.03, 1.15] : [1.15, 1.03], {extrapolateRight: 'clamp'});
+  const px = interpolate(frame, [0, dur], [index % 2 ? 20 : -20, index % 2 ? -20 : 20], {extrapolateRight: 'clamp'});
+  const py = interpolate(frame, [0, dur], [12, -12], {extrapolateRight: 'clamp'});
+  if (!src) {
+    return (
+      <AbsoluteFill style={{background: `linear-gradient(160deg, ${C.wine}, ${C.ink})`, alignItems: 'center', justifyContent: 'center', color: C.amber, fontFamily: serif, fontSize: 180}}>
+        {index + 1}
+      </AbsoluteFill>
+    );
+  }
   return (
-    <AbsoluteFill style={{overflow: 'hidden', background: 'radial-gradient(circle at 50% 18%, #7A1E3A 0%, #3A0E20 45%, #1A0710 100%)'}}>
-      <AbsoluteFill style={{transform: `scale(1.1) translate(${drift}px, ${-drift}px)`, background: 'radial-gradient(ellipse at 25% 18%, rgba(255,224,170,.34), transparent 24%), radial-gradient(ellipse at 82% 30%, rgba(217,135,116,.3), transparent 26%), radial-gradient(ellipse at 50% 88%, rgba(20,7,12,.7), transparent 55%)', filter: 'blur(20px)'}} />
+    <Img
+      src={src}
+      pauseWhenLoading
+      style={{position: 'absolute', inset: '-7%', width: '114%', height: '114%', objectFit: 'cover', transform: `scale(${scale}) translate(${px}px, ${py}px)`, filter: 'saturate(.95) brightness(.93) contrast(1.03)'}}
+    />
+  );
+};
+
+// Warm readability overlay: bottom gradient for lower-third text + soft vignette.
+const WarmOverlay: React.FC = () => (
+  <>
+    <AbsoluteFill style={{background: 'linear-gradient(180deg, rgba(22,10,15,.30) 0%, rgba(22,10,15,0) 26%, rgba(22,10,15,0) 46%, rgba(22,10,15,.78) 100%)'}} />
+    <AbsoluteFill style={{background: 'radial-gradient(120% 80% at 50% 42%, rgba(0,0,0,0) 52%, rgba(20,7,12,.5) 100%)'}} />
+    <AbsoluteFill style={{background: 'radial-gradient(60% 40% at 26% 20%, rgba(255,217,168,.16), transparent 70%)', mixBlendMode: 'screen'}} />
+  </>
+);
+
+// Very subtle, slow light-leak sweep (no particles).
+const LightLeak: React.FC = () => {
+  const frame = useCurrentFrame();
+  const {durationInFrames} = useVideoConfig();
+  const x = interpolate(frame, [0, durationInFrames], [-20, 30]);
+  const opacity = interpolate(frame, [0, durationInFrames * 0.5, durationInFrames], [0.05, 0.16, 0.05]);
+  return (
+    <AbsoluteFill style={{pointerEvents: 'none', opacity, mixBlendMode: 'screen', background: `radial-gradient(40% 55% at ${50 + x}% 30%, rgba(255,196,140,.9), transparent 60%)`}} />
+  );
+};
+
+// ---------- Text blocks ----------
+
+const Caption: React.FC<{text: string; from?: number}> = ({text, from = 6}) => (
+  <Reveal from={from} style={{position: 'absolute', left: 84, right: 84, bottom: 300, textAlign: 'center', color: C.cream, fontFamily: serif, fontSize: 84, lineHeight: 1.16, fontStyle: 'italic', textShadow: '0 6px 34px rgba(0,0,0,.55)'}}>
+    {text}
+  </Reveal>
+);
+
+const Eyebrow: React.FC<{text: string}> = ({text}) =>
+  text ? (
+    <Reveal from={4} y={14} style={{position: 'absolute', left: 84, right: 84, top: 150, textAlign: 'center', color: C.glow, fontFamily: sans, fontSize: 34, letterSpacing: 6, textTransform: 'uppercase', textShadow: '0 2px 16px rgba(0,0,0,.5)'}}>
+      {text}
+    </Reveal>
+  ) : null;
+
+// ---------- Scenes ----------
+
+type SceneProps = {
+  src?: string;
+  caption: string;
+  index: number;
+  dur: number;
+  trans: number;
+  eyebrow?: string;
+  intro?: string;
+  finalLine?: string;
+  signature?: string;
+};
+
+const PhotoScene: React.FC<SceneProps> = ({src, caption, index, dur, trans, eyebrow, intro, finalLine, signature}) => {
+  const frame = useCurrentFrame();
+  // Crossfade: fade the whole scene in and out over `trans` frames.
+  const sceneOpacity = interpolate(frame, [0, trans, dur - trans, dur], [0, 1, 1, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
+  // First scene: play the opening wish, then dissolve into this photo's caption.
+  const introOut = Math.round(dur * 0.5);
+  const captionIn = intro ? Math.round(dur * 0.44) : 6;
+  const introOpacity = intro ? interpolate(frame, [trans, trans + 18, introOut, introOut + 16], [0, 1, 1, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'}) : 0;
+  // Last scene: bring in the closing line + signature in the final third.
+  const sigFrom = Math.round(dur * 0.52);
+
+  return (
+    <AbsoluteFill style={{opacity: sceneOpacity}}>
+      <AbsoluteFill style={{background: C.ink}}>
+        <KenBurns src={src} index={index} dur={dur} />
+      </AbsoluteFill>
+      <WarmOverlay />
+      <LightLeak />
+
+      {eyebrow ? <Eyebrow text={eyebrow} /> : null}
+
+      {intro ? (
+        <div style={{opacity: introOpacity, position: 'absolute', left: 92, right: 92, top: 0, bottom: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center'}}>
+          <div style={{fontFamily: serif, fontSize: 112, fontStyle: 'italic', lineHeight: 1.1, color: C.cream, textShadow: '0 6px 34px rgba(0,0,0,.55)'}}>{intro}</div>
+        </div>
+      ) : null}
+
+      <Caption text={caption} from={captionIn} />
+
+      {finalLine ? (
+        <Reveal from={sigFrom} style={{position: 'absolute', left: 84, right: 84, bottom: 210, textAlign: 'center', color: C.glow, fontFamily: sans, fontSize: 40, letterSpacing: 1, textShadow: '0 3px 20px rgba(0,0,0,.6)'}}>
+          {finalLine}
+        </Reveal>
+      ) : null}
+      {signature ? (
+        <Reveal from={sigFrom + 10} style={{position: 'absolute', left: 84, right: 84, bottom: 146, textAlign: 'center', color: C.cream, fontFamily: serif, fontSize: 52, fontStyle: 'italic', textShadow: '0 3px 20px rgba(0,0,0,.6)'}}>
+          {signature}
+        </Reveal>
+      ) : null}
     </AbsoluteFill>
   );
 };
 
-const FloatingHearts: React.FC = () => {
-  const frame = useCurrentFrame();
-  return (
-    <AbsoluteFill style={{pointerEvents: 'none'}}>
-      {[0, 1, 2, 3, 4, 5].map((i) => {
-        const seed = i * 137;
-        const x = (seed % 90) + 5;
-        const rise = interpolate((frame + seed) % 300, [0, 300], [1200, -120]);
-        const opacity = interpolate((frame + seed) % 300, [0, 40, 260, 300], [0, .5, .5, 0]);
-        return <div key={i} style={{position: 'absolute', left: `${x}%`, top: rise, fontSize: 26 + (i % 3) * 12, opacity, color: C.rose}}>❤</div>;
-      })}
-    </AbsoluteFill>
-  );
-};
-
-const BrandFooter: React.FC<{show: boolean}> = ({show}) => {
-  const frame = useCurrentFrame();
-  const opacity = show ? interpolate(frame, [0, 20], [0, .82], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'}) : 0;
-  return (
-    <div style={{position: 'absolute', left: 66, right: 66, bottom: 76, display: 'flex', justifyContent: 'center', opacity, zIndex: 20}}>
-      <div style={{display: 'flex', alignItems: 'center', gap: 12, padding: '10px 18px', borderRadius: 40, background: 'rgba(20,7,12,.4)', backdropFilter: 'blur(12px)', color: C.cream, fontFamily: sans, fontSize: 22, letterSpacing: 1}}>
-        <Img src={staticFile('logo.png')} style={{width: 112, height: 'auto', objectFit: 'contain'}} />
-        <span>InvitaVideos.com</span>
-      </div>
-    </div>
-  );
-};
-
-const Intro: React.FC<{intro: string; recipientTerm: string}> = ({intro, recipientTerm}) => {
+const Outro: React.FC = () => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
-  const pop = spring({frame, fps, config: {damping: 14}});
+  const logoOpacity = interpolate(frame, [12, 34], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
+  const logoScale = interpolate(frame, [12, 44], [0.9, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
+  const drift = interpolate(frame, [0, fps * 5], [0, 6], {extrapolateRight: 'clamp'});
   return (
-    <AbsoluteFill style={{justifyContent: 'center', alignItems: 'center', textAlign: 'center', color: C.cream, padding: 90}}>
-      {recipientTerm ? (
-        <Fade style={{fontFamily: sans, color: C.amber, fontSize: 27, letterSpacing: 9, textTransform: 'uppercase'}}>To my {recipientTerm}</Fade>
-      ) : null}
-      <div style={{transform: `scale(${pop})`, marginTop: 34, fontFamily: serif, fontSize: 96, fontStyle: 'italic', lineHeight: 1.08, textShadow: '0 6px 30px rgba(0,0,0,.4)'}}>
-        {intro}
-      </div>
-      <Fade delay={24} style={{marginTop: 40, fontSize: 60}}>❤️</Fade>
+    <AbsoluteFill style={{background: `radial-gradient(circle at 50% 32%, ${C.wine} 0%, #37121F 46%, ${C.ink} 100%)`, alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 96}}>
+      <AbsoluteFill style={{transform: `scale(1.05) translateY(${-drift}px)`, background: 'radial-gradient(50% 30% at 50% 26%, rgba(255,214,160,.22), transparent 70%)', mixBlendMode: 'screen'}} />
+      <Reveal style={{fontFamily: sans, fontSize: 34, letterSpacing: 7, textTransform: 'uppercase', color: C.glow}}>Made with love on</Reveal>
+      <Img src={staticFile('logo.png')} style={{width: 520, height: 'auto', marginTop: 44, opacity: logoOpacity, transform: `scale(${logoScale})`, filter: 'drop-shadow(0 0 26px rgba(255,214,160,.35))'}} />
+      <Reveal from={30} style={{marginTop: 30, fontFamily: sans, fontSize: 52, letterSpacing: 3, color: C.cream}}>InvitaVideos.com</Reveal>
+      <Reveal from={44} style={{marginTop: 22, fontFamily: serif, fontSize: 44, fontStyle: 'italic', color: 'rgba(255,247,234,.82)'}}>Create your own reel in minutes</Reveal>
     </AbsoluteFill>
   );
 };
 
-const PhotoScene: React.FC<{src?: string; caption: string; duration: number; index: number}> = ({src, caption, duration, index}) => {
+// Subtle, non-intrusive branding shown across the photo scenes only.
+const BrandFooter: React.FC<{visibleUntil: number}> = ({visibleUntil}) => {
   const frame = useCurrentFrame();
-  const scale = interpolate(frame, [0, Math.max(1, duration)], [1.09, 1], {extrapolateRight: 'clamp'});
+  const {fps} = useVideoConfig();
+  const opacity = interpolate(frame, [fps, fps * 1.6, visibleUntil - fps, visibleUntil], [0, 0.62, 0.62, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
   return (
-    <AbsoluteFill>
-      <div style={{position: 'absolute', inset: 55, overflow: 'hidden', borderRadius: 32, boxShadow: '0 28px 80px rgba(0,0,0,.4)', border: '1px solid rgba(255,247,234,.3)'}}>
-        {src ? (
-          <Img src={src} pauseWhenLoading style={{width: '100%', height: '100%', objectFit: 'cover', transform: `scale(${scale})`, filter: 'saturate(.94) brightness(.92)'}} />
-        ) : (
-          <div style={{height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: C.wine, color: C.amber, fontFamily: serif, fontSize: 160}}>{index + 1}</div>
-        )}
-      </div>
-      <AbsoluteFill style={{background: 'linear-gradient(180deg, rgba(17,7,12,.05) 40%, rgba(17,7,12,.78) 100%)'}} />
-      <Fade delay={6} style={{position: 'absolute', left: 78, right: 78, bottom: 210, textAlign: 'center', color: C.cream, fontFamily: serif, fontSize: 62, lineHeight: 1.12, textShadow: '0 5px 25px rgba(0,0,0,.45)'}}>
-        {caption}
-      </Fade>
-    </AbsoluteFill>
-  );
-};
-
-const Outro: React.FC<{final: string; sender: string; senderTerm: string}> = ({final, sender, senderTerm}) => {
-  const frame = useCurrentFrame();
-  const logoOpacity = interpolate(frame, [18, 40], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
-  const signoff = sender ? `With love, your ${senderTerm || 'friend'} ${sender}` : 'With all my love';
-  return (
-    <AbsoluteFill style={{justifyContent: 'center', alignItems: 'center', textAlign: 'center', background: 'linear-gradient(145deg, #2A0E1B, #7A1E3A 60%, #D98774)', color: C.cream, padding: 80}}>
-      <Fade style={{fontFamily: serif, fontSize: 72, fontStyle: 'italic', lineHeight: 1.1}}>{final}</Fade>
-      <Fade delay={16} style={{marginTop: 40, fontFamily: sans, fontSize: 30, letterSpacing: 2, color: 'rgba(255,247,234,.9)'}}>{signoff}</Fade>
-      <Img src={staticFile('logo.png')} style={{width: 480, height: 'auto', marginTop: 76, opacity: logoOpacity}} />
-      <div style={{fontFamily: sans, fontSize: 22, letterSpacing: 5, marginTop: 26, opacity: .75}}>Create · Personalize · Share</div>
-    </AbsoluteFill>
+    <div style={{position: 'absolute', bottom: 70, left: 0, right: 0, textAlign: 'center', opacity, zIndex: 30}}>
+      <span style={{fontFamily: sans, fontSize: 22, letterSpacing: 4, color: 'rgba(255,247,234,.9)', textShadow: '0 2px 14px rgba(0,0,0,.6)'}}>InvitaVideos.com</span>
+    </div>
   );
 };
 
@@ -142,43 +202,60 @@ export const FromMyHeart: React.FC<WeddingProps> = (props) => {
   const frame = useCurrentFrame();
   const copy = useCopy(props);
   const photos = props.photos || [];
-  const at = (seconds: number) => Math.min(durationInFrames, Math.round(seconds * fps));
+  const maxSlides = Number(props.settings?.maxSlides) || 5;
 
-  // Distribute available photos across the middle of the reel.
-  const introEnd = at(4);
-  const outroStart = Math.max(introEnd + fps, durationInFrames - at(4));
-  const photoCount = Math.max(1, Math.min(photos.length || copy.photoMessages.length, 5));
-  const photoSpan = Math.max(1, outroStart - introEnd);
-  const per = Math.floor(photoSpan / photoCount);
+  // Photo scene count follows the uploaded images (capped by maxSlides). Every
+  // image gets its own scene + caption, honouring the captionPerImage setting.
+  const photoCount = Math.max(1, Math.min(photos.length || copy.photoMessages.length, maxSlides));
 
-  const musicVolume = interpolate(frame, [0, fps, Math.max(fps, durationInFrames - fps), durationInFrames], [0, .9, .9, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
+  // Reserve a clean branded outro (~15% of runtime, 2–5s), then split the rest
+  // evenly across the photo scenes. Scales across 10/20/30s durations.
+  const trans = Math.round(fps * 0.4);
+  const outroFrames = Math.min(Math.round(fps * 5), Math.max(Math.round(fps * 2), Math.round(durationInFrames * 0.15)));
+  const photoTotal = durationInFrames - outroFrames;
+  const sceneBase = Math.floor(photoTotal / photoCount);
+
+  const musicVolume = interpolate(
+    frame,
+    [0, fps, Math.max(fps, durationInFrames - fps), durationInFrames],
+    [0, 0.9, 0.9, 0],
+    {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'},
+  );
 
   return (
     <AbsoluteFill style={{background: C.ink, fontFamily: sans}}>
       {props.musicUrl ? <Audio src={props.musicUrl} volume={musicVolume} /> : null}
-      <Background />
-      <FloatingHearts />
-
-      <Sequence from={0} durationInFrames={introEnd}>
-        <Intro intro={copy.intro} recipientTerm={copy.recipientTerm} />
-      </Sequence>
 
       {Array.from({length: photoCount}).map((_, i) => {
-        const from = introEnd + i * per;
-        const dur = i === photoCount - 1 ? Math.max(1, outroStart - from) : per;
-        const caption = copy.photoMessages[i] || copy.photoMessages[copy.photoMessages.length - 1] || '';
+        const isFirst = i === 0;
+        const isLast = i === photoCount - 1;
+        const from = i * sceneBase;
+        const base = isLast ? photoTotal - from : sceneBase;
+        // Overlap into the next scene (or outro) by `trans` for the crossfade.
+        const dur = base + trans;
+        const caption = copy.photoMessages[i] || copy.photoMessages[copy.photoMessages.length - 1] || copy.final;
         return (
           <Sequence key={i} from={from} durationInFrames={dur}>
-            <PhotoScene src={photos[i]} caption={caption} duration={dur} index={i} />
+            <PhotoScene
+              src={photos[i]}
+              caption={caption}
+              index={i}
+              dur={dur}
+              trans={trans}
+              eyebrow={isFirst ? copy.eyebrow : undefined}
+              intro={isFirst ? copy.intro : undefined}
+              finalLine={isLast ? copy.final : undefined}
+              signature={isLast && copy.sender ? `With love, ${copy.sender}` : undefined}
+            />
           </Sequence>
         );
       })}
 
-      <Sequence from={outroStart} durationInFrames={Math.max(1, durationInFrames - outroStart)}>
-        <Outro final={copy.final} sender={copy.sender} senderTerm={copy.senderTerm} />
-      </Sequence>
+      <BrandFooter visibleUntil={photoTotal} />
 
-      <BrandFooter show={frame >= fps && frame < outroStart} />
+      <Sequence from={photoTotal} durationInFrames={durationInFrames - photoTotal}>
+        <Outro />
+      </Sequence>
     </AbsoluteFill>
   );
 };

@@ -304,8 +304,8 @@ DEFAULT_TEMPLATE_DOCUMENTS = [
         "_id": "from-my-heart-cinematic",
         "id": "from-my-heart-cinematic",
         "name": "From My Heart",
-        "desc": "A heartfelt, relationship-aware birthday reel with warm cinematic tones, per-photo messages and a personal sign-off.",
-        "category": "From My Heart",
+        "desc": "A heartfelt, relationship-aware message reel with warm cinematic tones, per-photo messages and a personal sign-off.",
+        "category": "Heartfelt",
         "style": "Emotional Cinematic",
         "duration": 30,
         "maxImages": 5,
@@ -313,11 +313,17 @@ DEFAULT_TEMPLATE_DOCUMENTS = [
         "bg": "#2A0E1B",
         "text": "#FFF7EA",
         "font": "'Cormorant Garamond', serif",
-        # Capabilities describe what THIS video can render. The client shows a
-        # capability-gated field only when the selected template supports it.
-        "capabilities": {
+        # Settings describe what THIS video can render and the limits the form
+        # must enforce. Capability-gated fields appear only when supported here.
+        "settings": {
             "minImages": 3,
             "maxImages": 5,
+            "maxSlides": 5,
+            "durations": [10, 20, 30],
+            # Shorter reels hold fewer photos. Effective max = this map's value for
+            # the chosen duration, falling back to maxImages.
+            "imagesPerDuration": {"10": 3, "20": 4, "30": 5},
+            "captionPerImage": True,
             "introMessage": {"supported": True, "maxLength": 140},
             "perImageMessage": {"supported": True, "maxLength": 70},
             "finalMessage": {"supported": True, "maxLength": 120},
@@ -347,27 +353,121 @@ def _relationship_options():
     return [{"value": key, "label": value["label"]} for key, value in RELATIONSHIPS.items()]
 
 
+# Occasions for the "Heartfelt" category — a personal message reel can mark any
+# of these (or none). Labels double as {{occasion}} copy tokens.
+OCCASIONS = {
+    "birthday": "Birthday",
+    "anniversary": "Anniversary",
+    "mothers-day": "Mother's Day",
+    "fathers-day": "Father's Day",
+    "valentines-day": "Valentine's Day",
+    "thank-you": "Thank You",
+    "congratulations": "Congratulations",
+    "miss-you": "Missing You",
+    "just-because": "Just Because",
+}
+
+
+def _occasion_options():
+    return [{"value": key, "label": label} for key, label in OCCASIONS.items()]
+
+
 # First-class category documents. A category owns the IDENTITY fields (who the
 # video is about); capability-gated fields (marked with "capability") appear only
 # when the chosen template supports that capability. Categories without a doc
 # here (Wedding/Engagement/Birthday) fall back to the client's legacy form.
 DEFAULT_CATEGORY_DOCUMENTS = [
     {
-        "_id": "from-my-heart",
-        "id": "from-my-heart",
-        "name": "From My Heart",
-        "description": "Emotional, relationship-driven birthday reels for the people you love.",
+        "_id": "wedding",
+        "id": "wedding",
+        "name": "Wedding",
+        "description": "Classic wedding invitation with couple names, venue and an event schedule.",
+        "icon": "💍",
+        "sharedSteps": ["photos", "music"],
+        "form": {
+            "fields": [
+                {"key": "partnerOne", "type": "text", "label": "Partner 1", "placeholder": "Aarav", "required": True},
+                {"key": "partnerTwo", "type": "text", "label": "Partner 2", "placeholder": "Meera", "required": True},
+                {"key": "eventDate", "type": "date", "label": "Event date"},
+                {"key": "venueName", "type": "text", "label": "Venue", "placeholder": "The Grand Palace"},
+                {"key": "city", "type": "text", "label": "City", "placeholder": "Jaipur"},
+                {"key": "message", "type": "textarea", "label": "Message to guests",
+                 "placeholder": "Join us as we begin our forever…"},
+                {"key": "schedule", "type": "repeater", "label": "Event schedule", "max": 6,
+                 "itemFields": [
+                     {"key": "name", "placeholder": "Haldi"},
+                     {"key": "time", "placeholder": "10:00 AM"},
+                 ],
+                 "default": [
+                     {"name": "Haldi", "time": "10:00 AM"},
+                     {"name": "Sangeet", "time": "7:00 PM"},
+                     {"name": "Wedding", "time": "11:30 AM"},
+                 ]},
+            ]
+        },
+        "isActive": True,
+        "sortOrder": 10,
+    },
+    {
+        "_id": "engagement",
+        "id": "engagement",
+        "name": "Engagement",
+        "description": "Engagement announcement with couple names, date and venue.",
+        "icon": "💐",
+        "sharedSteps": ["photos", "music"],
+        "form": {
+            "fields": [
+                {"key": "partnerOne", "type": "text", "label": "Partner 1", "placeholder": "Aarav", "required": True},
+                {"key": "partnerTwo", "type": "text", "label": "Partner 2", "placeholder": "Meera", "required": True},
+                {"key": "eventDate", "type": "date", "label": "Event date"},
+                {"key": "venueName", "type": "text", "label": "Venue", "placeholder": "The Grand Palace"},
+                {"key": "city", "type": "text", "label": "City", "placeholder": "Jaipur"},
+                {"key": "message", "type": "textarea", "label": "Message to guests",
+                 "placeholder": "Celebrate our engagement with us…"},
+            ]
+        },
+        "isActive": True,
+        "sortOrder": 20,
+    },
+    {
+        "_id": "birthday",
+        "id": "birthday",
+        "name": "Birthday",
+        "description": "Birthday invitation with the celebrant's name, date and venue.",
+        "icon": "🎂",
+        "sharedSteps": ["photos", "music"],
+        "form": {
+            "fields": [
+                {"key": "firstName", "type": "text", "label": "First name", "placeholder": "Ava", "required": True},
+                {"key": "lastName", "type": "text", "label": "Last name", "placeholder": "Sharma"},
+                {"key": "eventDate", "type": "date", "label": "Event date"},
+                {"key": "venueName", "type": "text", "label": "Venue", "placeholder": "The Grand Palace"},
+                {"key": "city", "type": "text", "label": "City", "placeholder": "Jaipur"},
+                {"key": "message", "type": "textarea", "label": "Message to guests",
+                 "placeholder": "Come celebrate with us…"},
+            ]
+        },
+        "isActive": True,
+        "sortOrder": 30,
+    },
+    {
+        "_id": "heartfelt",
+        "id": "heartfelt",
+        "name": "Heartfelt",
+        "description": "Personal message reels for the people you love — birthdays, Mother's Day, thank-yous, or just because.",
         "icon": "❤️",
         "sharedSteps": ["photos", "music"],
         "form": {
             "fields": [
-                {"key": "celebrantName", "type": "text", "label": "Whose birthday is it?",
+                {"key": "celebrantName", "type": "text", "label": "Who is this for?",
                  "placeholder": "Nisha", "required": True},
                 {"key": "senderName", "type": "text", "label": "Your name",
                  "placeholder": "Neeraj", "required": False},
                 {"key": "relationshipType", "type": "select", "label": "Your relationship",
                  "optionsRef": "relationships", "required": True},
-                {"key": "eventDate", "type": "date", "label": "Birthday",
+                {"key": "occasion", "type": "select", "label": "Occasion",
+                 "options": _occasion_options(), "required": False},
+                {"key": "eventDate", "type": "date", "label": "Special date",
                  "required": False, "capability": "eventDate"},
                 {"key": "introMessage", "type": "textarea", "label": "Opening message",
                  "placeholder": "Happy birthday to someone truly special…",
@@ -394,6 +494,11 @@ class _InMemoryInsertResult:
 class _InMemoryUpdateResult:
     def __init__(self, matched_count: int):
         self.matched_count = matched_count
+
+
+class _InMemoryDeleteResult:
+    def __init__(self, deleted_count: int):
+        self.deleted_count = deleted_count
 
 
 class _InMemoryCursor:
@@ -436,6 +541,20 @@ class _InMemoryCollection:
             None,
         )
         return dict(document) if document else None
+
+    async def delete_one(self, filter_query):
+        document = next(
+            (
+                doc
+                for doc in self._documents.values()
+                if all(doc.get(key) == value for key, value in filter_query.items())
+            ),
+            None,
+        )
+        if document:
+            del self._documents[document["_id"]]
+            return _InMemoryDeleteResult(1)
+        return _InMemoryDeleteResult(0)
 
     async def count_documents(self, filter_query):
         return sum(
@@ -481,6 +600,11 @@ class ScheduleItem(BaseModel):
     time: str
 
 
+class RenderImage(BaseModel):
+    imageUrl: str
+    text: str = ""
+
+
 class RenderRequest(BaseModel):
     template: str = "marigold"
     category: str = ""
@@ -493,6 +617,8 @@ class RenderRequest(BaseModel):
     message: str = ""
     displayMessage: str = ""
     photos: List[str] = Field(default_factory=list)
+    # Preferred image payload: photo + its caption travel together.
+    images: List[RenderImage] = Field(default_factory=list)
     musicUrl: Optional[str] = None
     musicId: Optional[str] = None
     schedule: List[ScheduleItem] = Field(default_factory=list)
@@ -523,6 +649,20 @@ class TemplateUpdateRequest(BaseModel):
 
 class MusicUpdateRequest(BaseModel):
     categories: List[str] = Field(default_factory=list)
+
+
+class TemplateSettingsRequest(BaseModel):
+    settings: Dict[str, Any] = Field(default_factory=dict)
+
+
+class CategoryFormRequest(BaseModel):
+    name: str
+    description: str = ""
+    icon: str = "✨"
+    form: Dict[str, Any] = Field(default_factory=dict)
+    sharedSteps: List[str] = Field(default_factory=lambda: ["photos", "music"])
+    isActive: bool = True
+    sortOrder: int = 100
 
 
 def _user_doc_from_google_user(user: GoogleUser):
@@ -605,6 +745,38 @@ async def require_admin_user(user: GoogleUser = Depends(require_google_user)) ->
     return user
 
 
+DEFAULT_TEMPLATE_DURATIONS = [10, 20, 30]
+
+
+def _normalized_template_settings(document):
+    """Return the template's merged settings, deriving them from legacy fields
+    (capabilities / top-level maxImages / duration) for docs seeded before the
+    settings object existed."""
+    settings = dict(document.get("settings") or {})
+    legacy_capabilities = document.get("capabilities") or {}
+    for key, value in legacy_capabilities.items():
+        settings.setdefault(key, value)
+    settings.setdefault("minImages", 1)
+    settings.setdefault("maxImages", document.get("maxImages") or 6)
+    settings.setdefault("maxSlides", settings["maxImages"])
+    settings.setdefault("durations", list(DEFAULT_TEMPLATE_DURATIONS))
+    # Normalize the per-duration image map to string keys / int values.
+    raw_map = settings.get("imagesPerDuration") or {}
+    settings["imagesPerDuration"] = {str(k): int(v) for k, v in raw_map.items() if str(v).strip()}
+    per_image = settings.get("perImageMessage") or {}
+    settings.setdefault("captionPerImage", bool(per_image.get("supported")))
+    return settings
+
+
+def _max_images_for_duration(settings, duration):
+    """Effective image cap for a chosen duration: the per-duration override if
+    present, otherwise the template's overall maxImages."""
+    overall = int(settings.get("maxImages") or 6)
+    per_duration = settings.get("imagesPerDuration") or {}
+    value = per_duration.get(str(int(duration))) if duration is not None else None
+    return int(value) if value else overall
+
+
 def _serialize_template(document):
     return {
         "id": document.get("id") or document.get("_id"),
@@ -618,7 +790,10 @@ def _serialize_template(document):
         "style": document.get("style", ""),
         "duration": document.get("duration"),
         "maxImages": document.get("maxImages"),
-        "capabilities": document.get("capabilities") or {},
+        # settings is the merged object; capabilities kept as an alias so older
+        # clients reading template.capabilities keep working.
+        "settings": (settings := _normalized_template_settings(document)),
+        "capabilities": settings,
         "defaultMusicId": document["defaultMusicId"] if "defaultMusicId" in document else "tere-sang",
         "renderCount": int(document.get("renderCount", 0)),
         "isActive": bool(document.get("isActive", True)),
@@ -638,11 +813,12 @@ async def seed_default_templates():
     for template in DEFAULT_TEMPLATE_DOCUMENTS:
         existing = await db.templates.find_one({"_id": template["_id"]})
         if existing:
-            # Backfill capabilities onto templates seeded before this field existed.
-            if "capabilities" in template and not existing.get("capabilities"):
+            # Backfill the merged settings object onto templates seeded before it
+            # existed (migrating any legacy capabilities into it).
+            if not existing.get("settings"):
                 await db.templates.update_one(
                     {"_id": template["_id"]},
-                    {"$set": {"capabilities": template["capabilities"], "updated_at": now}},
+                    {"$set": {"settings": _normalized_template_settings({**existing, **({"settings": template.get("settings")} if template.get("settings") else {})}), "updated_at": now}},
                 )
             continue
         doc = dict(template)
@@ -663,6 +839,48 @@ async def seed_default_categories():
         await db.categories.insert_one(doc)
 
 
+async def migrate_heartfelt_rename():
+    """One-time rename of the category "From My Heart" -> "Heartfelt" (the
+    template keeps its display name). Idempotent: carries any admin edits over
+    to the new id, adds the occasion field if missing, and retags templates and
+    music tracks that referenced the old category name."""
+    now = datetime.now(timezone.utc).isoformat()
+    old = await db.categories.find_one({"_id": "from-my-heart"})
+    if old:
+        if not await db.categories.find_one({"_id": "heartfelt"}):
+            doc = dict(old)
+            doc["_id"] = "heartfelt"
+            doc["id"] = "heartfelt"
+            doc["name"] = "Heartfelt"
+            doc["description"] = "Personal message reels for the people you love — birthdays, Mother's Day, thank-yous, or just because."
+            fields = list(((doc.get("form") or {}).get("fields")) or [])
+            if not any(f.get("key") == "occasion" for f in fields):
+                rel_index = next((i for i, f in enumerate(fields) if f.get("key") == "relationshipType"), len(fields) - 1)
+                fields.insert(rel_index + 1, {"key": "occasion", "type": "select", "label": "Occasion",
+                                              "options": _occasion_options(), "required": False})
+            doc["form"] = {**(doc.get("form") or {}), "fields": fields}
+            doc["updated_at"] = now
+            await db.categories.insert_one(doc)
+        await db.categories.delete_one({"_id": "from-my-heart"})
+    for template in await db.templates.find({"category": "From My Heart"}).to_list(200):
+        await db.templates.update_one({"_id": template["_id"]}, {"$set": {"category": "Heartfelt", "updated_at": now}})
+    # Backfill the per-duration image cap onto the Heartfelt template if it was
+    # seeded before this field existed (seeding is insert-only).
+    fmh = await db.templates.find_one({"_id": "from-my-heart-cinematic"})
+    if fmh:
+        settings = fmh.get("settings") or {}
+        if not settings.get("imagesPerDuration"):
+            settings["imagesPerDuration"] = {"10": 3, "20": 4, "30": 5}
+            await db.templates.update_one({"_id": "from-my-heart-cinematic"}, {"$set": {"settings": settings, "updated_at": now}})
+    for track in await db.music.find().to_list(500):
+        categories = track.get("categories") or []
+        if "From My Heart" in categories:
+            await db.music.update_one(
+                {"_id": track["_id"]},
+                {"$set": {"categories": ["Heartfelt" if c == "From My Heart" else c for c in categories]}},
+            )
+
+
 def _serialize_category(document):
     form = document.get("form") or {}
     return {
@@ -679,18 +897,69 @@ def _serialize_category(document):
     }
 
 
+def resolve_template_form(template_doc, category_doc):
+    """Merge a category's form schema with a template's settings into the final,
+    ready-to-render form manifest. Single source of truth: served to clients via
+    GET /templates/{id}/form AND used by create_render for validation, so the
+    form users see and the rules the server enforces can never drift."""
+    template_doc = template_doc or {}
+    category_doc = category_doc or {}
+    settings = _normalized_template_settings(template_doc)
+
+    fields_out = []
+    for field in ((category_doc.get("form") or {}).get("fields") or []):
+        capability = field.get("capability")
+        cap_entry = settings.get(capability) if capability else None
+        if capability:
+            supported = bool(cap_entry.get("supported")) if isinstance(cap_entry, dict) else bool(cap_entry)
+            if not supported:
+                continue
+        resolved = {k: v for k, v in field.items() if k != "capability"}
+        if isinstance(cap_entry, dict) and cap_entry.get("maxLength") and not resolved.get("maxLength"):
+            resolved["maxLength"] = int(cap_entry["maxLength"])
+        if resolved.get("optionsRef") == "relationships":
+            resolved.pop("optionsRef", None)
+            resolved["options"] = _relationship_options()
+        fields_out.append(resolved)
+
+    per_image = settings.get("perImageMessage") or {}
+    shared_steps = category_doc.get("sharedSteps") or ["photos", "music"]
+    return {
+        "templateId": template_doc.get("id") or template_doc.get("_id"),
+        "category": category_doc.get("name") or template_doc.get("category", ""),
+        "hasForm": bool(category_doc.get("form")),
+        "settings": settings,
+        "steps": {
+            "details": {
+                "fields": fields_out,
+                "durations": [int(d) for d in (settings.get("durations") or DEFAULT_TEMPLATE_DURATIONS)],
+            },
+            "photos": {
+                "minImages": int(settings.get("minImages") or 1),
+                "maxImages": int(settings.get("maxImages") or 6),
+                "imagesPerDuration": settings.get("imagesPerDuration") or {},
+                "captionPerImage": bool(settings.get("captionPerImage")),
+                "captionMaxLength": int(per_image.get("maxLength") or 70) if isinstance(per_image, dict) else 70,
+            },
+            "music": {"enabled": "music" in shared_steps},
+        },
+    }
+
+
 def resolve_render_copy(template: str, category: str, fields: Dict[str, Any]) -> Dict[str, Any]:
     """Resolve relationship terms and substitute {{tokens}} in user copy — done
     once here so every relationship-driven template renders personalized strings
     without reimplementing token logic."""
     fields = fields or {}
     rel = RELATIONSHIPS.get(str(fields.get("relationshipType") or ""), {})
+    occasion_label = OCCASIONS.get(str(fields.get("occasion") or ""), "")
     ctx = {
         "celebrantName": str(fields.get("celebrantName") or "").strip(),
         "senderName": str(fields.get("senderName") or "").strip(),
         "recipientTerm": rel.get("recipientTerm", ""),
         "senderTerm": rel.get("senderTerm", ""),
         "recipientPronoun": rel.get("recipientPronoun", "their"),
+        "occasion": occasion_label,
     }
 
     def fill(text: str) -> str:
@@ -704,6 +973,7 @@ def resolve_render_copy(template: str, category: str, fields: Dict[str, Any]) ->
     return {
         **ctx,
         "relationshipLabel": rel.get("label", ""),
+        "occasionLabel": occasion_label,
         "introMessage": fill(str(fields.get("introMessage") or "")),
         "finalMessage": fill(str(fields.get("finalMessage") or "")),
         "photoMessages": photo_messages,
@@ -907,6 +1177,17 @@ async def list_templates(category: Optional[str] = None):
     return templates
 
 
+@api_router.get("/templates/{template_id}/form")
+async def get_template_form(template_id: str):
+    """Resolved form manifest for a template: category fields gated and merged
+    with the template's settings. Called by clients when a template is selected."""
+    template_doc = await db.templates.find_one({"_id": template_id})
+    if not template_doc:
+        raise HTTPException(status_code=404, detail="Template not found")
+    category_doc = await db.categories.find_one({"name": template_doc.get("category", "")})
+    return resolve_template_form(template_doc, category_doc)
+
+
 @api_router.get("/template-categories")
 async def list_template_categories():
     docs = await db.templates.find({"isActive": True}).to_list(200)
@@ -990,6 +1271,119 @@ async def admin_update_template(
     await db.templates.update_one({"_id": template_id}, {"$set": updates})
     updated = await db.templates.find_one({"_id": template_id})
     return (await _attach_template_render_counts([_serialize_template(updated)]))[0]
+
+
+@api_router.patch("/admin/templates/{template_id}/settings")
+async def admin_update_template_settings(
+    template_id: str,
+    req: TemplateSettingsRequest,
+    _: GoogleUser = Depends(require_admin_user),
+):
+    existing = await db.templates.find_one({"_id": template_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Template not found")
+    settings = dict(req.settings or {})
+    # Basic sanity checks so a typo can't brick the create flow.
+    max_images = int(settings.get("maxImages") or 0)
+    if max_images < 1 or max_images > 12:
+        raise HTTPException(status_code=400, detail="maxImages must be between 1 and 12")
+    max_slides = int(settings.get("maxSlides") or 0)
+    if max_slides < 1 or max_slides > 24:
+        raise HTTPException(status_code=400, detail="maxSlides must be between 1 and 24")
+    durations = settings.get("durations") or []
+    if not isinstance(durations, list) or not durations or not all(isinstance(d, (int, float)) and 5 <= int(d) <= 60 for d in durations):
+        raise HTTPException(status_code=400, detail="durations must be a non-empty list of seconds between 5 and 60")
+    settings["durations"] = sorted({int(d) for d in durations})
+    settings["captionPerImage"] = bool(settings.get("captionPerImage"))
+    # Per-duration image caps: keys must be allowed durations, values 1..maxImages.
+    per_duration_raw = settings.get("imagesPerDuration") or {}
+    if not isinstance(per_duration_raw, dict):
+        raise HTTPException(status_code=400, detail="imagesPerDuration must be a mapping of duration to image count")
+    per_duration = {}
+    for key, value in per_duration_raw.items():
+        if str(value).strip() == "":
+            continue
+        try:
+            d, n = int(key), int(value)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="imagesPerDuration must contain whole numbers")
+        if d not in settings["durations"]:
+            raise HTTPException(status_code=400, detail=f"imagesPerDuration has a duration ({d}) not in the allowed durations")
+        if n < 1 or n > max_images:
+            raise HTTPException(status_code=400, detail=f"imagesPerDuration[{d}] must be between 1 and maxImages ({max_images})")
+        per_duration[str(d)] = n
+    settings["imagesPerDuration"] = per_duration
+    await db.templates.update_one(
+        {"_id": template_id},
+        {"$set": {"settings": settings, "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    updated = await db.templates.find_one({"_id": template_id})
+    return (await _attach_template_render_counts([_serialize_template(updated)]))[0]
+
+
+@api_router.get("/admin/categories")
+async def admin_list_categories(_: GoogleUser = Depends(require_admin_user)):
+    docs = await db.categories.find().to_list(200)
+    categories = [_serialize_category(d) for d in docs]
+    categories.sort(key=lambda c: (c["sortOrder"], c["name"].lower()))
+    return categories
+
+
+@api_router.post("/admin/categories")
+async def admin_create_category(req: CategoryFormRequest, _: GoogleUser = Depends(require_admin_user)):
+    name = req.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Category name is required")
+    category_id = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    if not category_id:
+        raise HTTPException(status_code=400, detail="Category name must contain letters or numbers")
+    if await db.categories.find_one({"_id": category_id}):
+        raise HTTPException(status_code=409, detail="A category with this name already exists")
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "_id": category_id,
+        "id": category_id,
+        "name": name,
+        "description": req.description.strip(),
+        "icon": req.icon or "✨",
+        "sharedSteps": req.sharedSteps or ["photos", "music"],
+        "form": req.form or {"fields": []},
+        "isActive": req.isActive,
+        "sortOrder": req.sortOrder,
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.categories.insert_one(doc)
+    return _serialize_category(doc)
+
+
+@api_router.patch("/admin/categories/{category_id}")
+async def admin_update_category(category_id: str, req: CategoryFormRequest, _: GoogleUser = Depends(require_admin_user)):
+    existing = await db.categories.find_one({"_id": category_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Category not found")
+    updates = {
+        "name": req.name.strip() or existing.get("name"),
+        "description": req.description.strip(),
+        "icon": req.icon or "✨",
+        "sharedSteps": req.sharedSteps or ["photos", "music"],
+        "form": req.form or {"fields": []},
+        "isActive": req.isActive,
+        "sortOrder": req.sortOrder,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.categories.update_one({"_id": category_id}, {"$set": updates})
+    updated = await db.categories.find_one({"_id": category_id})
+    return _serialize_category(updated)
+
+
+@api_router.delete("/admin/categories/{category_id}")
+async def admin_delete_category(category_id: str, _: GoogleUser = Depends(require_admin_user)):
+    existing = await db.categories.find_one({"_id": category_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Category not found")
+    await db.categories.delete_one({"_id": category_id})
+    return {"deleted": category_id}
 
 
 @api_router.get("/admin/dashboard")
@@ -1108,22 +1502,81 @@ async def create_render(
         recaptcha_result = None
     else:
         recaptcha_result = await verify_recaptcha_token(req.recaptchaToken, request.client.host if request.client else None)
-    # Adapter: data-driven categories send a generic `fields` bag and no couple.
-    # Derive couple from it (render-service still expects couple) and resolve copy.
+    template_doc = await db.templates.find_one({"_id": req.template})
+    category_doc = await db.categories.find_one({"name": (template_doc or {}).get("category", "")})
+    # The same manifest the client rendered its form from — form and validation
+    # cannot drift because both come from resolve_template_form.
+    form_manifest = resolve_template_form(template_doc, category_doc)
+    template_settings = form_manifest["settings"]
+    photos_step = form_manifest["steps"]["photos"]
+
+    # Preferred payload: images[{imageUrl,text}]. Unpack into photos[] (render
+    # service contract) and photoMessages (caption resolution) keeping pairs aligned.
+    if req.images:
+        req.photos = [image.imageUrl for image in req.images]
+        cap_len = photos_step["captionMaxLength"]
+        req.fields = {**(req.fields or {}), "photoMessages": [image.text[:cap_len] for image in req.images]}
+
+    # Enforce the manifest server-side: allowed durations, then the image count
+    # for the chosen duration (shorter reels hold fewer photos).
+    allowed_durations = form_manifest["steps"]["details"]["durations"]
+    if allowed_durations and req.durationInSeconds not in allowed_durations:
+        raise HTTPException(status_code=400, detail=f"Duration must be one of {allowed_durations} seconds for this template")
+    max_images = _max_images_for_duration(template_settings, req.durationInSeconds)
+    if len(req.photos) > max_images:
+        raise HTTPException(status_code=400, detail=f"At {req.durationInSeconds} seconds this template accepts at most {max_images} images")
+
+    # When the template requires a caption per photo, every photo must carry a
+    # non-empty message — regardless of whether it arrived via images[] or a
+    # fields.photoMessages array, so no client submission path can bypass this.
+    if photos_step["captionPerImage"] and req.photos:
+        captions = (req.fields or {}).get("photoMessages") or []
+        if len(captions) < len(req.photos) or any(not str(c).strip() for c in captions[: len(req.photos)]):
+            raise HTTPException(status_code=400, detail="Each photo needs a message for this template")
+
+    # Data-driven submissions (fields/images payload): enforce required fields
+    # and maxLength limits from the manifest. Legacy couple-shaped payloads skip
+    # this — their category form is not what they submitted against.
+    if req.fields or req.images:
+        for field in form_manifest["steps"]["details"]["fields"]:
+            key = field.get("key")
+            if not key:
+                continue
+            value = req.fields.get(key)
+            if field.get("required") and (value is None or (isinstance(value, str) and not value.strip())):
+                raise HTTPException(status_code=400, detail=f"'{field.get('label') or key}' is required")
+            max_length = field.get("maxLength")
+            if max_length and isinstance(value, str) and len(value) > int(max_length):
+                req.fields[key] = value[: int(max_length)]
+
+    # Adapter: data-driven categories send a generic `fields` bag instead of the
+    # wedding-shaped payload. Map it onto couple/venue/schedule/message/eventDate
+    # so the existing Remotion templates keep rendering unchanged.
+    f = req.fields or {}
     if req.couple is None:
-        celebrant = str(req.fields.get("celebrantName") or "").strip()
-        sender = str(req.fields.get("senderName") or "").strip()
-        req.couple = Couple(partnerOne=celebrant or "Someone", partnerTwo=sender or "Special")
-    if not req.eventDate and req.fields.get("eventDate"):
-        req.eventDate = str(req.fields.get("eventDate"))
+        # partnerOne/Two (Wedding, Engagement) | firstName/lastName (Birthday) | celebrant/sender (From My Heart)
+        p1 = str(f.get("partnerOne") or f.get("firstName") or f.get("celebrantName") or "").strip()
+        p2 = str(f.get("partnerTwo") or f.get("lastName") or f.get("senderName") or "").strip()
+        req.couple = Couple(partnerOne=p1 or "Someone", partnerTwo=p2 or "Special")
+    if not req.eventDate and f.get("eventDate"):
+        req.eventDate = str(f.get("eventDate"))
+    if (not req.venue or (not req.venue.name and not req.venue.city)) and (f.get("venueName") or f.get("city")):
+        req.venue = Venue(name=str(f.get("venueName") or ""), city=str(f.get("city") or ""))
+    if not req.message and f.get("message"):
+        req.message = str(f.get("message"))
+    if not req.schedule and isinstance(f.get("schedule"), list):
+        req.schedule = [
+            ScheduleItem(name=str(item.get("name", "")), time=str(item.get("time", "")))
+            for item in f["schedule"] if isinstance(item, dict) and (item.get("name") or item.get("time"))
+        ]
 
     payload = req.model_dump(exclude={"recaptchaToken"})
     payload["tags"] = list(dict.fromkeys(tag.strip() for tag in req.tags if tag.strip()))[:12]
     payload["resolved"] = resolve_render_copy(req.template, req.category, req.fields)
+    payload["settings"] = template_settings
 
     effective_music_id = req.musicId
     if not effective_music_id:
-        template_doc = await db.templates.find_one({"_id": req.template})
         if template_doc and "defaultMusicId" in template_doc:
             effective_music_id = template_doc.get("defaultMusicId")
         else:
@@ -1212,7 +1665,9 @@ async def get_render(render_id: str):
         "userId": d.get("userId"),
         "userEmail": d.get("userEmail"),
         "template": d.get("template"),
+        "category": d.get("category"),
         "couple": d.get("couple"),
+        "fields": d.get("fields"),
         "eventDate": d.get("eventDate"),
         "venue": d.get("venue"),
         "displayMessage": d.get("displayMessage"),
@@ -1306,6 +1761,7 @@ async def initialize_storage():
     global client, db
     if storage_backend == 'memory':
         db = _InMemoryDB()
+        await migrate_heartfelt_rename()
         await seed_default_templates()
         await seed_default_categories()
         logger.info("Using in-memory storage")
@@ -1322,6 +1778,7 @@ async def initialize_storage():
         await db.templates.create_index("category")
         await db.templates.create_index("sortOrder")
         await db.music.create_index("id", unique=True)
+        await migrate_heartfelt_rename()
         await seed_default_templates()
         await seed_default_categories()
         logger.info("Connected to MongoDB at %s", mongo_url)

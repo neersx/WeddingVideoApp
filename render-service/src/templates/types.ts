@@ -9,6 +9,8 @@ export type ResolvedCopy = {
   senderTerm?: string;
   recipientPronoun?: string;
   relationshipLabel?: string;
+  occasion?: string;
+  occasionLabel?: string;
   introMessage?: string;
   finalMessage?: string;
   photoMessages?: string[];
@@ -30,6 +32,16 @@ export type WeddingProps = {
   category?: string;
   fields?: Record<string, unknown>;
   resolved?: ResolvedCopy;
+  // Template settings resolved by the backend (maxImages, maxSlides, durations,
+  // captionPerImage, plus message capability entries).
+  settings?: {
+    minImages?: number;
+    maxImages?: number;
+    maxSlides?: number;
+    durations?: number[];
+    captionPerImage?: boolean;
+    [key: string]: unknown;
+  };
 };
 
 export const defaultProps: WeddingProps = {

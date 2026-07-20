@@ -63,7 +63,7 @@ const buildInputProps = (body: any) => {
     venue: body.venue || {name: '', city: ''},
     message: body.message || '',
     displayMessage: body.displayMessage || '',
-    photos: Array.isArray(body.photos) ? body.photos.slice(0, 6) : [],
+    photos: Array.isArray(body.photos) ? body.photos.slice(0, Number(body.settings?.maxImages) || 6) : [],
     musicUrl: body.musicUrl || null,
     schedule: Array.isArray(body.schedule) ? body.schedule.slice(0, 6) : [],
     tags: Array.isArray(body.tags) ? body.tags.slice(0, 12) : [],
@@ -71,6 +71,7 @@ const buildInputProps = (body: any) => {
     category: body.category || '',
     fields: body.fields || {},
     resolved: body.resolved || {},
+    settings: body.settings || {},
   };
   return {compositionId, inputProps};
 };

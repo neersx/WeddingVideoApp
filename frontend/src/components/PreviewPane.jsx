@@ -46,7 +46,7 @@ const RenderMessages = () => {
   );
 };
 
-export const PreviewPane = ({ rendering, status = "idle", progress = 0, jobId, videoUrl, onRender }) => {
+export const PreviewPane = ({ rendering, status = "idle", progress = 0, jobId, videoUrl, onRender, onReset, canRender = true, renderHint = "" }) => {
   const pct = Math.max(0, Math.min(100, Math.round(progress * 100)));
 
   return (
@@ -123,7 +123,7 @@ export const PreviewPane = ({ rendering, status = "idle", progress = 0, jobId, v
           )}
 
           {!rendering && (
-            <div className="pointer-events-none absolute inset-x-3 bottom-3 rounded-2xl border border-white/10 bg-black/45 px-3 py-2 text-white opacity-0 shadow-lg backdrop-blur transition duration-300 group-hover:opacity-100">
+            <div className="pointer-events-none absolute inset-x-3 top-3 rounded-2xl border border-white/10 bg-black/45 px-3 py-2 text-white opacity-0 shadow-lg backdrop-blur transition duration-300 group-hover:opacity-100">
               <div className="flex items-center justify-between gap-3 text-[10px] uppercase tracking-[0.14em] text-white/60">
                 <span>{videoUrl ? "Preview ready" : "Waiting for render"}</span>
                 <span>{STATUS_LABEL[status] || STATUS_LABEL.idle}</span>
@@ -133,30 +133,48 @@ export const PreviewPane = ({ rendering, status = "idle", progress = 0, jobId, v
         </div>
       </div>
 
-      <Button
-        data-testid="render-video-btn"
-        onClick={onRender}
-        disabled={rendering}
-        className="render-btn w-full rounded-full bg-gradient-to-r from-[#6012A8] via-[#C80A76] to-[#E66B24] py-6 text-sm font-semibold uppercase tracking-[0.12em] text-white hover:brightness-105 disabled:opacity-70"
-      >
-        {rendering ? (
-          <span className="inline-flex items-center gap-2">
-            <Clapperboard className="h-4 w-4 animate-pulse" />
-            Rendering… {status === "rendering" ? `${pct}%` : ""}
-          </span>
-        ) : (
-          <span className="inline-flex items-center gap-2">
-            <Sparkles className="h-4 w-4" /> Render Video
-          </span>
-        )}
-      </Button>
-
-      {videoUrl && (
-        <a href={videoUrl} download data-testid="download-video-btn" className="block">
-          <Button variant="outline" className="w-full rounded-full border-[#E7D4DF] py-6 text-sm font-semibold uppercase tracking-[0.12em] text-[#32113A] hover:bg-[#FFF6FA]">
-            <Download className="mr-2 h-4 w-4" /> Download MP4
+      {/* Before a video exists: show Render. Once it's ready: Download + Create New. */}
+      {!videoUrl ? (
+        <>
+          <Button
+            data-testid="render-video-btn"
+            onClick={onRender}
+            disabled={rendering || !canRender}
+            className="render-btn w-full rounded-full bg-gradient-to-r from-[#6012A8] via-[#C80A76] to-[#E66B24] py-6 text-sm font-semibold uppercase tracking-[0.12em] text-white hover:brightness-105 disabled:opacity-60"
+          >
+            {rendering ? (
+              <span className="inline-flex items-center gap-2">
+                <Clapperboard className="h-4 w-4 animate-pulse" />
+                Rendering… {status === "rendering" ? `${pct}%` : ""}
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-2">
+                <Sparkles className="h-4 w-4" /> Render Video
+              </span>
+            )}
           </Button>
-        </a>
+          {!rendering && !canRender && renderHint && (
+            <p className="text-center text-[11px] font-medium text-[#C80A76]" data-testid="render-disabled-hint">
+              {renderHint}
+            </p>
+          )}
+        </>
+      ) : (
+        <div className="space-y-3">
+          <a href={videoUrl} download data-testid="download-video-btn" className="block">
+            <Button className="w-full rounded-full bg-gradient-to-r from-[#6012A8] via-[#C80A76] to-[#E66B24] py-6 text-sm font-semibold uppercase tracking-[0.12em] text-white hover:brightness-105">
+              <Download className="mr-2 h-4 w-4" /> Download Video
+            </Button>
+          </a>
+          <Button
+            variant="outline"
+            data-testid="create-new-reel-btn"
+            onClick={onReset}
+            className="w-full rounded-full border-[#E7D4DF] py-6 text-sm font-semibold uppercase tracking-[0.12em] text-[#32113A] hover:bg-[#FFF6FA]"
+          >
+            <Sparkles className="mr-2 h-4 w-4" /> Create New Reel
+          </Button>
+        </div>
       )}
 
       {jobId && (
