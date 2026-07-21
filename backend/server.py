@@ -3,6 +3,8 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo.errors import DuplicateKeyError
+from billing import catalog, pricing, wallet
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 import os
@@ -17,7 +19,7 @@ from urllib.parse import urlparse
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 ROOT_DIR = Path(__file__).parent
 
@@ -69,6 +71,11 @@ RENDERS_DIR = ROOT_DIR / 'renders'
 MUSIC_DIR = ROOT_DIR / 'music'
 UPLOADS_DIR.mkdir(exist_ok=True)
 RENDERS_DIR.mkdir(exist_ok=True)
+
+# How long a rendered .mp4 stays downloadable before the background cleanup
+# loop deletes it (the render's database record and history are kept).
+RENDER_FILE_RETENTION_DAYS = 10
+RENDER_CLEANUP_INTERVAL_SECONDS = 3600
 
 ALLOWED_IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.webp'}
 
@@ -565,11 +572,65 @@ class _InMemoryCursor:
         return self._documents[:length]
 
 
+def _op_match(actual, expected, present=True):
+    """Supports the small slice of query operators the billing module (and
+    migrations) need ($gte/$gt/$lte/$lt/$ne/$in/$exists) alongside plain
+    equality. `present` tells $exists whether the key was actually in the
+    document, since a missing key and a key set to None both read as None
+    via dict.get()."""
+    if isinstance(expected, dict) and any(k.startswith("$") for k in expected):
+        for op, value in expected.items():
+            if op == "$exists" and bool(value) != present:
+                return False
+            elif op == "$gte" and not (actual is not None and actual >= value):
+                return False
+            elif op == "$gt" and not (actual is not None and actual > value):
+                return False
+            elif op == "$lte" and not (actual is not None and actual <= value):
+                return False
+            elif op == "$lt" and not (actual is not None and actual < value):
+                return False
+            elif op == "$ne" and actual == value:
+                return False
+            elif op == "$in" and actual not in value:
+                return False
+        return True
+    return actual == expected
+
+
+def _matches(doc, filter_query):
+    return all(_op_match(doc.get(key), value, key in doc) for key, value in filter_query.items())
+
+
+def _apply_update(document, update):
+    if "$set" in update:
+        document.update(update["$set"])
+    if "$inc" in update:
+        for key, delta in update["$inc"].items():
+            document[key] = document.get(key, 0) + delta
+    return document
+
+
 class _InMemoryCollection:
-    def __init__(self):
+    def __init__(self, unique_fields=None):
         self._documents = {}
+        # Each entry is a tuple of field names enforced as jointly unique
+        # across documents, emulating a MongoDB unique index for tests/dev.
+        self._unique_fields = unique_fields or []
+
+    def _check_unique(self, document, ignore_id=None):
+        for fields in self._unique_fields:
+            key = tuple(document.get(f) for f in fields)
+            if any(v is None for v in key):
+                continue  # sparse: unenforced when any part of the key is absent
+            for other_id, other in self._documents.items():
+                if other_id == ignore_id:
+                    continue
+                if tuple(other.get(f) for f in fields) == key:
+                    raise DuplicateKeyError(f"duplicate key on {fields}")
 
     async def insert_one(self, document):
+        self._check_unique(document)
         self._documents[document["_id"]] = dict(document)
         return _InMemoryInsertResult(document["_id"])
 
@@ -577,29 +638,28 @@ class _InMemoryCollection:
         document = await self.find_one(filter_query)
         if not document:
             return _InMemoryUpdateResult(0)
-        if "$set" in update:
-            document.update(update["$set"])
+        _apply_update(document, update)
         self._documents[document["_id"]] = document
         return _InMemoryUpdateResult(1)
 
+    async def find_one_and_update(self, filter_query, update, return_document=None):
+        document = await self.find_one(filter_query)
+        if not document:
+            return None
+        _apply_update(document, update)
+        self._documents[document["_id"]] = document
+        return dict(document)
+
     async def find_one(self, filter_query):
         document = next(
-            (
-                doc
-                for doc in self._documents.values()
-                if all(doc.get(key) == value for key, value in filter_query.items())
-            ),
+            (doc for doc in self._documents.values() if _matches(doc, filter_query)),
             None,
         )
         return dict(document) if document else None
 
     async def delete_one(self, filter_query):
         document = next(
-            (
-                doc
-                for doc in self._documents.values()
-                if all(doc.get(key) == value for key, value in filter_query.items())
-            ),
+            (doc for doc in self._documents.values() if _matches(doc, filter_query)),
             None,
         )
         if document:
@@ -608,19 +668,15 @@ class _InMemoryCollection:
         return _InMemoryDeleteResult(0)
 
     async def count_documents(self, filter_query):
-        return sum(
-            1 for document in self._documents.values()
-            if all(document.get(key) == value for key, value in filter_query.items())
-        )
+        return sum(1 for document in self._documents.values() if _matches(document, filter_query))
 
     def find(self, filter_query=None):
         filter_query = filter_query or {}
-        documents = [
-            doc
-            for doc in self._documents.values()
-            if all(doc.get(key) == value for key, value in filter_query.items())
-        ]
+        documents = [doc for doc in self._documents.values() if _matches(doc, filter_query)]
         return _InMemoryCursor(documents)
+
+    async def create_index(self, *args, **kwargs):
+        return None
 
 
 class _InMemoryDB:
@@ -630,6 +686,14 @@ class _InMemoryDB:
         self.templates = _InMemoryCollection()
         self.music = _InMemoryCollection()
         self.categories = _InMemoryCollection()
+        # --- billing ---
+        self.wallets = _InMemoryCollection()
+        self.wallet_transactions = _InMemoryCollection(unique_fields=[("idempotencyKey",)])
+        self.credit_packs = _InMemoryCollection()
+        self.payments = _InMemoryCollection(unique_fields=[("razorpayOrderId",)])
+        self.coupons = _InMemoryCollection(unique_fields=[("code",)])
+        self.coupon_redemptions = _InMemoryCollection(unique_fields=[("couponId", "userId")])
+        self.pack_discounts = _InMemoryCollection()
 
 
 client = None
@@ -823,6 +887,13 @@ def _normalized_template_settings(document):
     # Admin-set fallback for "My Music" when the user's own link is missing or
     # unreachable. Empty by default (falls through to the bundled default track).
     settings.setdefault("customMusicFallbackUrl", "")
+    # Credit cost per duration (billing/pricing.py). Defaults to free (0) so
+    # templates seeded before pricing existed keep rendering without charge.
+    pricing = dict(settings.get("pricing") or {})
+    pricing.setdefault("default", 0)
+    raw_pricing_map = pricing.get("byDuration") or {}
+    pricing["byDuration"] = {str(k): int(v) for k, v in raw_pricing_map.items() if str(v).strip()}
+    settings["pricing"] = pricing
     return settings
 
 
@@ -974,6 +1045,19 @@ async def migrate_message_maxlength_120():
             await db.categories.update_one({"_id": category_id}, {"$set": {"form": form, "updated_at": now}})
 
 
+async def migrate_render_visibility_defaults():
+    """Backfill isPublic/isPremium onto renders created before these fields
+    existed: free renders default public, paid ("premium") renders default
+    private — same rule create_render applies to new renders."""
+    docs = await db.renders.find({"isPublic": {"$exists": False}}).to_list(10000)
+    for doc in docs:
+        is_premium = bool(doc.get("paid") or doc.get("creditCost", 0) > 0)
+        await db.renders.update_one(
+            {"_id": doc["_id"]},
+            {"$set": {"isPremium": is_premium, "isPublic": not is_premium}},
+        )
+
+
 def _serialize_category(document):
     form = document.get("form") or {}
     return {
@@ -1026,6 +1110,9 @@ def resolve_template_form(template_doc, category_doc):
             "details": {
                 "fields": fields_out,
                 "durations": [int(d) for d in (settings.get("durations") or DEFAULT_TEMPLATE_DURATIONS)],
+                # Credit cost per duration (billing/pricing.py) so the client can
+                # show a price badge per option without a separate round-trip.
+                "pricing": settings.get("pricing") or {"default": 0, "byDuration": {}},
             },
             "photos": {
                 "minImages": int(settings.get("minImages") or 1),
@@ -1459,6 +1546,35 @@ async def admin_update_template_settings(
             raise HTTPException(status_code=400, detail=f"imagesPerDuration[{d}] must be between 1 and maxImages ({max_images})")
         per_duration[str(d)] = n
     settings["imagesPerDuration"] = per_duration
+    # Credit cost per duration: default must be a non-negative int, and every
+    # keyed override must reference an allowed duration (same shape/rules as
+    # imagesPerDuration above, since pricing is dynamic-duration-aware too).
+    pricing_raw = settings.get("pricing") or {}
+    if not isinstance(pricing_raw, dict):
+        raise HTTPException(status_code=400, detail="pricing must be an object with 'default' and 'byDuration'")
+    try:
+        pricing_default = int(pricing_raw.get("default", 0))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="pricing.default must be a whole number of credits")
+    if pricing_default < 0:
+        raise HTTPException(status_code=400, detail="pricing.default must be 0 or more credits")
+    by_duration_raw = pricing_raw.get("byDuration") or {}
+    if not isinstance(by_duration_raw, dict):
+        raise HTTPException(status_code=400, detail="pricing.byDuration must be a mapping of duration to credit cost")
+    by_duration = {}
+    for key, value in by_duration_raw.items():
+        if str(value).strip() == "":
+            continue
+        try:
+            d, cost = int(key), int(value)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="pricing.byDuration must contain whole numbers")
+        if d not in settings["durations"]:
+            raise HTTPException(status_code=400, detail=f"pricing.byDuration has a duration ({d}) not in the allowed durations")
+        if cost < 0:
+            raise HTTPException(status_code=400, detail=f"pricing.byDuration[{d}] must be 0 or more credits")
+        by_duration[str(d)] = cost
+    settings["pricing"] = {"default": pricing_default, "byDuration": by_duration}
     # Fallback URL for "My Music": optional, but if set it must at least look
     # like a fetchable public link — the real reachability check happens at
     # render time (a link that's fine today might go dead later).
@@ -1573,13 +1689,103 @@ async def admin_users(_: GoogleUser = Depends(require_admin_user)):
 
 
 @api_router.get("/admin/renders")
-async def admin_renders(_: GoogleUser = Depends(require_admin_user)):
-    docs = await db.renders.find().sort("created_at", -1).to_list(500)
-    return [{"id": d["_id"], "userId": d.get("userId"), "userEmail": d.get("userEmail"), "template": d.get("template"), "status": d.get("status"), "progress": d.get("progress", 0), "created_at": d.get("created_at"), "finished_at": d.get("finished_at"), "error": d.get("error")} for d in docs]
+async def admin_renders(
+    page: int = 1,
+    pageSize: int = 50,
+    status: Optional[str] = None,
+    dateFrom: Optional[str] = None,
+    dateTo: Optional[str] = None,
+    _: GoogleUser = Depends(require_admin_user),
+):
+    page = max(1, page)
+    pageSize = max(1, min(200, pageSize))
+    filter_query: Dict[str, Any] = {}
+    if status:
+        filter_query["status"] = status
+    if dateFrom or dateTo:
+        # created_at is stored as an ISO 8601 string, which sorts/compares
+        # lexicographically the same as chronologically — plain string
+        # bounds work without parsing, on both storage backends.
+        date_range: Dict[str, Any] = {}
+        if dateFrom:
+            date_range["$gte"] = dateFrom if len(dateFrom) > 10 else f"{dateFrom}T00:00:00"
+        if dateTo:
+            date_range["$lte"] = dateTo if len(dateTo) > 10 else f"{dateTo}T23:59:59.999999"
+        filter_query["created_at"] = date_range
+
+    total = await db.renders.count_documents(filter_query)
+    all_matching = await db.renders.find(filter_query).sort("created_at", -1).to_list(100000)
+    start = (page - 1) * pageSize
+    docs = all_matching[start:start + pageSize]
+
+    templates_by_id = {t["_id"]: t for t in await db.templates.find().to_list(1000)}
+    items = [
+        {
+            "id": d["_id"],
+            "userId": d.get("userId"),
+            "userEmail": d.get("userEmail"),
+            "template": d.get("template"),
+            "templateName": templates_by_id.get(d.get("template"), {}).get("name", d.get("template")),
+            "category": d.get("category"),
+            "durationInSeconds": d.get("durationInSeconds"),
+            "status": d.get("status"),
+            "progress": d.get("progress", 0),
+            "created_at": d.get("created_at"),
+            "finished_at": d.get("finished_at"),
+            "error": d.get("error"),
+            "video_url": _render_video_url(d),
+            "isPublic": bool(d.get("isPublic", False)),
+            "isPremium": bool(d.get("isPremium", False)),
+        }
+        for d in docs
+    ]
+    return {"items": items, "total": total, "page": page, "pageSize": pageSize}
 
 
-async def _run_render_job(job_id: str, payload: dict):
-    """Background worker: dispatch to render-service, poll progress, download mp4, update Mongo doc."""
+class AdminRenderUpdateRequest(BaseModel):
+    videoUrl: Optional[str] = None
+    isPublic: Optional[bool] = None
+    isPremium: Optional[bool] = None
+
+
+@api_router.patch("/admin/renders/{render_id}")
+async def admin_update_render(
+    render_id: str,
+    req: AdminRenderUpdateRequest,
+    _: GoogleUser = Depends(require_admin_user),
+):
+    existing = await db.renders.find_one({"_id": render_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Render not found")
+    update: Dict[str, Any] = {}
+    if req.videoUrl is not None:
+        video_url = req.videoUrl.strip()
+        if video_url and not (video_url.startswith("http://") or video_url.startswith("https://") or video_url.startswith("/")):
+            raise HTTPException(status_code=400, detail="videoUrl must be an absolute URL or an absolute path")
+        # Empty string clears the override, reverting to our own streaming endpoint.
+        update["videoUrlOverride"] = video_url or None
+    if req.isPublic is not None:
+        update["isPublic"] = bool(req.isPublic)
+    if req.isPremium is not None:
+        update["isPremium"] = bool(req.isPremium)
+    if update:
+        await db.renders.update_one({"_id": render_id}, {"$set": update})
+    updated = await db.renders.find_one({"_id": render_id})
+    return {
+        "id": updated["_id"],
+        "video_url": _render_video_url(updated),
+        "isPublic": bool(updated.get("isPublic", False)),
+        "isPremium": bool(updated.get("isPremium", False)),
+    }
+
+
+async def _run_render_job(job_id: str, payload: dict, user_id: Optional[str] = None, credit_cost: int = 0):
+    """Background worker: dispatch to render-service, poll progress, download mp4, update Mongo doc.
+
+    Any credits reserved for this job (see create_render) are settled exactly
+    once in the `finally` block below, based on the render doc's final status
+    — capture on "done", release (refund) otherwise — regardless of which of
+    the several return points below the job exits through."""
     try:
         current_db = db
         async with httpx.AsyncClient(timeout=httpx.Timeout(30, connect=10)) as hc:
@@ -1623,13 +1829,18 @@ async def _run_render_job(job_id: str, payload: dict):
                         return
                     out_path = RENDERS_DIR / f"{job_id}.mp4"
                     out_path.write_bytes(dl.content)
+                    finished_at = datetime.now(timezone.utc)
                     await current_db.renders.update_one(
                         {"_id": job_id},
                         {"$set": {
                             "status": "done",
                             "progress": 1.0,
                             "size_bytes": len(dl.content),
-                            "finished_at": datetime.now(timezone.utc).isoformat(),
+                            "finished_at": finished_at.isoformat(),
+                            # The downloadable file is deleted RENDER_FILE_RETENTION_DAYS
+                            # after it becomes available — see _cleanup_expired_renders().
+                            "expiresAt": (finished_at + timedelta(days=RENDER_FILE_RETENTION_DAYS)).isoformat(),
+                            "fileRemoved": False,
                         }},
                     )
                     return
@@ -1642,6 +1853,42 @@ async def _run_render_job(job_id: str, payload: dict):
     except Exception as e:  # noqa: BLE001
         logger.exception("render job crashed")
         await db.renders.update_one({"_id": job_id}, {"$set": {"status": "failed", "error": str(e)}})
+    finally:
+        if credit_cost > 0 and user_id:
+            final_doc = await db.renders.find_one({"_id": job_id})
+            final_status = (final_doc or {}).get("status")
+            if final_status == "done":
+                await wallet.capture(db, user_id, job_id)
+            else:
+                await wallet.release(db, user_id, job_id)
+
+
+async def _cleanup_expired_renders():
+    """Deletes the on-disk .mp4 for any render whose expiresAt has passed.
+    The database record is kept (My Downloads still lists it, marked
+    expired) — only the large binary file is removed."""
+    now = datetime.now(timezone.utc).isoformat()
+    candidates = await db.renders.find({"status": "done", "fileRemoved": {"$ne": True}}).to_list(1000)
+    for doc in candidates:
+        expires_at = doc.get("expiresAt")
+        if not expires_at or expires_at > now:
+            continue
+        path = RENDERS_DIR / f"{doc['_id']}.mp4"
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            logger.exception("failed to delete expired render file for %s", doc["_id"])
+            continue
+        await db.renders.update_one({"_id": doc["_id"]}, {"$set": {"fileRemoved": True}})
+
+
+async def _expiry_cleanup_loop():
+    while True:
+        try:
+            await _cleanup_expired_renders()
+        except Exception:  # noqa: BLE001
+            logger.exception("render expiry cleanup pass failed")
+        await asyncio.sleep(RENDER_CLEANUP_INTERVAL_SECONDS)
 
 
 @api_router.post("/renders")
@@ -1760,6 +2007,25 @@ async def create_render(
     payload["musicId"] = effective_music_id
 
     render_id = uuid.uuid4().hex
+
+    # Credit gate: reserved here, last, after every other validation that can
+    # raise has already run — so a rejected/failed request never leaves a
+    # dangling hold. Settled (captured or released) by _run_render_job once
+    # the job finishes.
+    credit_cost = pricing.cost_in_credits(template_settings, req.durationInSeconds)
+    if credit_cost > 0:
+        try:
+            await wallet.reserve(db, user.sub, credit_cost, render_id)
+        except wallet.InsufficientCreditsError as exc:
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "message": f"This {req.durationInSeconds}s video costs {credit_cost} credits; you have {exc.balance}.",
+                    "required": credit_cost,
+                    "balance": exc.balance,
+                },
+            )
+
     doc = {
         "_id": render_id,
         "userId": user.sub,
@@ -1777,6 +2043,12 @@ async def create_render(
         "musicSource": music_source,
         "status": "queued",
         "progress": 0.0,
+        "creditCost": credit_cost,
+        "paid": credit_cost > 0,
+        # Free renders are public by default; paid ("premium") renders default
+        # private — an admin can flip either independently in Video Renders.
+        "isPremium": credit_cost > 0,
+        "isPublic": credit_cost == 0,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     if recaptcha_result is not None:
@@ -1787,14 +2059,22 @@ async def create_render(
         }
     await db.renders.insert_one(doc)
 
-    background.add_task(_run_render_job, render_id, payload)
+    background.add_task(_run_render_job, render_id, payload, user.sub, credit_cost)
 
     return {
         "jobId": render_id,
         "status": "queued",
         "poll_url": f"/api/renders/{render_id}",
         "video_url": f"/api/renders/{render_id}/video.mp4",
+        "creditCost": credit_cost,
     }
+
+
+def _render_video_url(d: dict) -> str:
+    """The render's playable URL — an admin-set override (see PATCH
+    /admin/renders/{id}) if present, otherwise our own streaming endpoint."""
+    override = (d.get("videoUrlOverride") or "").strip()
+    return override or f"/api/renders/{d['_id']}/video.mp4"
 
 
 @api_router.get("/renders")
@@ -1814,7 +2094,31 @@ async def list_renders():
             "progress": d.get("progress", 0.0),
             "created_at": d.get("created_at"),
             "finished_at": d.get("finished_at"),
-            "video_url": f"/api/renders/{d['_id']}/video.mp4",
+            "video_url": _render_video_url(d),
+        }
+        for d in docs
+    ]
+
+
+@api_router.get("/renders/mine")
+async def list_my_renders(user: GoogleUser = Depends(require_google_user)):
+    """Backs the "My Downloads" page. Registered before /renders/{render_id}
+    so "mine" is never matched as a render id."""
+    docs = await db.renders.find({"userId": user.sub}).sort("created_at", -1).to_list(200)
+    return [
+        {
+            "id": d["_id"],
+            "template": d.get("template"),
+            "category": d.get("category"),
+            "status": d.get("status", "done"),
+            "progress": d.get("progress", 0.0),
+            "durationInSeconds": d.get("durationInSeconds"),
+            "creditCost": d.get("creditCost", 0),
+            "created_at": d.get("created_at"),
+            "finished_at": d.get("finished_at"),
+            "expiresAt": d.get("expiresAt"),
+            "expired": bool(d.get("fileRemoved")),
+            "video_url": _render_video_url(d),
         }
         for d in docs
     ]
@@ -1842,7 +2146,9 @@ async def get_render(render_id: str):
         "error": d.get("error"),
         "created_at": d.get("created_at"),
         "finished_at": d.get("finished_at"),
-        "video_url": f"/api/renders/{d['_id']}/video.mp4",
+        "isPublic": bool(d.get("isPublic", False)),
+        "isPremium": bool(d.get("isPremium", False)),
+        "video_url": _render_video_url(d),
     }
 
 
@@ -1862,6 +2168,9 @@ def _stream_file_range(path: Path, start: int, end: int, chunk_size: int = 1024 
 async def get_render_video(render_id: str, request: Request, download: bool = False):
     path = RENDERS_DIR / f"{Path(render_id).name}.mp4"
     if not path.exists():
+        doc = await db.renders.find_one({"_id": Path(render_id).name})
+        if doc and doc.get("fileRemoved"):
+            raise HTTPException(status_code=410, detail="This video has expired and is no longer available for download")
         raise HTTPException(status_code=404, detail="Video not found")
     size = path.stat().st_size
     disposition = "attachment" if download else "inline"
@@ -1910,6 +2219,14 @@ async def get_render_video_mp4(render_id: str, request: Request, download: bool 
 
 app.include_router(api_router)
 
+# Imported here (not at module top) because billing.routes needs
+# require_google_user/require_admin_user, which are defined above in this
+# file — importing earlier would hit them before they exist.
+from billing.routes import router as billing_router  # noqa: E402
+import billing.db as billing_db  # noqa: E402
+
+app.include_router(billing_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
@@ -1927,10 +2244,14 @@ async def initialize_storage():
     global client, db
     if storage_backend == 'memory':
         db = _InMemoryDB()
+        billing_db.set_db(db)
         await migrate_heartfelt_rename()
         await seed_default_templates()
         await seed_default_categories()
         await migrate_message_maxlength_120()
+        await migrate_render_visibility_defaults()
+        await catalog.seed_default_packs(db)
+        asyncio.create_task(_expiry_cleanup_loop())
         logger.info("Using in-memory storage")
         return
 
@@ -1938,6 +2259,7 @@ async def initialize_storage():
         client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=1000)
         await client.admin.command("ping")
         db = client[db_name]
+        billing_db.set_db(db)
         await db.users.create_index("email")
         await db.users.create_index("googleSub", unique=True)
         await db.renders.create_index("userId")
@@ -1945,10 +2267,21 @@ async def initialize_storage():
         await db.templates.create_index("category")
         await db.templates.create_index("sortOrder")
         await db.music.create_index("id", unique=True)
+        # --- billing --- (_id is already unique by default; no index needed for it)
+        await db.wallet_transactions.create_index("idempotencyKey", unique=True)
+        await db.wallet_transactions.create_index("userId")
+        await db.payments.create_index("razorpayOrderId", unique=True, sparse=True)
+        await db.payments.create_index("userId")
+        await db.coupons.create_index("code", unique=True)
+        await db.coupon_redemptions.create_index([("couponId", 1), ("userId", 1)], unique=True)
+        await db.pack_discounts.create_index("packId")
         await migrate_heartfelt_rename()
         await seed_default_templates()
         await seed_default_categories()
         await migrate_message_maxlength_120()
+        await migrate_render_visibility_defaults()
+        await catalog.seed_default_packs(db)
+        asyncio.create_task(_expiry_cleanup_loop())
         logger.info("Connected to MongoDB at %s", mongo_url)
     except Exception as exc:  # noqa: BLE001
         if client is not None:

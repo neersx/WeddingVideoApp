@@ -30,6 +30,7 @@ import { PhotoUploader } from "@/components/PhotoUploader";
 import { DynamicForm } from "@/components/DynamicForm";
 import { PreviewPane } from "@/components/PreviewPane";
 import { MusicPicker } from "@/components/MusicPicker";
+import { CreditTopUpModal } from "@/components/CreditTopUpModal";
 import {
   Dialog,
   DialogContent,
@@ -415,6 +416,8 @@ function SiteHeader() {
           <NavLink to="/" end className={navClass}>Home</NavLink>
           <NavLink to="/about" className={navClass}>About</NavLink>
           <NavLink to="/contact" className={navClass}>Contact</NavLink>
+          {user && <NavLink to="/my-downloads" className={navClass}>My Downloads</NavLink>}
+          {user && <NavLink to="/my-orders" className={navClass}>My Orders</NavLink>}
           {showAdminMenu && <NavLink to="/admin/templates" className={navClass}>Admin</NavLink>}
         </nav>
 
@@ -780,6 +783,9 @@ function CreateVideoPage() {
   const [loginPromptOpen, setLoginPromptOpen] = useState(false);
   const [resumeRenderAfterLogin, setResumeRenderAfterLogin] = useState(false);
   const [wizardStep, setWizardStep] = useState(0);
+  const [walletBalance, setWalletBalance] = useState(null);
+  const [topUpOpen, setTopUpOpen] = useState(false);
+  const [resumeRenderAfterTopUp, setResumeRenderAfterTopUp] = useState(false);
   const pollRef = useRef(null);
 
   const rendering = jobStatus === "queued" || jobStatus === "rendering";
@@ -804,6 +810,13 @@ function CreateVideoPage() {
   const imagesPerDuration = manifest?.steps?.photos?.imagesPerDuration || {};
   const overallMaxImages = manifest?.steps?.photos?.maxImages || 4;
   const maxImages = Number(imagesPerDuration[String(details.durationInSeconds)]) || overallMaxImages;
+  // Credit pricing (billing/pricing.py on the backend) — the same map the
+  // /renders endpoint charges against, so what's shown here can't drift.
+  const pricingByDuration = manifest?.steps?.details?.pricing?.byDuration || {};
+  const pricingDefault = Number(manifest?.steps?.details?.pricing?.default || 0);
+  const templateHasPaidDurations = pricingDefault > 0 || Object.values(pricingByDuration).some((v) => Number(v) > 0);
+  const selectedDurationCost = Number(pricingByDuration[String(details.durationInSeconds)] ?? pricingDefault);
+  const insufficientCredits = selectedDurationCost > 0 && (walletBalance == null || walletBalance < selectedDurationCost);
   const missingCaption = captionPerImage && photos.some((_, i) => !((photoCaptions[i] || "").trim()));
 
   const wizardSteps = [
@@ -826,6 +839,19 @@ function CreateVideoPage() {
       } else if (!details.partnerOne.trim() || !details.partnerTwo.trim()) {
         toast.error(category === "Birthday" ? "First and last name are required" : "Both names are required");
         return;
+      }
+      if (selectedDurationCost > 0) {
+        if (!user || !credential) {
+          toast.error(`This ${details.durationInSeconds}s video costs ${selectedDurationCost} credits — sign in to check your balance.`);
+          setLoginPromptOpen(true);
+          return;
+        }
+        if (insufficientCredits) {
+          toast.error(`This ${details.durationInSeconds}s video costs ${selectedDurationCost} credits. Top up to continue.`);
+          setResumeRenderAfterTopUp(false);
+          setTopUpOpen(true);
+          return;
+        }
       }
     }
     if (wizardStep === 2) {
@@ -854,6 +880,14 @@ function CreateVideoPage() {
   useEffect(() => {
     axios.get(`${API}/categories`).then((r) => setCategoryDefs(r.data)).catch(() => setCategoryDefs([]));
   }, []);
+
+  const refreshWallet = useCallback(() => {
+    if (!credential) { setWalletBalance(null); return; }
+    axios.get(`${API}/wallet`, { headers: { Authorization: `Bearer ${credential}` } })
+      .then((r) => setWalletBalance(r.data.balance))
+      .catch(() => {});
+  }, [credential]);
+  useEffect(() => { refreshWallet(); }, [refreshWallet]);
 
   useEffect(() => {
     if (!template) { setFormManifest(null); return; }
@@ -933,9 +967,11 @@ function CreateVideoPage() {
           clearInterval(pollRef.current);
           setVideoUrl(`${BACKEND_URL}${response.data.video_url}?t=${Date.now()}`);
           toast.success("Your invitation video is ready");
+          refreshWallet(); // paid renders capture the hold on success — reflect the spend
         } else if (status === "failed") {
           clearInterval(pollRef.current);
           toast.error(error || "Render failed");
+          refreshWallet(); // failed renders release the hold — balance is back
         }
       } catch {
         // Transient errors are ignored while the render service is working.
@@ -1001,7 +1037,12 @@ function CreateVideoPage() {
       } else if (!error?.response && error?.message?.includes("reCAPTCHA")) {
         toast.error("Security check could not be completed. Please refresh and try again.");
       } else {
-        toast.error(error?.response?.data?.detail || "Failed to queue render");
+        // Most endpoints return a string `detail`; the credit-gate (402) on
+        // /renders returns a structured {message, required, balance} instead
+        // so the client can also read the numbers — render only the message.
+        const detail = error?.response?.data?.detail;
+        const message = typeof detail === "string" ? detail : detail?.message;
+        toast.error(message || "Failed to queue render");
       }
     }
   }, [credential, template, details, photos, musicId, customMusicUrl, schedule, category, signOut, isDataDriven, fields, photoCaptions]);
@@ -1027,7 +1068,34 @@ function CreateVideoPage() {
       setLoginPromptOpen(true);
       return;
     }
+    // Last-chance client-side check (the server re-checks and is the real
+    // gate) — catches a balance that changed since the Details step.
+    if (insufficientCredits) {
+      toast.error(`This ${details.durationInSeconds}s video costs ${selectedDurationCost} credits. Top up to continue.`);
+      setResumeRenderAfterTopUp(true);
+      setTopUpOpen(true);
+      return;
+    }
     await submitRender();
+  };
+
+  // Called by CreditTopUpModal once /payments/verify confirms the top-up.
+  // Uses the freshly-verified balance directly (not the stale `walletBalance`
+  // closure). If the gate that opened the modal was the final "Generate"
+  // click, resume straight into the render; if it was the Details step's
+  // Continue click, just advance past it.
+  const handleTopUpSuccess = (newBalance) => {
+    setWalletBalance(newBalance);
+    setTopUpOpen(false);
+    const sufficientNow = selectedDurationCost <= newBalance;
+    if (resumeRenderAfterTopUp) {
+      setResumeRenderAfterTopUp(false);
+      if (sufficientNow) submitRender();
+      return;
+    }
+    if (sufficientNow) {
+      setWizardStep((step) => Math.min(wizardSteps.length - 1, step + 1));
+    }
   };
 
   // "Create New Reel" — clear the finished render and the form, back to step 1.
@@ -1076,6 +1144,14 @@ function CreateVideoPage() {
             </div>
           </DialogContent>
         </Dialog>
+        <CreditTopUpModal
+          open={topUpOpen}
+          onClose={() => { setTopUpOpen(false); setResumeRenderAfterTopUp(false); }}
+          credential={credential}
+          userEmail={user?.email}
+          requiredCredits={selectedDurationCost}
+          onSuccess={handleTopUpSuccess}
+        />
         <section className="relative overflow-hidden border-b border-[#EBDDE5] bg-[#FFF7FB] px-5 py-5 lg:px-10">
           <div className="absolute -left-24 -top-28 h-56 w-56 rounded-full bg-[#F6B6D4]/35 blur-3xl" aria-hidden="true" />
           <div className="absolute -right-20 top-0 h-60 w-60 rounded-full bg-[#F7CE7A]/25 blur-3xl" aria-hidden="true" />
@@ -1172,7 +1248,14 @@ function CreateVideoPage() {
                 <p className="mt-1 text-sm text-neutral-500">{wizardSteps[wizardStep].hint}</p>
               </div>
 
-              {wizardStep === 0 && <TemplatePicker value={template} onChange={setTemplate} templates={templates} />}
+              {wizardStep === 0 && <>
+                <TemplatePicker value={template} onChange={setTemplate} templates={templates} />
+                {templateHasPaidDurations && (
+                  <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                    Reels in this template are paid for some durations — longer videos may require credits.
+                  </div>
+                )}
+              </>}
               {wizardStep === 1 && <div className="space-y-5">
                 {isDataDriven ? (
                   <>
@@ -1183,6 +1266,7 @@ function CreateVideoPage() {
                         {durationOptions.map((seconds) => {
                           const selected = Number(details.durationInSeconds) === Number(seconds);
                           const cap = Number(imagesPerDuration[String(seconds)]) || overallMaxImages;
+                          const cost = Number(pricingByDuration[String(seconds)] ?? pricingDefault);
                           return (
                             <button
                               type="button"
@@ -1195,7 +1279,7 @@ function CreateVideoPage() {
                               </span>
                               <span>
                                 <span className="font-semibold text-[#32113A]">{seconds}s</span>
-                                <span className="block text-[11px] text-neutral-500">up to {cap} photos</span>
+                                <span className="block text-[11px] text-neutral-500">up to {cap} photos · {cost > 0 ? `${cost} credits` : "free"}</span>
                               </span>
                             </button>
                           );
@@ -1205,9 +1289,22 @@ function CreateVideoPage() {
                   </>
                 ) : (
                   <>
-                    <DetailsForm details={details} onChange={setDetails} category={category} isShowcase={template === "showcase" && category === "Wedding"} durationOptions={durationOptions} />
+                    <DetailsForm details={details} onChange={setDetails} category={category} isShowcase={template === "showcase" && category === "Wedding"} durationOptions={durationOptions} pricingByDuration={pricingByDuration} pricingDefault={pricingDefault} />
                     {category === "Wedding" && <div className="border-t border-[#ECD5E2] pt-5"><ScheduleBuilder schedule={schedule} onChange={setSchedule} /></div>}
                   </>
+                )}
+                {selectedDurationCost > 0 && (
+                  <div className={`rounded-xl border px-4 py-3 text-sm ${insufficientCredits ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
+                    {insufficientCredits ? (
+                      <>
+                        This {details.durationInSeconds}s video costs {selectedDurationCost} credits.{" "}
+                        {walletBalance == null ? "Sign in to check your credit balance." : `You have ${walletBalance}.`}{" "}
+                        <button type="button" onClick={() => { setResumeRenderAfterTopUp(false); setTopUpOpen(true); }} className="font-bold underline">Top up credits</button>
+                      </>
+                    ) : (
+                      <>This {details.durationInSeconds}s video costs {selectedDurationCost} credits — you have {walletBalance} available.</>
+                    )}
+                  </div>
                 )}
               </div>}
               {wizardStep === 2 && (
@@ -1320,6 +1417,7 @@ const ADMIN_TABS = [
   ["/admin", "Dashboard"],
   ["/admin/templates", "Templates"],
   ["/admin/template-settings", "Template settings"],
+  ["/admin/credit-packs", "Credit packs"],
   ["/admin/categories", "Category forms"],
   ["/admin/users", "Users"],
   ["/admin/renders", "Video renders"],
@@ -1341,6 +1439,144 @@ function AdminGate({ children }) {
   return isAdminUser(user) ? children : <NotFoundPage />;
 }
 
+function RequireUserGate({ children }) {
+  const { user } = useAuth();
+  if (user) return children;
+  return (
+    <MarketingLayout>
+      <main className="px-6 py-16 lg:px-10">
+        <section className="mx-auto max-w-lg rounded-3xl border border-[#ECD5E2] bg-white p-8 text-center shadow-[0_14px_46px_rgba(81,25,62,0.05)]">
+          <div className="section-label text-[#9B256D]">Sign in required</div>
+          <h1 className="mt-2 font-heading text-3xl font-extrabold text-[#32113A]">Sign in to continue</h1>
+          <p className="mt-3 text-sm leading-6 text-neutral-600">Sign in with Google to see your videos and purchase history.</p>
+          <div className="mt-6 flex justify-center"><GoogleSignInButton className="min-h-[40px]" text="continue_with" /></div>
+        </section>
+      </main>
+    </MarketingLayout>
+  );
+}
+
+function MyDownloadsPage() {
+  const { credential } = useAuth();
+  const [renders, setRenders] = useState(null);
+  const authHeader = useMemo(() => ({ headers: { Authorization: `Bearer ${credential}` } }), [credential]);
+
+  useEffect(() => {
+    axios.get(`${API}/renders/mine`, authHeader).then((r) => setRenders(r.data)).catch(() => setRenders([]));
+  }, [authHeader]);
+
+  const daysLeft = (expiresAt) => {
+    if (!expiresAt) return null;
+    return Math.ceil((new Date(expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+  };
+
+  return (
+    <MarketingLayout>
+      <main className="px-6 py-12 lg:px-10 lg:py-16">
+        <section className="mx-auto max-w-5xl">
+          <div className="section-label text-left text-[#9B256D]">My Downloads</div>
+          <h1 className="mt-2 font-heading text-4xl font-extrabold tracking-tight text-[#32113A] sm:text-5xl">Your invitation videos</h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-neutral-600">
+            Videos stay downloadable for 10 days after they finish rendering. Once a video expires, the file is removed from our servers and can't be recovered — download it before then.
+          </p>
+          <div className="mt-8 space-y-4">
+            {renders === null && <div className="rounded-3xl border border-[#ECD5E2] bg-white p-8 text-sm text-neutral-500">Loading your videos…</div>}
+            {renders !== null && !renders.length && (
+              <div className="rounded-3xl border border-[#ECD5E2] bg-white p-8 text-sm text-neutral-500">
+                You haven't created any videos yet. <Link to="/create-video" className="font-semibold text-[#8D1B63] underline">Create one now</Link>.
+              </div>
+            )}
+            {renders?.map((r) => {
+              const left = daysLeft(r.expiresAt);
+              const isDone = r.status === "done";
+              return (
+                <div key={r.id} className="flex flex-col gap-3 rounded-3xl border border-[#ECD5E2] bg-white p-5 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="font-heading text-lg font-extrabold capitalize text-[#32113A]">
+                      {r.template} <span className="ml-2 rounded-full bg-[#FFF3F8] px-2.5 py-0.5 text-xs font-semibold text-[#8D1B63]">{r.durationInSeconds}s</span>
+                    </div>
+                    <div className="mt-1 text-xs text-neutral-500">
+                      Created {r.created_at ? new Date(r.created_at).toLocaleString() : "—"} · {r.creditCost > 0 ? `${r.creditCost} credits` : "Free"}
+                    </div>
+                    <div className="mt-1 text-xs">
+                      {r.expired ? (
+                        <span className="font-semibold text-red-600">Expired — file removed</span>
+                      ) : isDone && r.expiresAt ? (
+                        <span className={left <= 2 ? "font-semibold text-amber-600" : "text-neutral-500"}>
+                          {left > 0 ? `Expires in ${left} day${left === 1 ? "" : "s"}` : "Expires today"}
+                        </span>
+                      ) : (
+                        <span className="capitalize text-neutral-500">{r.status}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isDone && !r.expired ? (
+                      <>
+                        <a href={`${BACKEND_URL}${r.video_url}`} target="_blank" rel="noreferrer" className="rounded-full border border-[#ECD5E2] px-4 py-2 text-xs font-bold text-[#8D1B63] hover:bg-[#FFF0F7]">Preview</a>
+                        <a href={`${BACKEND_URL}${r.video_url}?download=true`} className="rounded-full bg-[#C80A76] px-4 py-2 text-xs font-bold text-white hover:bg-[#A4176D]">Download</a>
+                      </>
+                    ) : (
+                      <span className="rounded-full border border-[#ECD5E2] px-4 py-2 text-xs font-bold text-neutral-400">{r.expired ? "Unavailable" : "Not ready"}</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      </main>
+    </MarketingLayout>
+  );
+}
+
+function MyOrdersPage() {
+  const { credential } = useAuth();
+  const [payments, setPayments] = useState(null);
+  const authHeader = useMemo(() => ({ headers: { Authorization: `Bearer ${credential}` } }), [credential]);
+
+  useEffect(() => {
+    axios.get(`${API}/payments/mine`, authHeader).then((r) => setPayments(r.data)).catch(() => setPayments([]));
+  }, [authHeader]);
+
+  const formatAmount = (amount, currency) => `${currency === "USD" ? "$" : "₹"}${(Number(amount || 0) / 100).toFixed(2)}`;
+  const statusStyles = { paid: "bg-emerald-50 text-emerald-700", created: "bg-amber-50 text-amber-700", failed: "bg-red-50 text-red-700" };
+
+  return (
+    <MarketingLayout>
+      <main className="px-6 py-12 lg:px-10 lg:py-16">
+        <section className="mx-auto max-w-4xl">
+          <div className="section-label text-left text-[#9B256D]">My Orders</div>
+          <h1 className="mt-2 font-heading text-4xl font-extrabold tracking-tight text-[#32113A] sm:text-5xl">Your purchase history</h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-neutral-600">Every credit pack you've purchased, and what it added to your wallet.</p>
+          <div className="mt-8 overflow-hidden rounded-3xl border border-[#ECD5E2] bg-white">
+            {payments === null && <div className="p-8 text-sm text-neutral-500">Loading your orders…</div>}
+            {payments !== null && !payments.length && (
+              <div className="p-8 text-sm text-neutral-500">
+                No purchases yet. <Link to="/create-video" className="font-semibold text-[#8D1B63] underline">Create a video</Link> to see paid-duration options.
+              </div>
+            )}
+            <div className="divide-y divide-[#F0DDE7]">
+              {payments?.map((p) => (
+                <div key={p.id} className="flex flex-col gap-2 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="font-semibold text-[#32113A]">{p.packName} · {p.credits} credits</div>
+                    <div className="text-xs text-neutral-500">{p.created_at ? new Date(p.created_at).toLocaleString() : ""}</div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-semibold text-[#32113A]">{formatAmount(p.amount, p.currency)}</span>
+                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusStyles[p.status] || "bg-neutral-100 text-neutral-600"}`}>{p.status}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      </main>
+    </MarketingLayout>
+  );
+}
+
 const FIELD_TYPES = ["text", "textarea", "date", "select", "repeater"];
 
 function AdminTemplateSettingsPage() {
@@ -1358,7 +1594,7 @@ function AdminTemplateSettingsPage() {
       const next = {};
       r.data.forEach((t) => {
         const s = t.settings || {};
-        next[t.id] = { maxImages: s.maxImages ?? 6, maxSlides: s.maxSlides ?? 6, durations: (s.durations || [10, 20, 30]).join(", "), captionPerImage: Boolean(s.captionPerImage), imagesPerDuration: { ...(s.imagesPerDuration || {}) }, customMusicFallbackUrl: s.customMusicFallbackUrl || "", raw: s };
+        next[t.id] = { maxImages: s.maxImages ?? 6, maxSlides: s.maxSlides ?? 6, durations: (s.durations || [10, 20, 30]).join(", "), captionPerImage: Boolean(s.captionPerImage), imagesPerDuration: { ...(s.imagesPerDuration || {}) }, pricingByDuration: { ...((s.pricing || {}).byDuration || {}) }, customMusicFallbackUrl: s.customMusicFallbackUrl || "", raw: s };
       });
       setDrafts(next);
     }).catch(() => setTemplates([]));
@@ -1379,11 +1615,16 @@ function AdminTemplateSettingsPage() {
       const v = Number((d.imagesPerDuration || {})[String(sec)]);
       if (Number.isFinite(v) && v > 0) imagesPerDuration[String(sec)] = v;
     });
+    const pricingByDuration = {};
+    durations.forEach((sec) => {
+      const v = Number((d.pricingByDuration || {})[String(sec)]);
+      if (Number.isFinite(v) && v >= 0) pricingByDuration[String(sec)] = v;
+    });
     const customMusicFallbackUrl = String(d.customMusicFallbackUrl || "").trim();
     if (customMusicFallbackUrl && !customMusicFallbackUrl.startsWith("https://")) {
       return toast.error("Fallback music URL must start with https://");
     }
-    const settings = { ...d.raw, maxImages: Number(d.maxImages) || 1, maxSlides: Number(d.maxSlides) || 1, durations, captionPerImage: Boolean(d.captionPerImage), imagesPerDuration, customMusicFallbackUrl };
+    const settings = { ...d.raw, maxImages: Number(d.maxImages) || 1, maxSlides: Number(d.maxSlides) || 1, durations, captionPerImage: Boolean(d.captionPerImage), imagesPerDuration, pricing: { default: 0, byDuration: pricingByDuration }, customMusicFallbackUrl };
     setSavingId(t.id);
     try {
       await axios.patch(`${API}/admin/templates/${t.id}/settings`, { settings }, authHeader);
@@ -1398,7 +1639,7 @@ function AdminTemplateSettingsPage() {
   const applyJson = (t) => {
     try {
       const parsed = JSON.parse(jsonText);
-      updateDraft(t.id, { raw: parsed, maxImages: parsed.maxImages ?? drafts[t.id].maxImages, maxSlides: parsed.maxSlides ?? drafts[t.id].maxSlides, durations: (parsed.durations || []).join(", ") || drafts[t.id].durations, captionPerImage: Boolean(parsed.captionPerImage), customMusicFallbackUrl: parsed.customMusicFallbackUrl ?? drafts[t.id].customMusicFallbackUrl });
+      updateDraft(t.id, { raw: parsed, maxImages: parsed.maxImages ?? drafts[t.id].maxImages, maxSlides: parsed.maxSlides ?? drafts[t.id].maxSlides, durations: (parsed.durations || []).join(", ") || drafts[t.id].durations, captionPerImage: Boolean(parsed.captionPerImage), pricingByDuration: (parsed.pricing || {}).byDuration ?? drafts[t.id].pricingByDuration, customMusicFallbackUrl: parsed.customMusicFallbackUrl ?? drafts[t.id].customMusicFallbackUrl });
       setJsonId(null);
       toast.info("JSON applied — press Save to persist");
     } catch { toast.error("Invalid JSON"); }
@@ -1406,7 +1647,7 @@ function AdminTemplateSettingsPage() {
 
   const inputClass = "w-full rounded-xl border border-[#ECD5E2] bg-white px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B4405F]";
 
-  return <AdminPageFrame eyebrow="Template settings" title="Template settings" description="Per-template video limits: how many images users can add, how many slides the video plays, allowed durations, and whether each image carries its own caption.">
+  return <AdminPageFrame eyebrow="Template settings" title="Template settings" description="Per-template video limits: how many images users can add, how many slides the video plays, allowed durations, whether each image carries its own caption, and the credit cost to render at each duration.">
     <div className="mt-6 space-y-4">
       {templates === null ? <div className="rounded-3xl border border-[#ECD5E2] bg-white p-8 text-sm text-neutral-500">Loading templates…</div>
         : templates.map((t) => {
@@ -1448,6 +1689,23 @@ function AdminTemplateSettingsPage() {
                     </div>
                   </div>
                   <div className="sm:col-span-5">
+                    <span className="mb-1 block text-xs font-semibold text-neutral-500">Credit cost per duration <span className="font-normal text-neutral-400">(0 = free)</span></span>
+                    <div className="flex flex-wrap gap-3">
+                      {String(d.durations || "").split(",").map((x) => Number(x.trim())).filter((x) => Number.isFinite(x) && x > 0).map((sec) => (
+                        <label key={sec} className="text-xs">
+                          <span className="mb-1 block text-neutral-500">{sec}s</span>
+                          <input
+                            type="number" min={0}
+                            className={`${inputClass} w-24`}
+                            value={(d.pricingByDuration || {})[String(sec)] ?? ""}
+                            onChange={(e) => updateDraft(t.id, { pricingByDuration: { ...(d.pricingByDuration || {}), [String(sec)]: e.target.value } })}
+                            placeholder="0"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="sm:col-span-5">
                     <span className="mb-1 block text-xs font-semibold text-neutral-500">Fallback music URL <span className="font-normal text-neutral-400">(used when a user picks "My Music" but their link is missing or unreachable)</span></span>
                     <input
                       className={inputClass}
@@ -1464,6 +1722,120 @@ function AdminTemplateSettingsPage() {
             </div>
           );
         })}
+    </div>
+  </AdminPageFrame>;
+}
+
+function AdminCreditPacksPage() {
+  const { credential } = useAuth();
+  const [packs, setPacks] = useState(null);
+  const [drafts, setDrafts] = useState({});
+  const [savingId, setSavingId] = useState(null);
+  const [newId, setNewId] = useState("");
+  const authHeader = useMemo(() => ({ headers: { Authorization: `Bearer ${credential}` } }), [credential]);
+
+  const load = useCallback(() => {
+    axios.get(`${API}/admin/credit-packs`, authHeader).then((r) => {
+      setPacks(r.data);
+      const next = {};
+      r.data.forEach((p) => {
+        next[p.id] = {
+          name: p.name,
+          credits: p.credits,
+          bonusCredits: p.bonusCredits,
+          priceINR: p.prices?.INR != null ? p.prices.INR / 100 : "",
+          priceUSD: p.prices?.USD != null ? p.prices.USD / 100 : "",
+          isActive: p.isActive,
+          sortOrder: p.sortOrder,
+        };
+      });
+      setDrafts(next);
+    }).catch(() => setPacks([]));
+  }, [authHeader]);
+  useEffect(() => { load(); }, [load]);
+
+  const updateDraft = (id, patch) => setDrafts((d) => ({ ...d, [id]: { ...d[id], ...patch } }));
+
+  const save = async (id) => {
+    const d = drafts[id];
+    if (!String(d?.name || "").trim()) return toast.error("Name is required");
+    const credits = Number(d.credits);
+    if (!Number.isFinite(credits) || credits < 1) return toast.error("Credits must be at least 1");
+    const prices = {};
+    const inr = Number(d.priceINR);
+    const usd = Number(d.priceUSD);
+    if (Number.isFinite(inr) && inr > 0) prices.INR = Math.round(inr * 100);
+    if (Number.isFinite(usd) && usd > 0) prices.USD = Math.round(usd * 100);
+    if (!Object.keys(prices).length) return toast.error("Set at least one price (INR or USD)");
+    setSavingId(id);
+    try {
+      await axios.post(`${API}/admin/credit-packs/${id}`, {
+        name: d.name.trim(),
+        credits,
+        bonusCredits: Number(d.bonusCredits) || 0,
+        prices,
+        isActive: Boolean(d.isActive),
+        sortOrder: Number(d.sortOrder) || 100,
+      }, authHeader);
+      toast.success(`Saved ${d.name}`);
+      load();
+    } catch (error) {
+      toast.error(error?.response?.data?.detail || "Failed to save pack");
+    } finally { setSavingId(null); }
+  };
+
+  const addPack = () => {
+    const id = newId.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-");
+    if (!id) return toast.error("Enter a pack id, e.g. mega");
+    if (drafts[id]) return toast.error("A pack with this id already exists");
+    updateDraft(id, { name: "", credits: 10, bonusCredits: 0, priceINR: "", priceUSD: "", isActive: true, sortOrder: 100 });
+    setNewId("");
+  };
+
+  const remove = async (id) => {
+    if (!window.confirm("Delete this credit pack? Existing purchases are unaffected.")) return;
+    try {
+      await axios.delete(`${API}/admin/credit-packs/${id}`, authHeader);
+      toast.success("Pack deleted");
+      load();
+    } catch {
+      toast.error("Failed to delete pack");
+    }
+  };
+
+  const inputClass = "w-full rounded-xl border border-[#ECD5E2] bg-white px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B4405F]";
+
+  return <AdminPageFrame eyebrow="Credit packs" title="Credit packs" description="What users buy with real money via RazorPay. Prices are whole currency units (₹ / $); credits are the internal unit spent on paid-duration renders — see Template settings to price each duration.">
+    <div className="mt-6 flex flex-wrap items-end gap-3 rounded-3xl border border-[#ECD5E2] bg-white p-6">
+      <label className="text-xs"><span className="mb-1 block font-semibold text-neutral-500">New pack id</span><input className={inputClass} value={newId} onChange={(e) => setNewId(e.target.value)} placeholder="mega" /></label>
+      <button onClick={addPack} className="rounded-xl bg-[#32113A] px-4 py-2 text-sm font-semibold text-white">Add pack</button>
+    </div>
+    <div className="mt-4 space-y-4">
+      {packs === null && <div className="rounded-3xl border border-[#ECD5E2] bg-white p-8 text-sm text-neutral-500">Loading credit packs…</div>}
+      {packs !== null && !Object.keys(drafts).length && <div className="rounded-3xl border border-[#ECD5E2] bg-white p-8 text-sm text-neutral-500">No credit packs yet — add one above.</div>}
+      {Object.keys(drafts).map((id) => {
+        const d = drafts[id];
+        return (
+          <div key={id} className="rounded-3xl border border-[#ECD5E2] bg-white p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="font-heading text-xl font-extrabold text-[#32113A]">{id}</div>
+              <button onClick={() => remove(id)} className="rounded-lg border border-[#ECD5E2] px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50">Delete</button>
+            </div>
+            <div className="mt-4 grid gap-4 sm:grid-cols-6">
+              <label className="text-xs sm:col-span-2"><span className="mb-1 block font-semibold text-neutral-500">Name</span><input className={inputClass} value={d.name ?? ""} onChange={(e) => updateDraft(id, { name: e.target.value })} /></label>
+              <label className="text-xs"><span className="mb-1 block font-semibold text-neutral-500">Credits</span><input type="number" min={1} className={inputClass} value={d.credits ?? ""} onChange={(e) => updateDraft(id, { credits: e.target.value })} /></label>
+              <label className="text-xs"><span className="mb-1 block font-semibold text-neutral-500">Bonus credits</span><input type="number" min={0} className={inputClass} value={d.bonusCredits ?? ""} onChange={(e) => updateDraft(id, { bonusCredits: e.target.value })} /></label>
+              <label className="text-xs"><span className="mb-1 block font-semibold text-neutral-500">Price (₹ INR)</span><input type="number" min={0} step="0.01" className={inputClass} value={d.priceINR ?? ""} onChange={(e) => updateDraft(id, { priceINR: e.target.value })} /></label>
+              <label className="text-xs"><span className="mb-1 block font-semibold text-neutral-500">Price ($ USD)</span><input type="number" min={0} step="0.01" className={inputClass} value={d.priceUSD ?? ""} onChange={(e) => updateDraft(id, { priceUSD: e.target.value })} /></label>
+              <label className="text-xs"><span className="mb-1 block font-semibold text-neutral-500">Sort order</span><input type="number" className={inputClass} value={d.sortOrder ?? ""} onChange={(e) => updateDraft(id, { sortOrder: e.target.value })} /></label>
+              <label className="flex items-center gap-2 pt-6 text-xs font-semibold text-[#32113A]"><input type="checkbox" checked={Boolean(d.isActive)} onChange={(e) => updateDraft(id, { isActive: e.target.checked })} /> Active (visible to users)</label>
+            </div>
+            <div className="mt-4 border-t border-[#F0DDE7] pt-3">
+              <button disabled={savingId === id} onClick={() => save(id)} className="rounded-xl bg-[#32113A] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{savingId === id ? "Saving…" : "Save pack"}</button>
+            </div>
+          </div>
+        );
+      })}
     </div>
   </AdminPageFrame>;
 }
@@ -1632,11 +2004,174 @@ function AdminUsersPage() {
   return <AdminPageFrame eyebrow="Users" title="User accounts" description="See registered users and how many invitation videos each account has created."><div className="mt-6 overflow-hidden rounded-3xl border border-[#ECD5E2] bg-white">{users === null ? <div className="p-8 text-sm text-neutral-500">Loading users…</div> : <div className="divide-y divide-[#F0DDE7]">{users.map((item) => <div key={item.id} className="flex flex-col gap-3 px-6 py-5 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-3">{item.picture ? <img src={item.picture} alt="" className="h-10 w-10 rounded-full object-cover" referrerPolicy="no-referrer" /> : <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#F8EAF2] font-bold text-[#A4176D]">{(item.name || item.email || "U").slice(0, 1).toUpperCase()}</div>}<div><div className="font-semibold text-[#32113A]">{item.name || "Unnamed user"}</div><div className="text-sm text-neutral-500">{item.email}</div></div></div><div className="flex items-center gap-5 text-sm"><span><strong className="text-[#32113A]">{item.renderCount}</strong> videos</span><span className="text-xs text-neutral-400">Last activity: {item.lastRender ? new Date(item.lastRender).toLocaleDateString() : "Never"}</span></div></div>)}{!users.length && <div className="p-8 text-sm text-neutral-500">No users found.</div>}</div>}</div></AdminPageFrame>;
 }
 
+const RENDER_STATUS_OPTIONS = ["queued", "rendering", "done", "failed"];
+const RENDER_PAGE_SIZE = 50;
+
 function AdminRendersPage() {
   const { credential } = useAuth();
-  const [renders, setRenders] = useState(null);
-  useEffect(() => { axios.get(`${API}/admin/renders`, { headers: { Authorization: `Bearer ${credential}` } }).then((response) => setRenders(response.data)).catch(() => setRenders([])); }, [credential]);
-  return <AdminPageFrame eyebrow="Video renders" title="Video activity" description="Review video jobs generated by users, their templates, status, and timestamps."><div className="mt-6 overflow-hidden rounded-3xl border border-[#ECD5E2] bg-white">{renders === null ? <div className="p-8 text-sm text-neutral-500">Loading renders…</div> : <div className="divide-y divide-[#F0DDE7]">{renders.map((item) => <div key={item.id} className="grid gap-2 px-6 py-5 sm:grid-cols-[1.4fr_1fr_0.7fr_1fr] sm:items-center"><div><div className="font-semibold text-[#32113A]">{item.userEmail || "Unknown user"}</div><div className="text-xs text-neutral-400">{item.id.slice(0, 12)}</div></div><div className="text-sm text-neutral-600">{item.template}</div><span className="w-fit rounded-full bg-[#FFF3F8] px-3 py-1 text-xs font-semibold text-[#8D1B63]">{item.status}</span><div className="text-xs text-neutral-500">{item.created_at ? new Date(item.created_at).toLocaleString() : ""}</div></div>)}{!renders.length && <div className="p-8 text-sm text-neutral-500">No renders found.</div>}</div>}</div></AdminPageFrame>;
+  const [data, setData] = useState(null); // {items, total, page, pageSize}
+  const [page, setPage] = useState(1);
+  const [statusFilter, setStatusFilter] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [editing, setEditing] = useState(null);
+  const [editDraft, setEditDraft] = useState({ videoUrl: "", isPublic: false, isPremium: false });
+  const [saving, setSaving] = useState(false);
+  const authHeader = useMemo(() => ({ headers: { Authorization: `Bearer ${credential}` } }), [credential]);
+
+  const load = useCallback(() => {
+    const params = { page, pageSize: RENDER_PAGE_SIZE };
+    if (statusFilter) params.status = statusFilter;
+    if (dateFrom) params.dateFrom = dateFrom;
+    if (dateTo) params.dateTo = dateTo;
+    axios.get(`${API}/admin/renders`, { ...authHeader, params })
+      .then((r) => setData(r.data))
+      .catch(() => setData({ items: [], total: 0, page: 1, pageSize: RENDER_PAGE_SIZE }));
+  }, [authHeader, page, statusFilter, dateFrom, dateTo]);
+  useEffect(() => { load(); }, [load]);
+  // A filter change invalidates the current page position — jump back to page 1.
+  useEffect(() => { setPage(1); }, [statusFilter, dateFrom, dateTo]);
+
+  const openEdit = (item) => {
+    setEditing(item);
+    setEditDraft({ videoUrl: item.video_url || "", isPublic: Boolean(item.isPublic), isPremium: Boolean(item.isPremium) });
+  };
+
+  const saveEdit = async () => {
+    if (!editing) return;
+    setSaving(true);
+    try {
+      await axios.patch(`${API}/admin/renders/${editing.id}`, {
+        videoUrl: editDraft.videoUrl === editing.video_url ? undefined : editDraft.videoUrl,
+        isPublic: editDraft.isPublic,
+        isPremium: editDraft.isPremium,
+      }, authHeader);
+      toast.success("Render updated");
+      setEditing(null);
+      load();
+    } catch (error) {
+      toast.error(error?.response?.data?.detail || "Failed to update render");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const items = data?.items || [];
+  const total = data?.total || 0;
+  const pageSize = data?.pageSize || RENDER_PAGE_SIZE;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const hasFilters = Boolean(statusFilter || dateFrom || dateTo);
+
+  const inputClass = "w-full rounded-xl border border-[#ECD5E2] bg-white px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B4405F]";
+  const videoHref = (url) => (url && url.startsWith("http") ? url : `${BACKEND_URL}${url || ""}`);
+
+  return <AdminPageFrame eyebrow="Video renders" title="Video activity" description="Review video jobs, their templates, categories, and status — edit the video URL, and mark renders public or premium.">
+    <div className="mt-6 flex flex-wrap items-end gap-3 rounded-3xl border border-[#ECD5E2] bg-white p-5">
+      <label className="text-xs">
+        <span className="mb-1 block font-semibold text-neutral-500">Status</span>
+        <select className={inputClass} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <option value="">All</option>
+          {RENDER_STATUS_OPTIONS.map((s) => <option key={s} value={s} className="capitalize">{s}</option>)}
+        </select>
+      </label>
+      <label className="text-xs">
+        <span className="mb-1 block font-semibold text-neutral-500">From date</span>
+        <input type="date" className={inputClass} value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+      </label>
+      <label className="text-xs">
+        <span className="mb-1 block font-semibold text-neutral-500">To date</span>
+        <input type="date" className={inputClass} value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+      </label>
+      {hasFilters && (
+        <button onClick={() => { setStatusFilter(""); setDateFrom(""); setDateTo(""); }} className="rounded-lg border border-[#ECD5E2] px-3 py-2 text-xs font-semibold text-[#8D1B63] hover:bg-[#FFF0F7]">Clear filters</button>
+      )}
+    </div>
+
+    <div className="mt-4 overflow-x-auto rounded-3xl border border-[#ECD5E2] bg-white">
+      <table className="min-w-full divide-y divide-[#F0DDE7] text-sm">
+        <thead className="bg-[#FFF8FB]">
+          <tr className="text-left text-xs font-semibold uppercase tracking-wide text-neutral-500">
+            <th className="px-4 py-3">User</th>
+            <th className="px-4 py-3">Template</th>
+            <th className="px-4 py-3">Category</th>
+            <th className="px-4 py-3">Duration</th>
+            <th className="px-4 py-3">Status</th>
+            <th className="px-4 py-3">Date</th>
+            <th className="px-4 py-3">Public</th>
+            <th className="px-4 py-3">Premium</th>
+            <th className="px-4 py-3">Video</th>
+            <th className="px-4 py-3" />
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[#F0DDE7]">
+          {data === null && (
+            <tr><td colSpan={10} className="px-4 py-8 text-center text-sm text-neutral-500">Loading renders…</td></tr>
+          )}
+          {data !== null && !items.length && (
+            <tr><td colSpan={10} className="px-4 py-8 text-center text-sm text-neutral-500">No renders found{hasFilters ? " for these filters" : ""}.</td></tr>
+          )}
+          {items.map((item) => (
+            <tr key={item.id}>
+              <td className="px-4 py-3">
+                <div className="font-semibold text-[#32113A]">{item.userEmail || "Unknown user"}</div>
+                <div className="text-xs text-neutral-400">{item.id.slice(0, 12)}</div>
+              </td>
+              <td className="px-4 py-3 text-neutral-600">{item.templateName || item.template}</td>
+              <td className="px-4 py-3 text-neutral-600">{item.category}</td>
+              <td className="px-4 py-3 text-neutral-600">{item.durationInSeconds ? `${item.durationInSeconds}s` : "—"}</td>
+              <td className="px-4 py-3"><span className="rounded-full bg-[#FFF3F8] px-3 py-1 text-xs font-semibold capitalize text-[#8D1B63]">{item.status}</span></td>
+              <td className="px-4 py-3 text-xs text-neutral-500">{item.created_at ? new Date(item.created_at).toLocaleString() : ""}</td>
+              <td className="px-4 py-3">{item.isPublic ? <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-label="Public" /> : <span className="text-neutral-300">—</span>}</td>
+              <td className="px-4 py-3">{item.isPremium ? <CheckCircle2 className="h-4 w-4 text-[#C80A76]" aria-label="Premium" /> : <span className="text-neutral-300">—</span>}</td>
+              <td className="px-4 py-3">
+                {item.video_url && <a href={videoHref(item.video_url)} target="_blank" rel="noreferrer" className="text-xs font-semibold text-[#8D1B63] underline">View</a>}
+              </td>
+              <td className="px-4 py-3">
+                <button onClick={() => openEdit(item)} className="rounded-lg border border-[#ECD5E2] px-3 py-1.5 text-xs font-semibold text-[#8D1B63] hover:bg-[#FFF0F7]">Edit</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+
+    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-neutral-500">
+      <div>{total} render{total === 1 ? "" : "s"} · Page {page} of {totalPages}</div>
+      <div className="flex gap-2">
+        <button disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="rounded-lg border border-[#ECD5E2] px-3 py-1.5 text-xs font-semibold text-[#8D1B63] transition hover:bg-[#FFF0F7] disabled:cursor-not-allowed disabled:opacity-40">Previous</button>
+        <button disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))} className="rounded-lg border border-[#ECD5E2] px-3 py-1.5 text-xs font-semibold text-[#8D1B63] transition hover:bg-[#FFF0F7] disabled:cursor-not-allowed disabled:opacity-40">Next</button>
+      </div>
+    </div>
+
+    <Dialog open={Boolean(editing)} onOpenChange={(open) => !open && setEditing(null)}>
+      <DialogContent className="max-w-lg rounded-3xl border-[#EBD3E0] bg-white p-0 shadow-[0_24px_80px_rgba(50,17,58,0.22)]">
+        <div className="rounded-t-3xl bg-[#FFF6FA] px-6 py-5">
+          <DialogHeader>
+            <DialogTitle className="font-heading text-2xl font-extrabold text-[#32113A]">Edit render</DialogTitle>
+            <DialogDescription className="pt-2 leading-6 text-neutral-600">{editing?.templateName || editing?.template} · {editing?.userEmail}</DialogDescription>
+          </DialogHeader>
+        </div>
+        <div className="space-y-4 px-6 pb-6 pt-4">
+          <label className="text-xs">
+            <span className="mb-1 block font-semibold text-neutral-500">Video URL</span>
+            <input className={inputClass} value={editDraft.videoUrl} onChange={(e) => setEditDraft((d) => ({ ...d, videoUrl: e.target.value }))} placeholder="/api/renders/.../video.mp4" />
+          </label>
+          <div className="flex gap-6">
+            <label className="flex items-center gap-2 text-sm font-semibold text-[#32113A]">
+              <input type="checkbox" checked={editDraft.isPublic} onChange={(e) => setEditDraft((d) => ({ ...d, isPublic: e.target.checked }))} /> Public
+            </label>
+            <label className="flex items-center gap-2 text-sm font-semibold text-[#32113A]">
+              <input type="checkbox" checked={editDraft.isPremium} onChange={(e) => setEditDraft((d) => ({ ...d, isPremium: e.target.checked }))} /> Premium
+            </label>
+          </div>
+          <div className="flex justify-end gap-3 border-t border-[#F0DDE7] pt-4">
+            <button onClick={() => setEditing(null)} className="rounded-xl border border-[#ECD5E2] px-4 py-2 text-sm font-semibold text-[#8D1B63] hover:bg-[#FFF0F7]">Cancel</button>
+            <button disabled={saving} onClick={saveEdit} className="rounded-xl bg-[#32113A] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{saving ? "Saving…" : "Save changes"}</button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  </AdminPageFrame>;
 }
 
 function AdminSettingsPage() {
@@ -2144,10 +2679,13 @@ function App() {
           <Route path="/about" element={<AboutPage />} />
           <Route path="/contact" element={<ContactPage />} />
           <Route path="/privacy" element={<PrivacyPage />} />
+          <Route path="/my-downloads" element={<RequireUserGate><MyDownloadsPage /></RequireUserGate>} />
+          <Route path="/my-orders" element={<RequireUserGate><MyOrdersPage /></RequireUserGate>} />
           <Route path="/admin" element={<AdminGate><AdminDashboardPage /></AdminGate>} />
           <Route path="/admin/templates" element={<AdminGate><AdminTemplatesPage /></AdminGate>} />
           <Route path="/admin/categories" element={<AdminGate><AdminCategoryFormsPage /></AdminGate>} />
           <Route path="/admin/template-settings" element={<AdminGate><AdminTemplateSettingsPage /></AdminGate>} />
+          <Route path="/admin/credit-packs" element={<AdminGate><AdminCreditPacksPage /></AdminGate>} />
           <Route path="/admin/users" element={<AdminGate><AdminUsersPage /></AdminGate>} />
           <Route path="/admin/renders" element={<AdminGate><AdminRendersPage /></AdminGate>} />
           <Route path="/admin/settings" element={<AdminGate><AdminSettingsPage /></AdminGate>} />

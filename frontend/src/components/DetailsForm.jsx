@@ -37,7 +37,7 @@ const Field = ({ label, testId, children }) => (
   </div>
 );
 
-export const DetailsForm = ({ details, onChange, category = "Wedding", isShowcase = false, durationOptions = [10, 20, 30] }) => {
+export const DetailsForm = ({ details, onChange, category = "Wedding", isShowcase = false, durationOptions = [10, 20, 30], pricingByDuration = {}, pricingDefault = 0 }) => {
   const set = (key) => (e) => onChange({ ...details, [key]: e.target.value });
   const selectedDate = parseEventDate(details.eventDate);
   const isEngagement = category === "Engagement";
@@ -99,11 +99,14 @@ export const DetailsForm = ({ details, onChange, category = "Wedding", isShowcas
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {durationOptions.map((seconds) => (
-                <SelectItem key={seconds} value={String(seconds)}>
-                  {seconds} seconds{seconds <= 10 ? " (quick test)" : seconds >= 30 ? " (full)" : ""}
-                </SelectItem>
-              ))}
+              {durationOptions.map((seconds) => {
+                const cost = Number(pricingByDuration[String(seconds)] ?? pricingDefault);
+                return (
+                  <SelectItem key={seconds} value={String(seconds)}>
+                    {seconds} seconds{seconds <= 10 ? " (quick test)" : seconds >= 30 ? " (full)" : ""} · {cost > 0 ? `${cost} credits` : "free"}
+                  </SelectItem>
+                );
+              })}
             </SelectContent>
           </Select>
         </Field>
