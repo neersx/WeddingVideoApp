@@ -772,6 +772,7 @@ function CreateVideoPage() {
   const [categoryDefs, setCategoryDefs] = useState([]);
   const [formManifest, setFormManifest] = useState(null);
   const [musicId, setMusicId] = useState("tere-sang");
+  const [customMusicUrl, setCustomMusicUrl] = useState("");
   const [jobStatus, setJobStatus] = useState("idle");
   const [jobProgress, setJobProgress] = useState(0);
   const [jobId, setJobId] = useState(null);
@@ -960,6 +961,7 @@ function CreateVideoPage() {
             fields,
             images: photos.map((url, index) => ({ imageUrl: url, text: photoCaptions[index] || "" })),
             musicId: musicId || null,
+            customMusicUrl: musicId === "my-music" ? customMusicUrl || undefined : undefined,
             durationInSeconds: Number(details.durationInSeconds) || 30,
             tags,
             recaptchaToken,
@@ -973,6 +975,7 @@ function CreateVideoPage() {
             displayMessage: details.displayMessage,
             photos,
             musicId: musicId || null,
+            customMusicUrl: musicId === "my-music" ? customMusicUrl || undefined : undefined,
             schedule: category === "Engagement" ? [{ name: "Engagement", time: details.eventDate }] : category === "Birthday" ? [] : schedule,
             durationInSeconds: Number(details.durationInSeconds) || 30,
             tags,
@@ -1001,7 +1004,7 @@ function CreateVideoPage() {
         toast.error(error?.response?.data?.detail || "Failed to queue render");
       }
     }
-  }, [credential, template, details, photos, musicId, schedule, category, signOut, isDataDriven, fields, photoCaptions]);
+  }, [credential, template, details, photos, musicId, customMusicUrl, schedule, category, signOut, isDataDriven, fields, photoCaptions]);
 
   const handleRender = async () => {
     if (!isDataDriven && (!details.partnerOne.trim() || !details.partnerTwo.trim())) {
@@ -1219,7 +1222,7 @@ function CreateVideoPage() {
                   captionMaxLength={captionMaxLength}
                 />
               )}
-              {wizardStep === 3 && <MusicPicker value={musicId} onChange={setMusicId} category={category} />}
+              {wizardStep === 3 && <MusicPicker value={musicId} onChange={setMusicId} category={category} customMusicUrl={customMusicUrl} onCustomMusicUrlChange={setCustomMusicUrl} />}
 
               <div className="mt-7 flex items-center justify-between gap-3 border-t border-[#ECD5E2] pt-5">
                 <button type="button" onClick={goBack} disabled={wizardStep === 0} className="rounded-full border border-[#E8C9DB] px-5 py-2.5 text-sm font-bold text-[#8D1B63] transition hover:bg-[#FFF0F7] disabled:cursor-not-allowed disabled:opacity-35">Back</button>
@@ -1355,7 +1358,7 @@ function AdminTemplateSettingsPage() {
       const next = {};
       r.data.forEach((t) => {
         const s = t.settings || {};
-        next[t.id] = { maxImages: s.maxImages ?? 6, maxSlides: s.maxSlides ?? 6, durations: (s.durations || [10, 20, 30]).join(", "), captionPerImage: Boolean(s.captionPerImage), imagesPerDuration: { ...(s.imagesPerDuration || {}) }, raw: s };
+        next[t.id] = { maxImages: s.maxImages ?? 6, maxSlides: s.maxSlides ?? 6, durations: (s.durations || [10, 20, 30]).join(", "), captionPerImage: Boolean(s.captionPerImage), imagesPerDuration: { ...(s.imagesPerDuration || {}) }, customMusicFallbackUrl: s.customMusicFallbackUrl || "", raw: s };
       });
       setDrafts(next);
     }).catch(() => setTemplates([]));
@@ -1376,7 +1379,11 @@ function AdminTemplateSettingsPage() {
       const v = Number((d.imagesPerDuration || {})[String(sec)]);
       if (Number.isFinite(v) && v > 0) imagesPerDuration[String(sec)] = v;
     });
-    const settings = { ...d.raw, maxImages: Number(d.maxImages) || 1, maxSlides: Number(d.maxSlides) || 1, durations, captionPerImage: Boolean(d.captionPerImage), imagesPerDuration };
+    const customMusicFallbackUrl = String(d.customMusicFallbackUrl || "").trim();
+    if (customMusicFallbackUrl && !customMusicFallbackUrl.startsWith("https://")) {
+      return toast.error("Fallback music URL must start with https://");
+    }
+    const settings = { ...d.raw, maxImages: Number(d.maxImages) || 1, maxSlides: Number(d.maxSlides) || 1, durations, captionPerImage: Boolean(d.captionPerImage), imagesPerDuration, customMusicFallbackUrl };
     setSavingId(t.id);
     try {
       await axios.patch(`${API}/admin/templates/${t.id}/settings`, { settings }, authHeader);
@@ -1391,7 +1398,7 @@ function AdminTemplateSettingsPage() {
   const applyJson = (t) => {
     try {
       const parsed = JSON.parse(jsonText);
-      updateDraft(t.id, { raw: parsed, maxImages: parsed.maxImages ?? drafts[t.id].maxImages, maxSlides: parsed.maxSlides ?? drafts[t.id].maxSlides, durations: (parsed.durations || []).join(", ") || drafts[t.id].durations, captionPerImage: Boolean(parsed.captionPerImage) });
+      updateDraft(t.id, { raw: parsed, maxImages: parsed.maxImages ?? drafts[t.id].maxImages, maxSlides: parsed.maxSlides ?? drafts[t.id].maxSlides, durations: (parsed.durations || []).join(", ") || drafts[t.id].durations, captionPerImage: Boolean(parsed.captionPerImage), customMusicFallbackUrl: parsed.customMusicFallbackUrl ?? drafts[t.id].customMusicFallbackUrl });
       setJsonId(null);
       toast.info("JSON applied — press Save to persist");
     } catch { toast.error("Invalid JSON"); }
@@ -1439,6 +1446,15 @@ function AdminTemplateSettingsPage() {
                         </label>
                       ))}
                     </div>
+                  </div>
+                  <div className="sm:col-span-5">
+                    <span className="mb-1 block text-xs font-semibold text-neutral-500">Fallback music URL <span className="font-normal text-neutral-400">(used when a user picks "My Music" but their link is missing or unreachable)</span></span>
+                    <input
+                      className={inputClass}
+                      value={d.customMusicFallbackUrl ?? ""}
+                      onChange={(e) => updateDraft(t.id, { customMusicFallbackUrl: e.target.value })}
+                      placeholder="https://example.com/song.mp3"
+                    />
                   </div>
                 </div>
               )}

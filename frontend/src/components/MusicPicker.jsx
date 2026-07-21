@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import axios from "axios";
-import { Music, Pause, Play } from "lucide-react";
+import { Link2, Music, Pause, Play } from "lucide-react";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "http://localhost:8001";
 
-export const MusicPicker = ({ value, onChange, category = "Wedding" }) => {
+export const MusicPicker = ({ value, onChange, category = "Wedding", customMusicUrl = "", onCustomMusicUrlChange }) => {
   const [tracks, setTracks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [playingId, setPlayingId] = useState(null);
@@ -106,29 +106,55 @@ export const MusicPicker = ({ value, onChange, category = "Wedding" }) => {
                 >
                   <div className="text-sm font-semibold">{t.title}</div>
                   <div className={`text-xs ${selected ? "text-neutral-300" : "text-neutral-500"}`}>
-                    {t.mood} · {t.duration}s
+                    {t.isCustomUrl ? t.mood : `${t.mood} · ${t.duration}s`}
                   </div>
-                  <div className={`mt-0.5 text-[10px] uppercase tracking-[0.12em] ${selected ? "text-neutral-400" : "text-neutral-400"}`}>
-                    {t.credit}
-                  </div>
+                  {!t.isCustomUrl && (
+                    <div className={`mt-0.5 text-[10px] uppercase tracking-[0.12em] ${selected ? "text-neutral-400" : "text-neutral-400"}`}>
+                      {t.credit}
+                    </div>
+                  )}
                 </button>
-                <button
-                  type="button"
-                  data-testid={`music-preview-${t.id}`}
-                  onClick={() => togglePlay(t)}
-                  className={`ml-3 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full transition ${
-                    selected
-                      ? "bg-[#D4AF37] text-black hover:bg-[#e5c04d]"
-                      : "bg-neutral-100 text-neutral-800 hover:bg-neutral-200"
-                  }`}
-                  aria-label={isPlaying ? "Pause preview" : "Play preview"}
-                >
-                  {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-                </button>
+                {t.isCustomUrl ? (
+                  <span className={`ml-3 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ${selected ? "bg-[#D4AF37] text-black" : "bg-neutral-100 text-neutral-500"}`}>
+                    <Link2 className="h-4 w-4" />
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    data-testid={`music-preview-${t.id}`}
+                    onClick={() => togglePlay(t)}
+                    className={`ml-3 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full transition ${
+                      selected
+                        ? "bg-[#D4AF37] text-black hover:bg-[#e5c04d]"
+                        : "bg-neutral-100 text-neutral-800 hover:bg-neutral-200"
+                    }`}
+                    aria-label={isPlaying ? "Pause preview" : "Play preview"}
+                  >
+                    {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                  </button>
+                )}
               </div>
             );
           })}
         </div>
+        {value === "my-music" && (
+          <div className="mt-4 rounded-lg border border-[#D4AF37] bg-[#FFFBEE] p-3">
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.1em] text-neutral-600">
+              Paste a link to your song (must be a direct https:// audio file link)
+            </label>
+            <input
+              type="url"
+              data-testid="custom-music-url-input"
+              value={customMusicUrl}
+              onChange={(e) => onCustomMusicUrlChange?.(e.target.value)}
+              placeholder="https://example.com/song.mp3"
+              className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-[#D4AF37]"
+            />
+            <p className="mt-2 text-[11px] leading-relaxed text-neutral-500">
+              If the link is missing or can't be reached when your video renders, we'll automatically use a default track instead.
+            </p>
+          </div>
+        )}
         <p className="mt-4 text-[11px] leading-relaxed text-neutral-400">
           Royalty-free tracks — credits shown on each card. Audio fades in/out over the render.
         </p>

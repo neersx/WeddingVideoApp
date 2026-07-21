@@ -11,6 +11,9 @@ import httpx
 import uuid
 import asyncio
 import re
+import ipaddress
+import socket
+from urllib.parse import urlparse
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
@@ -119,16 +122,33 @@ MUSIC_LIBRARY = [
 ]
 MUSIC_BY_ID = {t["id"]: t for t in MUSIC_LIBRARY}
 
+# Pseudo-track: not a file, a passthrough for a user-supplied public audio URL.
+# Selecting it sends musicId="my-music" + customMusicUrl; resolution happens in
+# create_render (falls back to the template's admin-set URL, then the bundled
+# default, if the user's link is missing or unreachable).
+MY_MUSIC_TRACK_ID = "my-music"
+MY_MUSIC_TRACK = {
+    "id": MY_MUSIC_TRACK_ID,
+    "title": "My Music",
+    "mood": "Paste a link to your own song",
+    "duration": 0,
+    "credit": "",
+    "categories": [],
+    "isCustomUrl": True,
+}
+
 
 async def list_music_tracks():
     """Return bundled tracks plus admin-uploaded tracks persisted in MongoDB."""
     dynamic = await db.music.find().to_list(500)
     overrides = {track.get("id"): track for track in dynamic}
     bundled = [{**track, **overrides[track["id"]]} if track["id"] in overrides else track for track in MUSIC_LIBRARY]
-    return bundled + [track for track in dynamic if track.get("id") not in MUSIC_BY_ID]
+    return [MY_MUSIC_TRACK] + bundled + [track for track in dynamic if track.get("id") not in MUSIC_BY_ID]
 
 
 async def find_music_track(music_id: str):
+    if music_id == MY_MUSIC_TRACK_ID:
+        return MY_MUSIC_TRACK
     override = await db.music.find_one({"id": music_id})
     if override:
         return override
@@ -652,6 +672,10 @@ class RenderRequest(BaseModel):
     images: List[RenderImage] = Field(default_factory=list)
     musicUrl: Optional[str] = None
     musicId: Optional[str] = None
+    # Set alongside musicId="my-music" when the user pastes their own public
+    # audio link. Falls back per-template if missing/unreachable — see
+    # resolve_music_url().
+    customMusicUrl: Optional[str] = None
     schedule: List[ScheduleItem] = Field(default_factory=list)
     durationInSeconds: int = 30
     tags: List[str] = Field(default_factory=list)
@@ -796,6 +820,9 @@ def _normalized_template_settings(document):
     settings["imagesPerDuration"] = {str(k): int(v) for k, v in raw_map.items() if str(v).strip()}
     per_image = settings.get("perImageMessage") or {}
     settings.setdefault("captionPerImage", bool(per_image.get("supported")))
+    # Admin-set fallback for "My Music" when the user's own link is missing or
+    # unreachable. Empty by default (falls through to the bundled default track).
+    settings.setdefault("customMusicFallbackUrl", "")
     return settings
 
 
@@ -1046,6 +1073,54 @@ def resolve_render_copy(template: str, category: str, fields: Dict[str, Any]) ->
     }
 
 
+def _is_public_https_url(url: str) -> bool:
+    """Reject anything that isn't a plain https:// link to a public host —
+    the first line of defense before the server fetches a user-supplied URL."""
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or not parsed.hostname:
+            return False
+        for info in socket.getaddrinfo(parsed.hostname, None):
+            ip = ipaddress.ip_address(info[4][0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+                return False
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+async def _check_music_url_reachable(url: str) -> bool:
+    """SSRF-safe reachability check for a user-supplied music URL: public
+    https host, then a quick HEAD (falling back to a small ranged GET, since
+    some hosts don't support HEAD) with a short timeout so a slow/dead link
+    can't stall the render request."""
+    if not _is_public_https_url(url):
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(5, connect=3), follow_redirects=True) as hc:
+            resp = await hc.head(url)
+            if resp.status_code >= 400:
+                resp = await hc.get(url, headers={"Range": "bytes=0-2048"})
+            return resp.status_code < 400
+    except Exception:  # noqa: BLE001
+        return False
+
+
+async def resolve_music_url(template_settings: Dict[str, Any], music_id: Optional[str], custom_url: Optional[str]) -> Dict[str, Any]:
+    """Resolve the "My Music" pseudo-track to a playable URL, or say it isn't
+    in play at all. Chain: the user's own link (if given and reachable) ->
+    the template's admin-set fallback link (if set and reachable) -> signal
+    the caller to fall through to the template's normal bundled default."""
+    if music_id != MY_MUSIC_TRACK_ID:
+        return {"active": False}
+    if custom_url and await _check_music_url_reachable(custom_url):
+        return {"active": True, "url": custom_url, "source": "custom"}
+    fallback_url = (template_settings.get("customMusicFallbackUrl") or "").strip()
+    if fallback_url and await _check_music_url_reachable(fallback_url):
+        return {"active": True, "url": fallback_url, "source": "template_fallback"}
+    return {"active": True, "url": None, "source": "bundled_default"}
+
+
 async def verify_recaptcha_token(token: Optional[str], remote_ip: Optional[str] = None):
     if not RECAPTCHA_SECRET_KEY:
         return None
@@ -1134,7 +1209,10 @@ async def list_music():
             "mood": t["mood"],
             "duration": t["duration"],
             "credit": t["credit"],
-            "url": f"/api/music/{t['id']}",
+            # The "My Music" pseudo-track has no bundled file — clients show a
+            # URL input instead of a play-preview button when this is set.
+            "isCustomUrl": bool(t.get("isCustomUrl")),
+            "url": None if t.get("isCustomUrl") else f"/api/music/{t['id']}",
             "categories": t.get("categories", []),
         }
         for t in tracks
@@ -1146,6 +1224,8 @@ async def get_music(music_id: str):
     track = await find_music_track(music_id)
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
+    if track.get("isCustomUrl"):
+        raise HTTPException(status_code=400, detail="This track has no bundled file")
     path = MUSIC_DIR / track["filename"]
     if not path.exists():
         raise HTTPException(status_code=404, detail="Track file missing")
@@ -1379,6 +1459,13 @@ async def admin_update_template_settings(
             raise HTTPException(status_code=400, detail=f"imagesPerDuration[{d}] must be between 1 and maxImages ({max_images})")
         per_duration[str(d)] = n
     settings["imagesPerDuration"] = per_duration
+    # Fallback URL for "My Music": optional, but if set it must at least look
+    # like a fetchable public link — the real reachability check happens at
+    # render time (a link that's fine today might go dead later).
+    fallback_url = str(settings.get("customMusicFallbackUrl") or "").strip()
+    if fallback_url and not fallback_url.startswith("https://"):
+        raise HTTPException(status_code=400, detail="customMusicFallbackUrl must start with https://")
+    settings["customMusicFallbackUrl"] = fallback_url
     await db.templates.update_one(
         {"_id": template_id},
         {"$set": {"settings": settings, "updated_at": datetime.now(timezone.utc).isoformat()}},
@@ -1649,8 +1736,18 @@ async def create_render(
             effective_music_id = "tere-sang"
         payload["musicId"] = effective_music_id
 
-    # Resolve bundled music id -> served url (takes precedence over musicUrl).
-    if effective_music_id:
+    music_source = "bundled"
+    if effective_music_id == MY_MUSIC_TRACK_ID:
+        # User-supplied link -> template's admin-set fallback -> bundled default.
+        custom_resolution = await resolve_music_url(template_settings, effective_music_id, req.customMusicUrl)
+        if custom_resolution["url"]:
+            payload["musicUrl"] = custom_resolution["url"]
+            music_source = custom_resolution["source"]
+        else:
+            music_source = "bundled_default"
+            effective_music_id = (template_doc or {}).get("defaultMusicId") or "tere-sang"
+
+    if music_source != "custom" and music_source != "template_fallback":
         track = await find_music_track(effective_music_id)
         if not track:
             raise HTTPException(status_code=400, detail=f"Unknown musicId: {effective_music_id}")
@@ -1660,6 +1757,7 @@ async def create_render(
         f"{INTERNAL_BASE_URL}{p}" if p.startswith('/api/uploads/') else p
         for p in payload['photos']
     ]
+    payload["musicId"] = effective_music_id
 
     render_id = uuid.uuid4().hex
     doc = {
@@ -1676,6 +1774,7 @@ async def create_render(
         "durationInSeconds": req.durationInSeconds,
         "tags": payload["tags"],
         "musicId": effective_music_id,
+        "musicSource": music_source,
         "status": "queued",
         "progress": 0.0,
         "created_at": datetime.now(timezone.utc).isoformat(),
