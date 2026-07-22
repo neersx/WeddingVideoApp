@@ -819,6 +819,7 @@ function CreateVideoPage() {
   const category = selectedTemplate?.category || "Wedding";
   const isLegacyCategory = LEGACY_CATEGORIES.includes(category);
   const activeCategoryDef = categoryDefs.find((c) => c.name === category) || null;
+  const categoryTypes = useMemo(() => Object.fromEntries(categoryDefs.map((c) => [c.name, c.type || "personal"])), [categoryDefs]);
 
   // Server-resolved form manifest for the selected template — category fields
   // already capability-gated and merged with template settings.
@@ -1296,7 +1297,7 @@ function CreateVideoPage() {
               </div>
 
               {currentStepKey === "category" && <>
-                <TemplatePicker value={template} onChange={setTemplate} templates={templates} />
+                <TemplatePicker value={template} onChange={setTemplate} templates={templates} categoryTypes={categoryTypes} />
                 {templateHasPaidDurations && (
                   <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                     Reels in this template are paid for some durations — longer videos may require credits.
@@ -1909,11 +1910,11 @@ function AdminCategoryFormsPage() {
 
   const startNew = () => {
     setJsonMode(false);
-    setDraft({ isNew: true, id: null, name: "", icon: "✨", description: "", sortOrder: 100, isActive: true, sharedSteps: ["photos", "music"], fields: [] });
+    setDraft({ isNew: true, id: null, name: "", type: "personal", icon: "✨", description: "", sortOrder: 100, isActive: true, sharedSteps: ["photos", "music"], fields: [] });
   };
   const startEdit = (cat) => {
     setJsonMode(false);
-    setDraft({ isNew: false, id: cat.id, name: cat.name, icon: cat.icon || "✨", description: cat.description || "", sortOrder: cat.sortOrder ?? 100, isActive: cat.isActive !== false, sharedSteps: cat.sharedSteps || ["photos", "music"], fields: (cat.form?.fields || []).map((f) => ({ ...f })) });
+    setDraft({ isNew: false, id: cat.id, name: cat.name, type: cat.type || "personal", icon: cat.icon || "✨", description: cat.description || "", sortOrder: cat.sortOrder ?? 100, isActive: cat.isActive !== false, sharedSteps: cat.sharedSteps || ["photos", "music"], fields: (cat.form?.fields || []).map((f) => ({ ...f })) });
   };
   const cancel = () => { setDraft(null); setJsonMode(false); };
 
@@ -1938,7 +1939,7 @@ function AdminCategoryFormsPage() {
     } else {
       form = { fields: draft.fields };
     }
-    const payload = { name: draft.name.trim(), description: draft.description, icon: draft.icon || "✨", sharedSteps: draft.sharedSteps, isActive: draft.isActive, sortOrder: Number(draft.sortOrder) || 100, form };
+    const payload = { name: draft.name.trim(), type: draft.type || "personal", description: draft.description, icon: draft.icon || "✨", sharedSteps: draft.sharedSteps, isActive: draft.isActive, sortOrder: Number(draft.sortOrder) || 100, form };
     setSaving(true);
     try {
       if (draft.isNew) await axios.post(`${API}/admin/categories`, payload, authHeader);
@@ -1965,6 +1966,7 @@ function AdminCategoryFormsPage() {
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="text-sm"><span className="mb-1 block font-semibold text-[#32113A]">Name</span><input className={inputClass} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Heartfelt" /></label>
           <label className="text-sm"><span className="mb-1 block font-semibold text-[#32113A]">Icon (emoji)</span><input className={inputClass} value={draft.icon} onChange={(e) => setDraft({ ...draft, icon: e.target.value })} placeholder="❤️" /></label>
+          <label className="text-sm"><span className="mb-1 block font-semibold text-[#32113A]">Type</span><select className={inputClass} value={draft.type || "personal"} onChange={(e) => setDraft({ ...draft, type: e.target.value })}><option value="invitation">Invitation</option><option value="personal">Personal</option></select></label>
           <label className="text-sm sm:col-span-2"><span className="mb-1 block font-semibold text-[#32113A]">Description</span><input className={inputClass} value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} /></label>
           <label className="text-sm"><span className="mb-1 block font-semibold text-[#32113A]">Sort order</span><input type="number" className={inputClass} value={draft.sortOrder} onChange={(e) => setDraft({ ...draft, sortOrder: e.target.value })} /></label>
           <label className="flex items-center gap-2 pt-6 text-sm font-semibold text-[#32113A]"><input type="checkbox" checked={draft.isActive} onChange={(e) => setDraft({ ...draft, isActive: e.target.checked })} /> Active</label>
@@ -2016,7 +2018,7 @@ function AdminCategoryFormsPage() {
           <div key={cat.id} className="rounded-3xl border border-[#ECD5E2] bg-white p-6">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="font-heading text-2xl font-extrabold text-[#32113A]">{cat.icon} {cat.name} {cat.isActive === false && <span className="ml-2 rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-semibold text-neutral-500">inactive</span>}</div>
+                <div className="font-heading text-2xl font-extrabold text-[#32113A]">{cat.icon} {cat.name} <span className="ml-2 rounded-full bg-[#FFF3F8] px-2 py-0.5 align-middle text-xs font-semibold capitalize text-[#8D1B63]">{cat.type || "personal"}</span> {cat.isActive === false && <span className="ml-2 rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-semibold text-neutral-500">inactive</span>}</div>
                 <div className="mt-1 text-sm text-neutral-500">{cat.description || "No description"}</div>
               </div>
               <div className="flex gap-2">

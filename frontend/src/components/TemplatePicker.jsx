@@ -154,7 +154,9 @@ export const DEFAULT_TEMPLATES = [
   },
 ];
 
-export const TemplatePicker = ({ value, onChange, templates = DEFAULT_TEMPLATES }) => {
+const CATEGORY_TYPE_LABELS = { invitation: "Invitation", personal: "Personal" };
+
+export const TemplatePicker = ({ value, onChange, templates = DEFAULT_TEMPLATES, categoryTypes = {} }) => {
   const availableTemplates = useMemo(() => templates
     .filter((t) => t.isActive !== false)
     .sort((a, b) =>
@@ -187,6 +189,15 @@ export const TemplatePicker = ({ value, onChange, templates = DEFAULT_TEMPLATES 
 
   const categoryTemplates = availableTemplates.filter((t) => (t.category || "Wedding") === activeCategory);
 
+  const categoriesByType = useMemo(() => {
+    const groups = { invitation: [], personal: [] };
+    categories.forEach((category) => {
+      const type = categoryTypes[category] === "invitation" ? "invitation" : "personal";
+      groups[type].push(category);
+    });
+    return groups;
+  }, [categories, categoryTypes]);
+
   const selectCategory = (category) => {
     setActiveCategory(category);
     const firstTemplate = availableTemplates.find((t) => (t.category || "Wedding") === category);
@@ -204,26 +215,33 @@ export const TemplatePicker = ({ value, onChange, templates = DEFAULT_TEMPLATES 
         )}
       </div>
       {categories.length > 1 && (
-        <div className="mb-4">
+        <div className="mb-4 space-y-3">
           <p className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-neutral-500">What are you creating?</p>
-          <div className="flex flex-wrap gap-2" role="tablist" aria-label="Video categories">
-          {categories.map((category) => (
-            <button
-              key={category}
-              type="button"
-              role="tab"
-              aria-selected={activeCategory === category}
-              onClick={() => selectCategory(category)}
-              className={`rounded-full border px-4 py-2 text-sm font-bold transition-all ${
-                activeCategory === category
-                  ? "border-[#C80A76] bg-[#C80A76] text-white shadow-sm"
-                  : "border-[#E8C9DB] bg-[#FFF8FB] text-[#8D1B63] hover:border-[#C80A76] hover:bg-[#FFF0F7]"
-              }`}
-            >
-              {category}
-            </button>
+          {["invitation", "personal"].map((type) => (
+            categoriesByType[type].length > 0 && (
+              <div key={type}>
+                <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-400">{CATEGORY_TYPE_LABELS[type]}</p>
+                <div className="flex flex-wrap gap-2" role="tablist" aria-label={`${CATEGORY_TYPE_LABELS[type]} categories`}>
+                {categoriesByType[type].map((category) => (
+                  <button
+                    key={category}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeCategory === category}
+                    onClick={() => selectCategory(category)}
+                    className={`rounded-full border px-4 py-2 text-sm font-bold transition-all ${
+                      activeCategory === category
+                        ? "border-[#C80A76] bg-[#C80A76] text-white shadow-sm"
+                        : "border-[#E8C9DB] bg-[#FFF8FB] text-[#8D1B63] hover:border-[#C80A76] hover:bg-[#FFF0F7]"
+                    }`}
+                  >
+                    {category}
+                  </button>
+                ))}
+                </div>
+              </div>
+            )
           ))}
-          </div>
         </div>
       )}
       <p className="mb-2 text-xs font-semibold text-neutral-500">

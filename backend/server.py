@@ -540,11 +540,15 @@ def _format_month_year(value) -> str:
 # video is about); capability-gated fields (marked with "capability") appear only
 # when the chosen template supports that capability. Categories without a doc
 # here (Wedding/Engagement/Birthday) fall back to the client's legacy form.
+CATEGORY_TYPES = ["invitation", "personal"]
+DEFAULT_CATEGORY_TYPE = "personal"
+
 DEFAULT_CATEGORY_DOCUMENTS = [
     {
         "_id": "wedding",
         "id": "wedding",
         "name": "Wedding",
+        "type": "invitation",
         "description": "Classic wedding invitation with couple names, venue and an event schedule.",
         "icon": "💍",
         "sharedSteps": ["photos", "music"],
@@ -576,6 +580,7 @@ DEFAULT_CATEGORY_DOCUMENTS = [
         "_id": "engagement",
         "id": "engagement",
         "name": "Engagement",
+        "type": "invitation",
         "description": "Engagement announcement with couple names, date and venue.",
         "icon": "💐",
         "sharedSteps": ["photos", "music"],
@@ -597,6 +602,7 @@ DEFAULT_CATEGORY_DOCUMENTS = [
         "_id": "birthday",
         "id": "birthday",
         "name": "Birthday",
+        "type": "invitation",
         "description": "Birthday invitation with the celebrant's name, date and venue.",
         "icon": "🎂",
         "sharedSteps": ["photos", "music"],
@@ -618,6 +624,7 @@ DEFAULT_CATEGORY_DOCUMENTS = [
         "_id": "heartfelt",
         "id": "heartfelt",
         "name": "Heartfelt",
+        "type": "personal",
         "description": "Personal message reels for the people you love — birthdays, Mother's Day, thank-yous, or just because.",
         "icon": "❤️",
         "sharedSteps": ["photos", "music"],
@@ -648,6 +655,7 @@ DEFAULT_CATEGORY_DOCUMENTS = [
         "_id": "timeline",
         "id": "timeline",
         "name": "Timeline",
+        "type": "personal",
         "description": "Tell a story chapter by chapter — a chronological journey of moments, each with its own photo, date and message.",
         "icon": "🕰️",
         # No shared photos step: every image lives inside the form (opening,
@@ -941,6 +949,7 @@ class TemplateSettingsRequest(BaseModel):
 
 class CategoryFormRequest(BaseModel):
     name: str
+    type: str = DEFAULT_CATEGORY_TYPE
     description: str = ""
     icon: str = "✨"
     form: Dict[str, Any] = Field(default_factory=dict)
@@ -1223,11 +1232,23 @@ async def migrate_render_visibility_defaults():
         )
 
 
+async def migrate_category_types():
+    """Backfill `type` onto categories seeded before the field existed, using
+    the same mapping as DEFAULT_CATEGORY_DOCUMENTS; anything not in that list
+    (custom admin-created categories) falls back to DEFAULT_CATEGORY_TYPE."""
+    types_by_id = {c["_id"]: c["type"] for c in DEFAULT_CATEGORY_DOCUMENTS}
+    docs = await db.categories.find({"type": {"$exists": False}}).to_list(200)
+    for doc in docs:
+        category_type = types_by_id.get(doc["_id"], DEFAULT_CATEGORY_TYPE)
+        await db.categories.update_one({"_id": doc["_id"]}, {"$set": {"type": category_type}})
+
+
 def _serialize_category(document):
     form = document.get("form") or {}
     return {
         "id": document.get("id") or document.get("_id"),
         "name": document.get("name", ""),
+        "type": document.get("type") or DEFAULT_CATEGORY_TYPE,
         "description": document.get("description", ""),
         "icon": document.get("icon", "✨"),
         "sharedSteps": document.get("sharedSteps", ["photos", "music"]),
@@ -1822,11 +1843,13 @@ async def admin_create_category(req: CategoryFormRequest, _: GoogleUser = Depend
         raise HTTPException(status_code=400, detail="Category name must contain letters or numbers")
     if await db.categories.find_one({"_id": category_id}):
         raise HTTPException(status_code=409, detail="A category with this name already exists")
+    category_type = req.type if req.type in CATEGORY_TYPES else DEFAULT_CATEGORY_TYPE
     now = datetime.now(timezone.utc).isoformat()
     doc = {
         "_id": category_id,
         "id": category_id,
         "name": name,
+        "type": category_type,
         "description": req.description.strip(),
         "icon": req.icon or "✨",
         "sharedSteps": req.sharedSteps or ["photos", "music"],
@@ -1847,6 +1870,7 @@ async def admin_update_category(category_id: str, req: CategoryFormRequest, _: G
         raise HTTPException(status_code=404, detail="Category not found")
     updates = {
         "name": req.name.strip() or existing.get("name"),
+        "type": req.type if req.type in CATEGORY_TYPES else DEFAULT_CATEGORY_TYPE,
         "description": req.description.strip(),
         "icon": req.icon or "✨",
         "sharedSteps": req.sharedSteps or ["photos", "music"],
@@ -2516,6 +2540,7 @@ async def initialize_storage():
         await migrate_heartfelt_rename()
         await seed_default_templates()
         await seed_default_categories()
+        await migrate_category_types()
         await migrate_message_maxlength_120()
         await migrate_render_visibility_defaults()
         await catalog.seed_default_packs(db)
@@ -2546,6 +2571,7 @@ async def initialize_storage():
         await migrate_heartfelt_rename()
         await seed_default_templates()
         await seed_default_categories()
+        await migrate_category_types()
         await migrate_message_maxlength_120()
         await migrate_render_visibility_defaults()
         await catalog.seed_default_packs(db)
