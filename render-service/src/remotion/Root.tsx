@@ -15,6 +15,7 @@ import {GoldenHour} from '../templates/GoldenHour';
 import {FromMyHeart} from '../templates/FromMyHeart';
 import {ForeverSpecial} from '../templates/ForeverSpecial';
 import {Journey} from '../templates/Journey';
+import {Cascade} from '../templates/Cascade';
 import {BrandOutro} from '../templates/BrandOutro';
 import {defaultProps, FPS, WeddingProps} from '../templates/types';
 
@@ -38,6 +39,7 @@ const compositions: {id: string; component: React.FC<WeddingProps>}[] = [
   {id: 'FromMyHeart', component: FromMyHeart},
   {id: 'ForeverSpecial', component: ForeverSpecial},
   {id: 'Journey', component: Journey},
+  {id: 'Cascade', component: Cascade},
 ];
 
 export const Root: React.FC = () => (

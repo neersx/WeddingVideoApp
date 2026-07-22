@@ -425,6 +425,38 @@ DEFAULT_TEMPLATE_DOCUMENTS = [
         "isActive": True,
         "sortOrder": 10,
     },
+    {
+        "_id": "cascade",
+        "id": "cascade",
+        "name": "Cascade",
+        "desc": "The same chronological timeline as Journey, with a vertical slide — each chapter glides down from the top over the last.",
+        "category": "Timeline",
+        "style": "Vertical Slide Timeline",
+        "swatch": ["#1A1526", "#6D3B8F", "#C58BD8", "#F3E6C4"],
+        "bg": "#1A1526",
+        "text": "#F5EEFF",
+        "font": "'Cormorant Garamond', serif",
+        # Identical rules/contract to Journey — only the on-screen transition
+        # differs (vertical slide vs. cross-fade).
+        "settings": {
+            "durationMode": "perScreen",
+            "secondsPerScreen": 2.5,
+            "durations": [],
+            "timeline": {"minItems": 3, "maxItems": 12, "fixedScreens": 3},
+            "eventDate": {"supported": True},
+            "introBackgroundImage": {"supported": True},
+            "introTitle": {"supported": True, "maxLength": 70},
+            "introMessage": {"supported": True, "maxLength": 200},
+            "timelineItems": {"supported": True},
+            "finalBackgroundImage": {"supported": True},
+            "finalTitle": {"supported": True, "maxLength": 70},
+            "finalMessage": {"supported": True, "maxLength": 200},
+            "relationship": {"supported": True},
+            "pricing": {"default": 0, "byDuration": {}},
+        },
+        "isActive": True,
+        "sortOrder": 20,
+    },
 ]
 
 # Relationship catalog for relationship-driven templates ("From My Heart").

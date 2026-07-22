@@ -57,6 +57,7 @@ const buildInputProps = (body: any) => {
     'from-my-heart': 'FromMyHeart',
     'forever-special': 'ForeverSpecial',
     journey: 'Journey',
+    cascade: 'Cascade',
   };
   const compositionId = compMap[template] || 'Marigold';
   const inputProps = {
