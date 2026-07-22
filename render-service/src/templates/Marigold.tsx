@@ -83,6 +83,26 @@ const SectionFade: React.FC<{duration: number; children: React.ReactNode}> = ({d
   return <AbsoluteFill style={{opacity}}>{children}</AbsoluteFill>;
 };
 
+// Sits behind the intro slide's text: the couple's first photo, full-bleed
+// with no padding, plus a silver gradient scrim boxed to the same ~55% of
+// the frame the text occupies — dark enough at the edges and lighter through
+// the middle to keep the couple's names legible over any photo.
+const IntroBackdrop: React.FC<{src: string}> = ({src}) => (
+  <AbsoluteFill>
+    <Img src={src} pauseWhenLoading style={{width: '100%', height: '100%', objectFit: 'cover'}} />
+    <AbsoluteFill style={{justifyContent: 'center', alignItems: 'center'}}>
+      <div
+        style={{
+          width: '75%',
+          height: '55%',
+          background:
+            'linear-gradient(180deg, rgba(192,192,192,0.8) 0%, rgba(192,192,192,0.45) 50%, rgba(192,192,192,0.8) 100%)',
+        }}
+      />
+    </AbsoluteFill>
+  </AbsoluteFill>
+);
+
 const Center: React.FC<{children: React.ReactNode}> = ({children}) => (
   <AbsoluteFill
     style={{justifyContent: 'center', alignItems: 'center', padding: 90, textAlign: 'center'}}
@@ -120,6 +140,7 @@ export const Marigold: React.FC<WeddingProps> = (props) => {
 
       <Sequence durationInFrames={plan.intro}>
         <SectionFade duration={plan.intro}>
+          {photos.length > 0 ? <IntroBackdrop src={photos[0]} /> : null}
           <Center>
             <FadeUp>
               <div style={{fontSize: 34, letterSpacing: 12, textTransform: 'uppercase', color: C.rust}}>
