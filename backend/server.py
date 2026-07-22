@@ -406,7 +406,7 @@ DEFAULT_TEMPLATE_DOCUMENTS = [
             # Duration is derived from screen count, not user-picked: each screen
             # (opening + every moment + closing + branding) runs secondsPerScreen.
             "durationMode": "perScreen",
-            "secondsPerScreen": 2.5,
+            "secondsPerScreen": 3.5,
             "durations": [],
             "timeline": {"minItems": 3, "maxItems": 12, "fixedScreens": 3},
             # Capabilities enabled for THIS template — the Timeline category's
@@ -437,10 +437,11 @@ DEFAULT_TEMPLATE_DOCUMENTS = [
         "text": "#F5EEFF",
         "font": "'Cormorant Garamond', serif",
         # Identical rules/contract to Journey — only the on-screen transition
-        # differs (vertical slide vs. cross-fade).
+        # differs (vertical slide vs. cross-fade). Slides hold a second longer
+        # than Journey (3.5s vs 2.5s) so the vertical motion reads less rushed.
         "settings": {
             "durationMode": "perScreen",
-            "secondsPerScreen": 2.5,
+            "secondsPerScreen": 3.5,
             "durations": [],
             "timeline": {"minItems": 3, "maxItems": 12, "fixedScreens": 3},
             "eventDate": {"supported": True},
@@ -623,7 +624,7 @@ DEFAULT_CATEGORY_DOCUMENTS = [
         "form": {
             "fields": [
                 {"key": "celebrantName", "type": "text", "label": "Who is this for?",
-                 "placeholder": "Nisha", "required": True},
+                 "placeholder": "Richa", "required": True},
                 {"key": "senderName", "type": "text", "label": "Your name",
                  "placeholder": "Neeraj", "required": False},
                 {"key": "relationshipType", "type": "select", "label": "Your relationship",
@@ -655,7 +656,7 @@ DEFAULT_CATEGORY_DOCUMENTS = [
         "form": {
             "fields": [
                 {"key": "celebrantName", "type": "text", "label": "Who is this timeline for?",
-                 "placeholder": "Nisha", "required": True, "maxLength": 50},
+                 "placeholder": "Richa", "required": True, "maxLength": 50},
                 {"key": "senderName", "type": "text", "label": "Your name",
                  "placeholder": "Neeraj", "required": False, "maxLength": 50},
                 # Optional: journeys like travel/graduation aren't relationship-driven.
