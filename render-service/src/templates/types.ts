@@ -2,6 +2,20 @@ export const FPS = 30;
 
 export type ScheduleItem = {name: string; time: string};
 
+export type TimelineScreen = {
+  backgroundImage?: string;
+  title?: string;
+  message?: string;
+};
+
+export type TimelineMoment = TimelineScreen & {monthYear?: string};
+
+export type TimelineData = {
+  opening: TimelineScreen;
+  items: TimelineMoment[];
+  closing: TimelineScreen;
+};
+
 export type ResolvedCopy = {
   celebrantName?: string;
   senderName?: string;
@@ -14,6 +28,7 @@ export type ResolvedCopy = {
   introMessage?: string;
   finalMessage?: string;
   photoMessages?: string[];
+  timeline?: TimelineData;
 };
 
 export type WeddingProps = {

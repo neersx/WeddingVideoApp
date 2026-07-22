@@ -14,6 +14,7 @@ import {BirthdayEra} from '../templates/BirthdayEra';
 import {GoldenHour} from '../templates/GoldenHour';
 import {FromMyHeart} from '../templates/FromMyHeart';
 import {ForeverSpecial} from '../templates/ForeverSpecial';
+import {Journey} from '../templates/Journey';
 import {BrandOutro} from '../templates/BrandOutro';
 import {defaultProps, FPS, WeddingProps} from '../templates/types';
 
@@ -36,6 +37,7 @@ const compositions: {id: string; component: React.FC<WeddingProps>}[] = [
   {id: 'GoldenHour', component: GoldenHour},
   {id: 'FromMyHeart', component: FromMyHeart},
   {id: 'ForeverSpecial', component: ForeverSpecial},
+  {id: 'Journey', component: Journey},
 ];
 
 export const Root: React.FC = () => (

@@ -391,6 +391,40 @@ DEFAULT_TEMPLATE_DOCUMENTS = [
         "isActive": True,
         "sortOrder": 6,
     },
+    {
+        "_id": "journey",
+        "id": "journey",
+        "name": "Journey",
+        "desc": "A chronological photo-timeline: a full-bleed opening, then each moment as its own captioned chapter with date, closing on a look ahead.",
+        "category": "Timeline",
+        "style": "Cinematic Timeline",
+        "swatch": ["#1A1526", "#6D3B8F", "#C58BD8", "#F3E6C4"],
+        "bg": "#1A1526",
+        "text": "#F5EEFF",
+        "font": "'Cormorant Garamond', serif",
+        "settings": {
+            # Duration is derived from screen count, not user-picked: each screen
+            # (opening + every moment + closing + branding) runs secondsPerScreen.
+            "durationMode": "perScreen",
+            "secondsPerScreen": 2.5,
+            "durations": [],
+            "timeline": {"minItems": 3, "maxItems": 12, "fixedScreens": 3},
+            # Capabilities enabled for THIS template — the Timeline category's
+            # capability-gated fields appear only because these are supported here.
+            "eventDate": {"supported": True},
+            "introBackgroundImage": {"supported": True},
+            "introTitle": {"supported": True, "maxLength": 70},
+            "introMessage": {"supported": True, "maxLength": 200},
+            "timelineItems": {"supported": True},
+            "finalBackgroundImage": {"supported": True},
+            "finalTitle": {"supported": True, "maxLength": 70},
+            "finalMessage": {"supported": True, "maxLength": 200},
+            "relationship": {"supported": True},
+            "pricing": {"default": 0, "byDuration": {}},
+        },
+        "isActive": True,
+        "sortOrder": 10,
+    },
 ]
 
 # Relationship catalog for relationship-driven templates ("From My Heart").
@@ -428,6 +462,45 @@ OCCASIONS = {
 
 def _occasion_options():
     return [{"value": key, "label": label} for key, label in OCCASIONS.items()]
+
+
+# Occasions for the "Timeline" category — journeys aren't all relationship-driven
+# (travel, graduation, childhood), so this list is broader and the relationship
+# field is optional for these. Labels double as {{occasion}} copy tokens.
+TIMELINE_OCCASIONS = {
+    "birthday": "Birthday",
+    "anniversary": "Anniversary",
+    "love-story": "Love Story",
+    "friendship": "Friendship",
+    "childhood-journey": "Childhood Journey",
+    "family-memories": "Family Memories",
+    "travel-memories": "Travel Memories",
+    "graduation": "Graduation",
+    "custom": "Custom",
+}
+
+
+def _timeline_occasion_options():
+    return [{"value": key, "label": label} for key, label in TIMELINE_OCCASIONS.items()]
+
+
+_MONTH_NAMES = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+]
+
+
+def _format_month_year(value) -> str:
+    """Turn a stored 'YYYY-MM' month value into a display label ('June 2015').
+    Falls back to the raw value if it isn't in that shape."""
+    text = str(value or "").strip()
+    match = re.fullmatch(r"(\d{4})-(\d{2})", text)
+    if not match:
+        return text
+    year, month = int(match.group(1)), int(match.group(2))
+    if 1 <= month <= 12:
+        return f"{_MONTH_NAMES[month - 1]} {year}"
+    return text
 
 
 # First-class category documents. A category owns the IDENTITY fields (who the
@@ -537,6 +610,65 @@ DEFAULT_CATEGORY_DOCUMENTS = [
         },
         "isActive": True,
         "sortOrder": 5,
+    },
+    {
+        "_id": "timeline",
+        "id": "timeline",
+        "name": "Timeline",
+        "description": "Tell a story chapter by chapter — a chronological journey of moments, each with its own photo, date and message.",
+        "icon": "🕰️",
+        # No shared photos step: every image lives inside the form (opening,
+        # per-moment, closing). Music is still a shared step.
+        "sharedSteps": ["music"],
+        "form": {
+            "fields": [
+                {"key": "celebrantName", "type": "text", "label": "Who is this timeline for?",
+                 "placeholder": "Nisha", "required": True, "maxLength": 50},
+                {"key": "senderName", "type": "text", "label": "Your name",
+                 "placeholder": "Neeraj", "required": False, "maxLength": 50},
+                # Optional: journeys like travel/graduation aren't relationship-driven.
+                {"key": "relationshipType", "type": "select", "label": "Your relationship (optional)",
+                 "optionsRef": "relationships", "required": False},
+                {"key": "occasion", "type": "select", "label": "Timeline occasion",
+                 "options": _timeline_occasion_options(), "required": True},
+                {"key": "customOccasion", "type": "text", "label": "Custom occasion name",
+                 "placeholder": "Our First Home", "required": False, "maxLength": 40,
+                 "description": "Only used when the occasion above is set to Custom."},
+                {"key": "eventDate", "type": "date", "label": "Celebration date (optional)",
+                 "required": False, "capability": "eventDate"},
+                {"key": "introBackgroundImage", "type": "image", "label": "Opening background image",
+                 "required": True, "capability": "introBackgroundImage"},
+                {"key": "introTitle", "type": "text", "label": "Opening title",
+                 "placeholder": "A Journey Through Beautiful Memories",
+                 "required": True, "maxLength": 70, "capability": "introTitle"},
+                {"key": "introMessage", "type": "textarea", "label": "Opening message",
+                 "placeholder": "Every picture holds a memory, and every memory tells a part of your beautiful story.",
+                 "required": False, "maxLength": 200, "capability": "introMessage"},
+                {"key": "timelineItems", "type": "repeater", "label": "Timeline moments",
+                 "description": "Add 3–12 moments — they're arranged in date order automatically.",
+                 "required": True, "minItems": 3, "maxItems": 12,
+                 "addButtonLabel": "Add timeline moment", "capability": "timelineItems",
+                 "itemFields": [
+                     {"key": "backgroundImage", "type": "image", "label": "Background image", "required": True},
+                     {"key": "title", "type": "text", "label": "Moment title",
+                      "placeholder": "The Day We First Met", "required": True, "maxLength": 65},
+                     {"key": "monthYear", "type": "month", "label": "Month and year", "required": True},
+                     {"key": "message", "type": "textarea", "label": "Moment message",
+                      "placeholder": "A simple hello became the beginning of our most beautiful story.",
+                      "required": True, "maxLength": 220},
+                 ]},
+                {"key": "finalBackgroundImage", "type": "image", "label": "Closing background image",
+                 "required": True, "capability": "finalBackgroundImage"},
+                {"key": "finalTitle", "type": "text", "label": "Closing title",
+                 "placeholder": "And the Story Continues…",
+                 "required": True, "maxLength": 70, "capability": "finalTitle"},
+                {"key": "finalMessage", "type": "textarea", "label": "Closing message",
+                 "placeholder": "Here's to every memory we've created and all the beautiful moments still waiting for us.",
+                 "required": True, "maxLength": 200, "capability": "finalMessage"},
+            ]
+        },
+        "isActive": True,
+        "sortOrder": 40,
     },
 ]
 
@@ -1101,6 +1233,10 @@ def resolve_template_form(template_doc, category_doc):
 
     per_image = settings.get("perImageMessage") or {}
     shared_steps = category_doc.get("sharedSteps") or ["photos", "music"]
+    # Duration is either user-picked (default) or derived from screen count
+    # ("perScreen", used by the Timeline/Journey template) — the client reads
+    # durationMode to decide whether to show a length picker.
+    duration_mode = settings.get("durationMode") or "pick"
     return {
         "templateId": template_doc.get("id") or template_doc.get("_id"),
         "category": category_doc.get("name") or template_doc.get("category", ""),
@@ -1110,11 +1246,15 @@ def resolve_template_form(template_doc, category_doc):
             "details": {
                 "fields": fields_out,
                 "durations": [int(d) for d in (settings.get("durations") or DEFAULT_TEMPLATE_DURATIONS)],
+                "durationMode": duration_mode,
+                "secondsPerScreen": float(settings.get("secondsPerScreen") or 2.5),
+                "timeline": settings.get("timeline") or {},
                 # Credit cost per duration (billing/pricing.py) so the client can
                 # show a price badge per option without a separate round-trip.
                 "pricing": settings.get("pricing") or {"default": 0, "byDuration": {}},
             },
             "photos": {
+                "enabled": "photos" in shared_steps,
                 "minImages": int(settings.get("minImages") or 1),
                 "maxImages": int(settings.get("maxImages") or 6),
                 "imagesPerDuration": settings.get("imagesPerDuration") or {},
@@ -1132,7 +1272,13 @@ def resolve_render_copy(template: str, category: str, fields: Dict[str, Any]) ->
     without reimplementing token logic."""
     fields = fields or {}
     rel = RELATIONSHIPS.get(str(fields.get("relationshipType") or ""), {})
-    occasion_label = OCCASIONS.get(str(fields.get("occasion") or ""), "")
+    occasion_key = str(fields.get("occasion") or "")
+    # Timeline occasions include a "Custom" free-text choice; everything else
+    # resolves via one of the occasion catalogs.
+    if occasion_key == "custom":
+        occasion_label = str(fields.get("customOccasion") or "").strip()
+    else:
+        occasion_label = OCCASIONS.get(occasion_key) or TIMELINE_OCCASIONS.get(occasion_key, "")
     ctx = {
         "celebrantName": str(fields.get("celebrantName") or "").strip(),
         "senderName": str(fields.get("senderName") or "").strip(),
@@ -1150,7 +1296,7 @@ def resolve_render_copy(template: str, category: str, fields: Dict[str, Any]) ->
         return text
 
     photo_messages = [fill(m) for m in (fields.get("photoMessages") or []) if isinstance(m, str)]
-    return {
+    result = {
         **ctx,
         "relationshipLabel": rel.get("label", ""),
         "occasionLabel": occasion_label,
@@ -1158,6 +1304,41 @@ def resolve_render_copy(template: str, category: str, fields: Dict[str, Any]) ->
         "finalMessage": fill(str(fields.get("finalMessage") or "")),
         "photoMessages": photo_messages,
     }
+
+    # Timeline: build the ready-to-render, chronologically-sorted payload. The
+    # opening always renders first and the closing last; only the moments in
+    # between are date-sorted (by the stored YYYY-MM value). Image URLs are
+    # already absolute here (rewritten in create_render before this runs).
+    if category == "Timeline":
+        moments = []
+        for item in (fields.get("timelineItems") or []):
+            if not isinstance(item, dict):
+                continue
+            month_year = str(item.get("monthYear") or "")
+            moments.append({
+                "backgroundImage": str(item.get("backgroundImage") or ""),
+                "title": fill(str(item.get("title") or "")),
+                "monthYear": _format_month_year(month_year),
+                "message": fill(str(item.get("message") or "")),
+                "_sort": month_year,
+            })
+        moments.sort(key=lambda m: m["_sort"])
+        for m in moments:
+            m.pop("_sort", None)
+        result["timeline"] = {
+            "opening": {
+                "backgroundImage": str(fields.get("introBackgroundImage") or ""),
+                "title": fill(str(fields.get("introTitle") or "")),
+                "message": fill(str(fields.get("introMessage") or "")),
+            },
+            "items": moments,
+            "closing": {
+                "backgroundImage": str(fields.get("finalBackgroundImage") or ""),
+                "title": fill(str(fields.get("finalTitle") or "")),
+                "message": fill(str(fields.get("finalMessage") or "")),
+            },
+        }
+    return result
 
 
 def _is_public_https_url(url: str) -> bool:
@@ -1917,11 +2098,28 @@ async def create_render(
         cap_len = photos_step["captionMaxLength"]
         req.fields = {**(req.fields or {}), "photoMessages": [image.text[:cap_len] for image in req.images]}
 
-    # Enforce the manifest server-side: allowed durations, then the image count
-    # for the chosen duration (shorter reels hold fewer photos).
-    allowed_durations = form_manifest["steps"]["details"]["durations"]
-    if allowed_durations and req.durationInSeconds not in allowed_durations:
-        raise HTTPException(status_code=400, detail=f"Duration must be one of {allowed_durations} seconds for this template")
+    # Duration: either derived from screen count ("perScreen", Timeline/Journey)
+    # or a user pick validated against the template's allowed durations.
+    duration_mode = template_settings.get("durationMode")
+    if duration_mode == "perScreen":
+        timeline_settings = template_settings.get("timeline") or {}
+        min_items = int(timeline_settings.get("minItems") or 1)
+        max_items = int(timeline_settings.get("maxItems") or 12)
+        fixed_screens = int(timeline_settings.get("fixedScreens") or 3)
+        seconds_per_screen = float(template_settings.get("secondsPerScreen") or 2.5)
+        items = [it for it in ((req.fields or {}).get("timelineItems") or []) if isinstance(it, dict)]
+        if len(items) < min_items:
+            raise HTTPException(status_code=400, detail=f"Add at least {min_items} timeline moments")
+        if len(items) > max_items:
+            raise HTTPException(status_code=400, detail=f"A timeline can have at most {max_items} moments")
+        total_screens = len(items) + fixed_screens
+        # Server is authoritative: recompute the length so a tampered client
+        # value can't stretch/shrink the video off its per-screen budget.
+        req.durationInSeconds = int(round(min(60, max(5, total_screens * seconds_per_screen))))
+    else:
+        allowed_durations = form_manifest["steps"]["details"]["durations"]
+        if allowed_durations and req.durationInSeconds not in allowed_durations:
+            raise HTTPException(status_code=400, detail=f"Duration must be one of {allowed_durations} seconds for this template")
     max_images = _max_images_for_duration(template_settings, req.durationInSeconds)
     if len(req.photos) > max_images:
         raise HTTPException(status_code=400, detail=f"At {req.durationInSeconds} seconds this template accepts at most {max_images} images")
@@ -1943,11 +2141,48 @@ async def create_render(
             if not key:
                 continue
             value = req.fields.get(key)
+            if field.get("type") == "repeater":
+                # Validate each row against the repeater's own required itemFields,
+                # and truncate over-long text subfields. (Row count is enforced by
+                # the perScreen block above for Timeline.)
+                rows = value if isinstance(value, list) else []
+                if field.get("required") and not rows:
+                    raise HTTPException(status_code=400, detail=f"'{field.get('label') or key}' needs at least one entry")
+                for row_index, row in enumerate(rows):
+                    if not isinstance(row, dict):
+                        continue
+                    for item_field in field.get("itemFields") or []:
+                        item_key = item_field.get("key")
+                        if not item_key:
+                            continue
+                        item_value = row.get(item_key)
+                        if item_field.get("required") and not (isinstance(item_value, str) and item_value.strip()):
+                            raise HTTPException(status_code=400, detail=f"{field.get('label') or key} #{row_index + 1}: '{item_field.get('label') or item_key}' is required")
+                        item_max = item_field.get("maxLength")
+                        if item_max and isinstance(item_value, str) and len(item_value) > int(item_max):
+                            row[item_key] = item_value[: int(item_max)]
+                continue
             if field.get("required") and (value is None or (isinstance(value, str) and not value.strip())):
                 raise HTTPException(status_code=400, detail=f"'{field.get('label') or key}' is required")
             max_length = field.get("maxLength")
             if max_length and isinstance(value, str) and len(value) > int(max_length):
                 req.fields[key] = value[: int(max_length)]
+
+    # Make image URLs inside the fields bag absolute for the render service (a
+    # separate process). Only the flat photos[] array is rewritten elsewhere;
+    # Timeline's images live in fields (opening/closing + per-moment), so rewrite
+    # them here — a no-op for categories without these keys.
+    if req.fields:
+        def _absolutize(url):
+            return f"{INTERNAL_BASE_URL}{url}" if isinstance(url, str) and url.startswith("/api/uploads/") else url
+        for image_key in ("introBackgroundImage", "finalBackgroundImage"):
+            if req.fields.get(image_key):
+                req.fields[image_key] = _absolutize(req.fields[image_key])
+        timeline_rows = req.fields.get("timelineItems")
+        if isinstance(timeline_rows, list):
+            for row in timeline_rows:
+                if isinstance(row, dict) and row.get("backgroundImage"):
+                    row["backgroundImage"] = _absolutize(row["backgroundImage"])
 
     # Adapter: data-driven categories send a generic `fields` bag instead of the
     # wedding-shaped payload. Map it onto couple/venue/schedule/message/eventDate

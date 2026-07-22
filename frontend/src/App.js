@@ -103,6 +103,32 @@ const weddingSchedule = [
 // renders fully from the server's form manifest via DynamicForm.
 const LEGACY_CATEGORIES = ["Wedding", "Engagement", "Birthday"];
 
+// Client-side mirror of the server's data-driven required-field checks (the
+// server re-validates and is authoritative). Returns an error string, or null
+// if everything required is present. Handles repeaters (min items + required
+// item subfields) as well as scalar fields.
+function validateDataDrivenFields(fieldDefs, values) {
+  for (const field of fieldDefs) {
+    if (field.type === "repeater") {
+      const rows = Array.isArray(values[field.key]) ? values[field.key] : [];
+      const min = field.minItems || (field.required ? 1 : 0);
+      if (rows.length < min) return `Add at least ${min} ${(field.label || "entries").toLowerCase()}`;
+      for (let i = 0; i < rows.length; i++) {
+        for (const sub of field.itemFields || []) {
+          if (sub.required && !String(rows[i]?.[sub.key] ?? "").trim()) {
+            return `${field.label} #${i + 1}: "${sub.label || sub.key}" is required`;
+          }
+        }
+      }
+      continue;
+    }
+    if (field.required && !String(values[field.key] ?? "").trim()) {
+      return `"${field.label}" is required`;
+    }
+  }
+  return null;
+}
+
 function loadRecaptchaScript() {
   if (!RECAPTCHA_SITE_KEY) return Promise.resolve();
   if (window.grecaptcha?.execute) return Promise.resolve();
@@ -819,21 +845,31 @@ function CreateVideoPage() {
   const insufficientCredits = selectedDurationCost > 0 && (walletBalance == null || walletBalance < selectedDurationCost);
   const missingCaption = captionPerImage && photos.some((_, i) => !((photoCaptions[i] || "").trim()));
 
+  // Step-awareness: categories declare which shared steps they use. Timeline
+  // has no shared photo step (images live in the form) and derives its length
+  // from screen count rather than a user pick.
+  const usesPhotoStep = manifest ? Boolean(manifest.steps?.photos?.enabled) : true;
+  const durationMode = manifest?.steps?.details?.durationMode || "pick";
+  const secondsPerScreen = Number(manifest?.steps?.details?.secondsPerScreen || 2.5);
+  const timelineCfg = manifest?.steps?.details?.timeline || {};
+  const timelineItems = Array.isArray(fields.timelineItems) ? fields.timelineItems : [];
+  const derivedScreens = timelineItems.length + Number(timelineCfg.fixedScreens || 3);
+  const derivedDuration = Math.round(Math.min(60, Math.max(5, derivedScreens * secondsPerScreen)));
+
   const wizardSteps = [
-    { label: "Category", title: "Choose your occasion and style", hint: "Start with a category, then choose a template." },
-    { label: "Details", title: "Add the essentials", hint: "Tell us who and what you are celebrating." },
-    { label: "Images", title: "Add your memories", hint: "Upload up to four photos for the story." },
-    { label: "Music", title: "Set the mood", hint: "Choose a soundtrack for your invitation." },
+    { key: "category", label: "Category", title: "Choose your occasion and style", hint: "Start with a category, then choose a template." },
+    { key: "details", label: "Details", title: "Add the essentials", hint: "Tell us who and what you are celebrating." },
+    ...(usesPhotoStep ? [{ key: "images", label: "Images", title: "Add your memories", hint: "Upload your photos for the story." }] : []),
+    { key: "music", label: "Music", title: "Set the mood", hint: "Choose a soundtrack for your video." },
   ];
+  const currentStepKey = wizardSteps[wizardStep]?.key;
 
   const goNext = () => {
-    if (wizardStep === 1) {
+    if (currentStepKey === "details") {
       if (isDataDriven) {
-        const missing = (formSchema?.fields || []).find(
-          (f) => f.required && f.type !== "repeater" && !String(fields[f.key] ?? "").trim(),
-        );
+        const missing = validateDataDrivenFields(formSchema?.fields || [], fields);
         if (missing) {
-          toast.error(`"${missing.label}" is required`);
+          toast.error(missing);
           return;
         }
       } else if (!details.partnerOne.trim() || !details.partnerTwo.trim()) {
@@ -854,7 +890,7 @@ function CreateVideoPage() {
         }
       }
     }
-    if (wizardStep === 2) {
+    if (currentStepKey === "images") {
       if (photos.length < minImages) {
         toast.error(`Add at least ${minImages} photo${minImages > 1 ? "s" : ""} to continue`);
         return;
@@ -995,10 +1031,12 @@ function CreateVideoPage() {
             template,
             category,
             fields,
-            images: photos.map((url, index) => ({ imageUrl: url, text: photoCaptions[index] || "" })),
+            // Shared photo step only: Timeline carries its images inside `fields`.
+            ...(usesPhotoStep ? { images: photos.map((url, index) => ({ imageUrl: url, text: photoCaptions[index] || "" })) } : {}),
             musicId: musicId || null,
             customMusicUrl: musicId === "my-music" ? customMusicUrl || undefined : undefined,
-            durationInSeconds: Number(details.durationInSeconds) || 30,
+            // perScreen templates derive length from screen count (server re-computes authoritatively).
+            durationInSeconds: durationMode === "perScreen" ? derivedDuration : Number(details.durationInSeconds) || 30,
             tags,
             recaptchaToken,
           }
@@ -1045,18 +1083,27 @@ function CreateVideoPage() {
         toast.error(message || "Failed to queue render");
       }
     }
-  }, [credential, template, details, photos, musicId, customMusicUrl, schedule, category, signOut, isDataDriven, fields, photoCaptions]);
+  }, [credential, template, details, photos, musicId, customMusicUrl, schedule, category, signOut, isDataDriven, fields, photoCaptions, usesPhotoStep, durationMode, derivedDuration]);
 
   const handleRender = async () => {
     if (!isDataDriven && (!details.partnerOne.trim() || !details.partnerTwo.trim())) {
       toast.error("Both partner names are required");
       return;
     }
-    if (photos.length < minImages) {
+    // Categories with in-form images (e.g. Timeline) have no shared photo step;
+    // their required-image validation happens per-field instead.
+    if (isDataDriven) {
+      const missing = validateDataDrivenFields(formSchema?.fields || [], fields);
+      if (missing) {
+        toast.error(missing);
+        return;
+      }
+    }
+    if (usesPhotoStep && photos.length < minImages) {
       toast.error(`Add at least ${minImages} photo${minImages > 1 ? "s" : ""} before rendering`);
       return;
     }
-    if (missingCaption) {
+    if (usesPhotoStep && missingCaption) {
       toast.error("Add a message for every photo before rendering");
       return;
     }
@@ -1248,7 +1295,7 @@ function CreateVideoPage() {
                 <p className="mt-1 text-sm text-neutral-500">{wizardSteps[wizardStep].hint}</p>
               </div>
 
-              {wizardStep === 0 && <>
+              {currentStepKey === "category" && <>
                 <TemplatePicker value={template} onChange={setTemplate} templates={templates} />
                 {templateHasPaidDurations && (
                   <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -1256,10 +1303,15 @@ function CreateVideoPage() {
                   </div>
                 )}
               </>}
-              {wizardStep === 1 && <div className="space-y-5">
+              {currentStepKey === "details" && <div className="space-y-5">
                 {isDataDriven ? (
                   <>
                     <DynamicForm schema={formSchema} values={fields} onChange={setFieldValue} />
+                    {durationMode === "perScreen" ? (
+                      <div className="rounded-xl border border-[#ECD5E2] bg-[#FFF8FB] px-4 py-3 text-sm text-neutral-600">
+                        Your timeline has <strong className="text-[#32113A]">{timelineItems.length}</strong> moment{timelineItems.length === 1 ? "" : "s"} — including the opening and closing, that's a <strong className="text-[#32113A]">~{derivedDuration}s</strong> video. Length adjusts automatically as you add or remove moments.
+                      </div>
+                    ) : (
                     <fieldset className="space-y-2">
                       <legend className="mb-1 block text-xs font-medium uppercase tracking-[0.1em] text-neutral-500">Video length</legend>
                       <div className="grid grid-cols-3 gap-2">
@@ -1286,6 +1338,7 @@ function CreateVideoPage() {
                         })}
                       </div>
                     </fieldset>
+                    )}
                   </>
                 ) : (
                   <>
@@ -1307,7 +1360,7 @@ function CreateVideoPage() {
                   </div>
                 )}
               </div>}
-              {wizardStep === 2 && (
+              {currentStepKey === "images" && (
                 <PhotoUploader
                   photos={photos}
                   onChange={setPhotos}
@@ -1319,7 +1372,7 @@ function CreateVideoPage() {
                   captionMaxLength={captionMaxLength}
                 />
               )}
-              {wizardStep === 3 && <MusicPicker value={musicId} onChange={setMusicId} category={category} customMusicUrl={customMusicUrl} onCustomMusicUrlChange={setCustomMusicUrl} />}
+              {currentStepKey === "music" && <MusicPicker value={musicId} onChange={setMusicId} category={category} customMusicUrl={customMusicUrl} onCustomMusicUrlChange={setCustomMusicUrl} />}
 
               <div className="mt-7 flex items-center justify-between gap-3 border-t border-[#ECD5E2] pt-5">
                 <button type="button" onClick={goBack} disabled={wizardStep === 0} className="rounded-full border border-[#E8C9DB] px-5 py-2.5 text-sm font-bold text-[#8D1B63] transition hover:bg-[#FFF0F7] disabled:cursor-not-allowed disabled:opacity-35">Back</button>
@@ -1340,8 +1393,8 @@ function CreateVideoPage() {
               videoUrl={videoUrl}
               onRender={handleRender}
               onReset={handleReset}
-              canRender={photos.length >= minImages}
-              renderHint={`Add at least ${minImages} photo${minImages > 1 ? "s" : ""} to render`}
+              canRender={usesPhotoStep ? photos.length >= minImages : timelineItems.length >= Number(timelineCfg.minItems || 1)}
+              renderHint={usesPhotoStep ? `Add at least ${minImages} photo${minImages > 1 ? "s" : ""} to render` : `Add at least ${Number(timelineCfg.minItems || 1)} timeline moments to render`}
             />
           </div>
         </section>
