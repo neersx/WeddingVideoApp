@@ -113,28 +113,34 @@ export const Midnight: React.FC<WeddingProps> = (props) => {
   );
 
   return (
-    <AbsoluteFill style={{backgroundColor: C.black, fontFamily: outfit, color: C.white}}>
+    <AbsoluteFill
+      style={{
+        background: `radial-gradient(ellipse at top, ${C.shade} 0%, ${C.midnight} 45%, ${C.black} 100%)`,
+        fontFamily: outfit,
+        color: C.white,
+      }}
+    >
       {props.musicUrl ? <Audio src={props.musicUrl} volume={musicVolume} /> : null}
       <Stars />
 
       <Sequence durationInFrames={plan.intro}>
         <SectionFade duration={plan.intro}>
           <Center>
-            <TrackIn style={{fontSize: 30, textTransform: 'uppercase', color: C.gold, fontWeight: 300}}>
+            <TrackIn style={{fontSize: 34, textTransform: 'uppercase', color: C.gold, fontWeight: 300}}>
               An evening to remember
             </TrackIn>
             <Fade delay={10}>
-              <div style={{fontFamily: cormorant, fontSize: 140, fontWeight: 500, marginTop: 70, lineHeight: 1.05}}>
+              <div style={{fontFamily: cormorant, fontSize: 160, fontWeight: 500, marginTop: 70, lineHeight: 1.05}}>
                 {props.couple.partnerOne}
               </div>
             </Fade>
             <Fade delay={20}>
-              <div style={{fontFamily: cormorant, fontSize: 64, color: C.gold, fontStyle: 'italic', margin: '24px 0'}}>
+              <div style={{fontFamily: cormorant, fontSize: 74, color: C.gold, fontStyle: 'italic', margin: '24px 0'}}>
                 and
               </div>
             </Fade>
             <Fade delay={30}>
-              <div style={{fontFamily: cormorant, fontSize: 140, fontWeight: 500, lineHeight: 1.05}}>
+              <div style={{fontFamily: cormorant, fontSize: 160, fontWeight: 500, lineHeight: 1.05}}>
                 {props.couple.partnerTwo}
               </div>
             </Fade>
@@ -147,7 +153,7 @@ export const Midnight: React.FC<WeddingProps> = (props) => {
           <Center>
             <Fade>
               <div style={{width: 2, height: 140, backgroundColor: C.gold, margin: '0 auto 60px'}} />
-              <div style={{fontFamily: cormorant, fontSize: 60, lineHeight: 1.5, maxWidth: 860, fontStyle: 'italic'}}>
+              <div style={{fontFamily: cormorant, fontSize: 68, lineHeight: 1.5, maxWidth: 900, fontStyle: 'italic'}}>
                 {props.message || 'Under a midnight sky, two souls become one.'}
               </div>
               <div style={{width: 2, height: 140, backgroundColor: C.gold, margin: '60px auto 0'}} />
@@ -161,7 +167,7 @@ export const Midnight: React.FC<WeddingProps> = (props) => {
           {photos.length === 0 ? (
             <Center>
               <Fade>
-                <div style={{fontFamily: cormorant, fontSize: 220, color: C.gold}}>
+                <div style={{fontFamily: cormorant, fontSize: 240, color: C.gold}}>
                   {props.couple.partnerOne.charAt(0)}
                   {props.couple.partnerTwo.charAt(0)}
                 </div>
@@ -176,14 +182,14 @@ export const Midnight: React.FC<WeddingProps> = (props) => {
       <Sequence from={plan.intro + plan.message + plan.photos} durationInFrames={plan.schedule}>
         <SectionFade duration={plan.schedule}>
           <Center>
-            <TrackIn style={{fontSize: 30, textTransform: 'uppercase', color: C.gold, fontWeight: 300, marginBottom: 80}}>
+            <TrackIn style={{fontSize: 34, textTransform: 'uppercase', color: C.gold, fontWeight: 300, marginBottom: 80}}>
               The Program
             </TrackIn>
             {schedule.map((item, i) => (
               <Fade key={i} delay={10 + i * 10}>
                 <div style={{display: 'flex', alignItems: 'baseline', gap: 44, margin: '32px 0'}}>
-                  <span style={{fontFamily: cormorant, fontSize: 76, fontWeight: 500}}>{item.name}</span>
-                  <span style={{fontSize: 36, color: C.orchid, letterSpacing: 4}}>{item.time}</span>
+                  <span style={{fontFamily: cormorant, fontSize: 86, fontWeight: 500}}>{item.name}</span>
+                  <span style={{fontSize: 40, color: C.orchid, letterSpacing: 4}}>{item.time}</span>
                 </div>
               </Fade>
             ))}
@@ -194,17 +200,17 @@ export const Midnight: React.FC<WeddingProps> = (props) => {
       <Sequence from={durationInFrames - plan.finale} durationInFrames={plan.finale}>
         <SectionFade duration={plan.finale}>
           <Center>
-            <TrackIn style={{fontSize: 32, textTransform: 'uppercase', color: C.gold, fontWeight: 300}}>
+            <TrackIn style={{fontSize: 36, textTransform: 'uppercase', color: C.gold, fontWeight: 300}}>
               Save the Date
             </TrackIn>
             <Fade delay={12}>
-              <div style={{fontFamily: cormorant, fontSize: 104, fontWeight: 500, marginTop: 60}}>
+              <div style={{fontFamily: cormorant, fontSize: 118, fontWeight: 500, marginTop: 60}}>
                 {props.eventDate}
               </div>
             </Fade>
             <Fade delay={24}>
-              <div style={{fontSize: 42, color: C.gold, marginTop: 60, letterSpacing: 3}}>{props.venue.name}</div>
-              <div style={{fontSize: 34, color: C.orchid, marginTop: 18, letterSpacing: 8, textTransform: 'uppercase'}}>
+              <div style={{fontSize: 46, color: C.gold, marginTop: 60, letterSpacing: 3}}>{props.venue.name}</div>
+              <div style={{fontSize: 38, color: C.orchid, marginTop: 18, letterSpacing: 8, textTransform: 'uppercase'}}>
                 {props.venue.city}
               </div>
             </Fade>
