@@ -31,6 +31,13 @@ DB_NAME="${DB_NAME:-}"
 CORS_ORIGINS="${CORS_ORIGINS:-}"
 RENDER_SERVICE_URL="${RENDER_SERVICE_URL:-}"
 INTERNAL_BASE_URL="${INTERNAL_BASE_URL:-}"
+# Billing (RazorPay). Only these RAZORPAY_* keys and BILLING_USD_ENABLED are
+# read by the backend; leave BILLING_USD_ENABLED unset/false for INR-only.
+RAZORPAY_KEY_ID="${RAZORPAY_KEY_ID:-}"
+RAZORPAY_KEY_SECRET="${RAZORPAY_KEY_SECRET:-}"
+RAZORPAY_WEBHOOK_SECRET="${RAZORPAY_WEBHOOK_SECRET:-}"
+BILLING_ENABLED="${BILLING_ENABLED:-}"
+BILLING_USD_ENABLED="${BILLING_USD_ENABLED:-}"
 
 log() { printf '\n[%s] %s\n' "$(date '+%H:%M:%S')" "$*"; }
 fail() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
@@ -95,6 +102,12 @@ if [[ "$PULL_LATEST" == "true" && -d "$APP_DIR/.git" ]]; then
 fi
 
 if [[ "$INSTALL_DEPS" == "true" ]]; then
+  # Backend Python deps: required whenever requirements.txt changes (e.g. the
+  # razorpay package for billing). The backend runs from this venv, so a missing
+  # dependency crash-loops the service on restart. Self-heals a missing venv.
+  log "Installing backend Python dependencies"
+  runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/backend' && { [ -d .venv ] || python3 -m venv .venv; } && .venv/bin/pip install --upgrade pip >/dev/null && .venv/bin/pip install -r requirements.txt"
+
   log "Installing frontend dependencies"
   runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/frontend' && npm_config_cache='$NPM_CACHE_DIR' npm install --legacy-peer-deps"
 fi
@@ -123,6 +136,11 @@ if [[ -f "$ENV_FILE" ]]; then
   upsert_env_value CORS_ORIGINS "$CORS_ORIGINS"
   upsert_env_value RENDER_SERVICE_URL "$RENDER_SERVICE_URL"
   upsert_env_value INTERNAL_BASE_URL "$INTERNAL_BASE_URL"
+  upsert_env_value RAZORPAY_KEY_ID "$RAZORPAY_KEY_ID"
+  upsert_env_value RAZORPAY_KEY_SECRET "$RAZORPAY_KEY_SECRET"
+  upsert_env_value RAZORPAY_WEBHOOK_SECRET "$RAZORPAY_WEBHOOK_SECRET"
+  upsert_env_value BILLING_ENABLED "$BILLING_ENABLED"
+  upsert_env_value BILLING_USD_ENABLED "$BILLING_USD_ENABLED"
 fi
 
 if [[ "$RESTART_SERVICES" == "true" ]]; then
@@ -136,3 +154,4 @@ printf 'Backend URL:   %s\n' "$FRONTEND_BACKEND_URL"
 printf 'Services:      %s %s\n' "$BACKEND_SERVICE" "$RENDER_SERVICE"
 printf 'Google login:  %s\n' "$([[ -n "$GOOGLE_CLIENT_ID" ]] && printf configured || printf not-configured)"
 printf 'reCAPTCHA:     %s\n' "$([[ -n "$RECAPTCHA_SITE_KEY" ]] && printf configured || printf not-configured)"
+printf 'RazorPay:      %s\n' "$([[ -n "$(read_env_value RAZORPAY_KEY_ID)" ]] && printf configured || printf not-configured)"
