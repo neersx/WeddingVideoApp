@@ -63,7 +63,7 @@ export const defaultProps: WeddingProps = {
   couple: {partnerOne: 'Aisha', partnerTwo: 'Rohan'},
   eventDate: 'November 21, 2026',
   venue: {name: 'The Leela Palace', city: 'Udaipur'},
-  message: 'Together with their families, they invite you to celebrate the beginning of their forever.',
+  message: 'Together with our families, we invite you to celebrate the beginning of our forever bond.',
   displayMessage:
     "The moment we've all been waiting for — {{brideFirstName}} & {{groomFirstName}} invite you to witness their wedding vows{{#weddingDate}} on {{weddingDate}}{{/weddingDate}}{{#location}} in {{location}}{{/location}}.",
   photos: [],
