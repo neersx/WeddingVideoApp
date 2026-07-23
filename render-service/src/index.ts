@@ -8,6 +8,14 @@ import {renderMedia, selectComposition} from '@remotion/renderer';
 
 const PORT = Number(process.env.PORT || 4001);
 const BROWSER = process.env.BROWSER_EXECUTABLE || null;
+// Remotion defaults concurrency to ~half the CPU cores. On a multi-core box
+// with spare RAM (~1GB per Chrome worker) that leaves throughput on the table,
+// so allow an explicit override via RENDER_CONCURRENCY (e.g. set to the core
+// count). Unset => Remotion's auto default. x264 preset is also tunable:
+// 'ultrafast' encodes fastest (slightly larger file), 'veryfast' is the prior
+// default.
+const RENDER_CONCURRENCY = process.env.RENDER_CONCURRENCY ? Number(process.env.RENDER_CONCURRENCY) : null;
+const X264_PRESET = (process.env.RENDER_X264_PRESET || 'veryfast') as any;
 
 const app = express();
 app.use(express.json({limit: '10mb'}));
@@ -71,6 +79,9 @@ const buildInputProps = (body: any) => {
     schedule: Array.isArray(body.schedule) ? body.schedule.slice(0, 6) : [],
     tags: Array.isArray(body.tags) ? body.tags.slice(0, 12) : [],
     durationInSeconds: Math.min(60, Math.max(5, Number(body.durationInSeconds) || 30)),
+    // Frame rate chosen by the backend (free videos render at a lower fps).
+    // calculateMetadata clamps and recomputes durationInFrames from this.
+    fps: Number(body.fps) > 0 ? Number(body.fps) : undefined,
     category: body.category || '',
     fields: body.fields || {},
     resolved: body.resolved || {},
@@ -90,7 +101,7 @@ const runRender = async (job: Job, body: any) => {
   try {
     const url = await bundling;
     const {compositionId, inputProps} = buildInputProps(body);
-    console.log(`[job ${job.id}] ${compositionId} for ${inputProps.couple.partnerOne} & ${inputProps.couple.partnerTwo}`);
+    console.log(`[job ${job.id}] ${compositionId} for ${inputProps.couple.partnerOne} & ${inputProps.couple.partnerTwo} (concurrency=${RENDER_CONCURRENCY ?? 'auto'}, preset=${X264_PRESET})`);
     job.status = 'rendering';
     const composition = await selectComposition({serveUrl: url, id: compositionId, inputProps});
     await renderMedia({
@@ -100,7 +111,8 @@ const runRender = async (job: Job, body: any) => {
       outputLocation: outPath,
       inputProps,
       browserExecutable: BROWSER,
-      x264Preset: 'veryfast',
+      x264Preset: X264_PRESET,
+      ...(RENDER_CONCURRENCY ? {concurrency: RENDER_CONCURRENCY} : {}),
       timeoutInMilliseconds: 120000,
       onProgress: ({progress}) => {
         job.progress = progress;

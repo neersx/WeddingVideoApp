@@ -42,6 +42,11 @@ export type WeddingProps = {
   schedule?: ScheduleItem[];
   tags?: string[];
   durationInSeconds?: number;
+  // Frame rate for this render. Free videos use a lower fps to cut render cost;
+  // when unset, the composition's default (FPS) applies. Templates must read the
+  // effective rate from useVideoConfig().fps — never the FPS constant — so their
+  // pacing and audio stay in sync when this changes.
+  fps?: number;
   // Data-driven categories (e.g. "From My Heart"): the raw field bag, the
   // category name, and backend-resolved, token-substituted copy.
   category?: string;

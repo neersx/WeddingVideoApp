@@ -44,6 +44,10 @@ if storage_backend not in {'memory', 'mongodb'}:
     raise RuntimeError("STORAGE_BACKEND must be either 'memory' or 'mongodb'")
 RENDER_SERVICE_URL = os.environ.get('RENDER_SERVICE_URL', 'http://localhost:4001')
 INTERNAL_BASE_URL = os.environ.get('INTERNAL_BASE_URL', 'http://localhost:8001')
+# Free videos render at a lower frame rate to cut render cost (fewer frames);
+# paid videos keep the full frame rate. Both tunable via env.
+FREE_VIDEO_FPS = int(os.environ.get('FREE_VIDEO_FPS', '24'))
+PAID_VIDEO_FPS = int(os.environ.get('PAID_VIDEO_FPS', '30'))
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '').strip()
 GOOGLE_CLIENT_IDS = [client_id.strip() for client_id in GOOGLE_CLIENT_ID.split(',') if client_id.strip()]
 DISABLE_GOOGLE_AUTH = os.environ.get('DISABLE_GOOGLE_AUTH', 'false').strip().lower() in {'1', 'true', 'yes', 'on'}
@@ -2305,6 +2309,11 @@ async def create_render(
     # dangling hold. Settled (captured or released) by _run_render_job once
     # the job finishes.
     credit_cost = pricing.cost_in_credits(template_settings, req.durationInSeconds)
+    # Free videos render at a lower fps (fewer frames = faster/cheaper render);
+    # paid videos get the full frame rate. The render service reads this and
+    # recomputes durationInFrames so the real-time length is unchanged.
+    render_fps = PAID_VIDEO_FPS if credit_cost > 0 else FREE_VIDEO_FPS
+    payload["fps"] = render_fps
     if credit_cost > 0:
         try:
             await wallet.reserve(db, user.sub, credit_cost, render_id)
@@ -2330,6 +2339,7 @@ async def create_render(
         "venue": req.venue.model_dump(),
         "displayMessage": req.displayMessage,
         "durationInSeconds": req.durationInSeconds,
+        "fps": render_fps,
         "tags": payload["tags"],
         "musicId": effective_music_id,
         "musicSource": music_source,

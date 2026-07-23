@@ -19,9 +19,14 @@ import {Cascade} from '../templates/Cascade';
 import {BrandOutro} from '../templates/BrandOutro';
 import {defaultProps, FPS, WeddingProps} from '../templates/types';
 
-const meta = ({props}: {props: WeddingProps}) => ({
-  durationInFrames: Math.round(Math.min(60, Math.max(5, props.durationInSeconds || 30)) * FPS),
-});
+const meta = ({props}: {props: WeddingProps}) => {
+  // Free videos render at a lower fps to cut cost; paid keep the default FPS.
+  // durationInFrames is recomputed from the chosen fps so the real-time length
+  // is identical regardless of frame rate.
+  const fps = props.fps && props.fps > 0 ? Math.round(props.fps) : FPS;
+  const seconds = Math.min(60, Math.max(5, props.durationInSeconds || 30));
+  return {fps, durationInFrames: Math.round(seconds * fps)};
+};
 
 const compositions: {id: string; component: React.FC<WeddingProps>}[] = [
   {id: 'Marigold', component: Marigold},
