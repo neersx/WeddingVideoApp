@@ -2,5 +2,9 @@
   "expo.jsEngine": "hermes",
   "EX_DEV_CLIENT_NETWORK_INSPECTOR": "true",
   "expo.inlineModules.watchedDirectories": "[]",
-  "expo.inlineModules.xcodeProjectTargets": "{\"mainTarget\":\"InvitaVideos\",\"targets\":[]}"
+  "expo.inlineModules.xcodeProjectTargets": "{\"mainTarget\":\"InvitaVideos\",\"targets\":[]}",
+  "ios.useFrameworks": "static",
+  "ios.forceStaticLinking": "[]",
+  "apple.privacyManifestAggregationEnabled": "true",
+  "EXPO_USE_PRECOMPILED_MODULES": "false"
 }
