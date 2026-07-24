@@ -38,6 +38,12 @@ RAZORPAY_KEY_SECRET="${RAZORPAY_KEY_SECRET:-}"
 RAZORPAY_WEBHOOK_SECRET="${RAZORPAY_WEBHOOK_SECRET:-}"
 BILLING_ENABLED="${BILLING_ENABLED:-}"
 BILLING_USD_ENABLED="${BILLING_USD_ENABLED:-}"
+# Auth: first-party session tokens + Sign in with Apple. SESSION_SECRET must be a
+# strong random string in production (used to sign session JWTs). APPLE_BUNDLE_IDS
+# is the comma-separated list of bundle ids accepted as the Apple token audience.
+SESSION_SECRET="${SESSION_SECRET:-}"
+SESSION_TTL_DAYS="${SESSION_TTL_DAYS:-}"
+APPLE_BUNDLE_IDS="${APPLE_BUNDLE_IDS:-}"
 
 log() { printf '\n[%s] %s\n' "$(date '+%H:%M:%S')" "$*"; }
 fail() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
@@ -141,6 +147,9 @@ if [[ -f "$ENV_FILE" ]]; then
   upsert_env_value RAZORPAY_WEBHOOK_SECRET "$RAZORPAY_WEBHOOK_SECRET"
   upsert_env_value BILLING_ENABLED "$BILLING_ENABLED"
   upsert_env_value BILLING_USD_ENABLED "$BILLING_USD_ENABLED"
+  upsert_env_value SESSION_SECRET "$SESSION_SECRET"
+  upsert_env_value SESSION_TTL_DAYS "$SESSION_TTL_DAYS"
+  upsert_env_value APPLE_BUNDLE_IDS "$APPLE_BUNDLE_IDS"
 fi
 
 if [[ "$RESTART_SERVICES" == "true" ]]; then

@@ -7,7 +7,9 @@ from pymongo.errors import DuplicateKeyError
 from billing import catalog, pricing, wallet
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
+from jose import jwt as jose_jwt
 import os
+import time
 import logging
 import httpx
 import uuid
@@ -64,6 +66,20 @@ MOBILE_GOOGLE_CLIENT_IDS = {
     for client_id in os.environ.get('MOBILE_GOOGLE_CLIENT_IDS', '').split(',')
     if client_id.strip()
 }
+# First-party session tokens: after a Google/Apple sign-in is verified, we mint
+# our own signed session JWT and the app uses THAT as the Bearer thereafter.
+# This decouples us from the provider token's lifetime (critical for Apple, whose
+# identity tokens are short-lived and can't be silently refreshed).
+SESSION_SECRET = os.environ.get('SESSION_SECRET', '').strip() or 'insecure-dev-session-secret-change-me-in-prod'
+SESSION_TTL_DAYS = int(os.environ.get('SESSION_TTL_DAYS', '30'))
+# Sign in with Apple. The native flow issues identity tokens whose `aud` is the
+# app's bundle id and `iss` is Apple. Accept one or more bundle ids (comma-sep).
+APPLE_ISSUER = 'https://appleid.apple.com'
+APPLE_KEYS_URL = 'https://appleid.apple.com/auth/keys'
+APPLE_AUDIENCES = [
+    a.strip() for a in os.environ.get('APPLE_BUNDLE_IDS', 'com.invitavideos.app').split(',') if a.strip()
+]
+_apple_jwks_cache = {'keys': None, 'fetched': 0.0}
 RECAPTCHA_SECRET_KEY = os.environ.get('RECAPTCHA_SECRET_KEY', '').strip()
 RECAPTCHA_EXPECTED_ACTION = os.environ.get('RECAPTCHA_EXPECTED_ACTION', 'render_video').strip()
 try:
@@ -927,6 +943,14 @@ class GoogleLoginRequest(BaseModel):
     credential: str
 
 
+class AppleLoginRequest(BaseModel):
+    identityToken: str
+    # Apple returns the user's name/email only on the FIRST authorization, via the
+    # native flow (not inside every token), so the client forwards them once here.
+    fullName: Optional[str] = None
+    email: Optional[str] = None
+
+
 class GoogleUser(BaseModel):
     sub: str
     email: str
@@ -934,6 +958,7 @@ class GoogleUser(BaseModel):
     picture: str = ""
     email_verified: bool = False
     azp: str = ""
+    provider: str = "google"
 
 
 class TemplateUpdateRequest(BaseModel):
@@ -964,27 +989,131 @@ class CategoryFormRequest(BaseModel):
 
 def _user_doc_from_google_user(user: GoogleUser):
     now = datetime.now(timezone.utc).isoformat()
-    return {
+    doc = {
         "_id": user.sub,
-        "provider": "google",
-        "googleSub": user.sub,
+        "provider": user.provider or "google",
         "email": user.email,
         "name": user.name,
         "picture": user.picture,
         "email_verified": user.email_verified,
         "updated_at": now,
     }
+    if (user.provider or "google") == "google":
+        doc["googleSub"] = user.sub
+    else:
+        doc["appleSub"] = user.sub
+    return doc
 
 
 async def _save_google_user(user: GoogleUser):
     user_doc = _user_doc_from_google_user(user)
     existing = await db.users.find_one({"_id": user.sub})
     if existing:
+        # Never blank out a stored name/email with an empty value (Apple omits
+        # these on sign-ins after the first).
+        if not user_doc.get("name"):
+            user_doc.pop("name", None)
+        if not user_doc.get("email"):
+            user_doc.pop("email", None)
         await db.users.update_one({"_id": user.sub}, {"$set": user_doc})
     else:
         user_doc["created_at"] = user_doc["updated_at"]
         await db.users.insert_one(user_doc)
     return user_doc
+
+
+def create_session_token(user: GoogleUser) -> str:
+    """Mint a first-party session JWT (HS256) the app uses as its Bearer."""
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": user.sub,
+        "email": user.email,
+        "name": user.name,
+        "picture": user.picture,
+        "provider": user.provider or "google",
+        "typ": "session",
+        "iss": "invitavideos",
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(days=SESSION_TTL_DAYS)).timestamp()),
+    }
+    return jose_jwt.encode(payload, SESSION_SECRET, algorithm="HS256")
+
+
+def _verify_session_token(token: str) -> Optional[GoogleUser]:
+    """Return the user for a valid first-party session JWT, else None (so callers
+    can fall back to verifying a raw Google token for the web app)."""
+    try:
+        payload = jose_jwt.decode(token, SESSION_SECRET, algorithms=["HS256"], options={"verify_aud": False})
+    except Exception:  # noqa: BLE001 — any decode/expiry error => not a session token
+        return None
+    if payload.get("typ") != "session" or not payload.get("sub"):
+        return None
+    return GoogleUser(
+        sub=str(payload.get("sub", "")),
+        email=str(payload.get("email", "")),
+        name=str(payload.get("name", "")),
+        picture=str(payload.get("picture", "")),
+        email_verified=True,
+        provider=str(payload.get("provider", "google")),
+    )
+
+
+async def _get_apple_jwks():
+    """Apple's rotating public keys, cached ~1h."""
+    if _apple_jwks_cache["keys"] and (time.time() - _apple_jwks_cache["fetched"]) < 3600:
+        return _apple_jwks_cache["keys"]
+    async with httpx.AsyncClient(timeout=httpx.Timeout(10, connect=5)) as hc:
+        resp = await hc.get(APPLE_KEYS_URL)
+    resp.raise_for_status()
+    keys = resp.json().get("keys", [])
+    _apple_jwks_cache["keys"] = keys
+    _apple_jwks_cache["fetched"] = time.time()
+    return keys
+
+
+async def _verify_apple_credential(identity_token: str) -> GoogleUser:
+    """Verify a Sign in with Apple identity token against Apple's public keys."""
+    try:
+        header = jose_jwt.get_unverified_header(identity_token)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=401, detail="Invalid Apple credential") from exc
+
+    kid = header.get("kid")
+    keys = await _get_apple_jwks()
+    key = next((k for k in keys if k.get("kid") == kid), None)
+    if not key:
+        # Key may have rotated — refetch once.
+        _apple_jwks_cache["keys"] = None
+        keys = await _get_apple_jwks()
+        key = next((k for k in keys if k.get("kid") == kid), None)
+    if not key:
+        raise HTTPException(status_code=401, detail="Unknown Apple signing key")
+
+    payload = None
+    last_error: Optional[Exception] = None
+    for audience in APPLE_AUDIENCES:
+        try:
+            payload = jose_jwt.decode(
+                identity_token, key, algorithms=["RS256"], audience=audience, issuer=APPLE_ISSUER,
+            )
+            break
+        except Exception as exc:  # noqa: BLE001 — try the next allowed audience
+            last_error = exc
+    if payload is None:
+        raise HTTPException(status_code=401, detail="Invalid Apple credential") from last_error
+
+    apple_sub = str(payload.get("sub", ""))
+    if not apple_sub:
+        raise HTTPException(status_code=401, detail="Apple credential missing account details")
+    return GoogleUser(
+        # Namespace the id so Apple and Google subs can never collide in `users`.
+        sub=f"apple:{apple_sub}",
+        email=str(payload.get("email", "")),
+        name="",
+        picture="",
+        email_verified=bool(payload.get("email_verified", True)),
+        provider="apple",
+    )
 
 
 def _verify_google_credential(credential: str) -> GoogleUser:
@@ -1030,6 +1159,12 @@ async def require_google_user(authorization: str = Header(default="")) -> Google
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer" or not token:
         raise HTTPException(status_code=401, detail="Login is required to render a video")
+
+    # First-party session token (mobile, both Google & Apple) — no external call,
+    # trust its signature. Fall back to verifying a raw Google token (web app).
+    session_user = _verify_session_token(token)
+    if session_user:
+        return session_user
 
     user = _verify_google_credential(token)
     await _save_google_user(user)
@@ -1501,7 +1636,28 @@ async def health():
 async def google_login(req: GoogleLoginRequest):
     user = _verify_google_credential(req.credential)
     await _save_google_user(user)
-    return {"user": user.model_dump()}
+    # `token` is a first-party session JWT for clients that want a stable session
+    # (mobile). The web app can keep using its Google credential as before.
+    return {"user": user.model_dump(), "token": create_session_token(user)}
+
+
+@api_router.post("/auth/apple")
+async def apple_login(req: AppleLoginRequest):
+    if not req.identityToken:
+        raise HTTPException(status_code=400, detail="identityToken is required")
+    user = await _verify_apple_credential(req.identityToken)
+    # Apple only sends name/email on the first authorization, so take them from
+    # the request when present; otherwise keep whatever we stored previously.
+    if req.fullName and req.fullName.strip():
+        user.name = req.fullName.strip()
+    if req.email and req.email.strip():
+        user.email = req.email.strip()
+    if not user.email:
+        existing = await db.users.find_one({"_id": user.sub})
+        if existing:
+            user.email = existing.get("email", "")
+    await _save_google_user(user)
+    return {"user": user.model_dump(), "token": create_session_token(user)}
 
 
 @api_router.post("/upload")
