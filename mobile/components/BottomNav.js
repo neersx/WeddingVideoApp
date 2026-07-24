@@ -11,7 +11,7 @@ const WEB_URL = 'https://invitavideos.com';
 // is why this is a hand-rolled bar rather than plain <Tab.Screen>s.
 export function BottomNav({ state, navigation }) {
   const insets = useSafeAreaInsets();
-  const { user, confirmSignOut, signInWithGoogle } = useAuth();
+  const { user, confirmSignOut, promptLogin } = useAuth();
   const activeRoute = state.routes[state.index]?.name;
 
   const goTo = (routeName) => {
@@ -36,7 +36,7 @@ export function BottomNav({ state, navigation }) {
         icon={user ? '🚪' : '👤'}
         label={user ? 'Logout' : 'Login'}
         active={false}
-        onPress={() => (user ? confirmSignOut() : signInWithGoogle())}
+        onPress={() => (user ? confirmSignOut() : promptLogin())}
       />
       <Item icon="🌐" label="Open Web" active={false} onPress={() => Linking.openURL(WEB_URL)} />
     </View>

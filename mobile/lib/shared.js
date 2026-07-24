@@ -321,6 +321,22 @@ export const styles = StyleSheet.create({
   myDownloadsLink: { alignSelf: 'flex-start', backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 20, paddingVertical: 9, paddingHorizontal: 16, marginBottom: 22 },
   myDownloadsLinkText: { color: palette.gold, fontWeight: '700', fontSize: 13.5 },
 
+  // Login sheet (Google + Apple, presented as equal options)
+  loginBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  loginSheet: { backgroundColor: palette.surfaceRaised, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 22, paddingTop: 12, paddingBottom: 34, borderWidth: 1, borderColor: palette.borderStrong },
+  loginHandle: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: palette.borderStrong, marginBottom: 18 },
+  loginTitle: { color: palette.text, fontSize: 21, fontWeight: '800', textAlign: 'center' },
+  loginSubtitle: { color: palette.textSoft, fontSize: 14, textAlign: 'center', marginTop: 6, marginBottom: 22 },
+  googleBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: '#fff', borderRadius: 14, height: 48, marginBottom: 12 },
+  googleBtnG: { color: '#4285F4', fontWeight: '900', fontSize: 18 },
+  googleBtnText: { color: '#1f1f1f', fontWeight: '700', fontSize: 15.5 },
+  appleBtn: { width: '100%', height: 48, marginBottom: 4 },
+  loginBusy: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 12 },
+  loginBusyText: { color: palette.gold, fontWeight: '600' },
+  loginError: { color: palette.danger, fontSize: 13, textAlign: 'center', marginTop: 12, lineHeight: 18 },
+  loginCancel: { alignItems: 'center', paddingVertical: 14, marginTop: 6 },
+  loginCancelText: { color: palette.textSoft, fontWeight: '700', fontSize: 14 },
+
   // Bottom navigation bar — docked, rounded top, elevated, with a Material-You
   // style "active pill" indicator behind the current tab's icon.
   tabBar: {

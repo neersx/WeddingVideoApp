@@ -21,7 +21,7 @@ function formatDate(iso) {
 }
 
 export default function MyDownloadsScreen({ navigation }) {
-  const { user, ensureValidCredential, signInWithGoogle } = useAuth();
+  const { user, ensureValidCredential, promptLogin } = useAuth();
   const [renders, setRenders] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [busyId, setBusyId] = useState('');
@@ -77,8 +77,8 @@ export default function MyDownloadsScreen({ navigation }) {
         {!user ? (
           <View style={styles.card}>
             <Text style={styles.confirmBody}>Sign in to see the videos you've created.</Text>
-            <Pressable onPress={signInWithGoogle} style={styles.smallBtnPrimary}>
-              <Text style={styles.smallBtnPrimaryText}>Sign in with Google</Text>
+            <Pressable onPress={promptLogin} style={styles.smallBtnPrimary}>
+              <Text style={styles.smallBtnPrimaryText}>Sign in</Text>
             </Pressable>
           </View>
         ) : renders === null ? (
