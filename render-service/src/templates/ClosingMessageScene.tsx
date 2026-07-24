@@ -53,8 +53,10 @@ type Props = {
   fontFamilySans: string;
 };
 
-// A dedicated, focused "closing message" screen — always the first photo, a
-// dark inset overlay panel at ~70% opacity (padded well off every edge), and
+// A dedicated, focused "closing message" screen — the caller supplies the photo
+// (Heartfelt templates pass the second-to-last one: the opening message owns the
+// first, and the last would repeat the slide immediately before this), a dark
+// inset overlay panel at ~70% opacity (padded well off every edge), and
 // the message typed out large and centered rather than sharing a scene with
 // a per-photo caption.
 export const ClosingMessageScene: React.FC<Props> = ({src, message, signature, dur, trans, palette, fontFamilySerif, fontFamilySans}) => {

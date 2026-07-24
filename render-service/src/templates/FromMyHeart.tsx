@@ -12,7 +12,8 @@ import {loadFont as loadCormorant} from '@remotion/google-fonts/CormorantGaramon
 import {loadFont as loadOutfit} from '@remotion/google-fonts/Outfit';
 import {WeddingProps, ResolvedCopy} from './types';
 import {BrandOutro} from './BrandOutro';
-import {ClosingMessageScene, estimateClosingContentFrames} from './ClosingMessageScene';
+import {ClosingMessageScene} from './ClosingMessageScene';
+import {closingPhotoIndex, planHeartfeltTiming} from './heartfeltTiming';
 
 const {fontFamily: serif} = loadCormorant();
 const {fontFamily: sans} = loadOutfit();
@@ -184,16 +185,20 @@ export const FromMyHeart: React.FC<WeddingProps> = (props) => {
   const photoCount = Math.max(1, Math.min(photos.length || copy.photoMessages.length, maxSlides));
 
   // Reserve a clean branded outro (~15% of runtime, 2–5s) and a dedicated
-  // closing-message beat, then split what's left evenly across the photo
-  // scenes. The closing beat is sized from the actual message length (via
-  // estimateClosingContentFrames) rather than a fixed proportion, so the
-  // longest supported message always has enough room to fully type out and
-  // reveal the signature before the crossfade to the outro begins.
+  // closing-message beat, then pace the photo scenes at 2.5–3.5s each with the
+  // opening and closing slides pinned to the full 3.5s. See heartfeltTiming.ts
+  // for the allocation; the closing beat is sized from the actual message
+  // length so the longest supported message always types out and reveals its
+  // signature in full, and it absorbs any frames the per-slide cap leaves over.
   const trans = Math.round(fps * 0.4);
-  const outroFrames = Math.min(Math.round(fps * 5), Math.max(Math.round(fps * 2), Math.round(durationInFrames * 0.15)));
-  const closingFrames = Math.max(Math.round(fps * 1.2), estimateClosingContentFrames(copy.final, Boolean(copy.sender), trans));
-  const photoTotal = durationInFrames - outroFrames - closingFrames;
-  const sceneBase = Math.floor(photoTotal / photoCount);
+  const {slides, photoTotal, closingFrames} = planHeartfeltTiming({
+    durationInFrames,
+    fps,
+    photoCount,
+    closingMessage: copy.final,
+    hasSignature: Boolean(copy.sender),
+    trans,
+  });
 
   const musicVolume = interpolate(
     frame,
@@ -208,9 +213,7 @@ export const FromMyHeart: React.FC<WeddingProps> = (props) => {
 
       {Array.from({length: photoCount}).map((_, i) => {
         const isFirst = i === 0;
-        const isLast = i === photoCount - 1;
-        const from = i * sceneBase;
-        const base = isLast ? photoTotal - from : sceneBase;
+        const {from, dur: base} = slides[i];
         // Overlap into the next scene (closing message, or outro) by `trans`.
         const dur = base + trans;
         const caption = copy.photoMessages[i] || copy.photoMessages[copy.photoMessages.length - 1] || copy.final;
@@ -231,11 +234,14 @@ export const FromMyHeart: React.FC<WeddingProps> = (props) => {
 
       <BrandFooter visibleUntil={photoTotal} />
 
-      {/* Dedicated closing-message beat — the first photo again, large typed
-          final message in a focused overlay panel, separate from any caption. */}
+      {/* Dedicated closing-message beat — the second-to-last photo (see
+          closingPhotoIndex: the opening message owns the first, and the last is
+          skipped so the final slide doesn't run back-to-back on the same image),
+          large typed final message in a focused overlay panel, separate from
+          any caption. */}
       <Sequence from={photoTotal} durationInFrames={closingFrames + trans}>
         <ClosingMessageScene
-          src={photos[0]}
+          src={photos[closingPhotoIndex(photoCount)]}
           message={copy.final}
           signature={copy.sender ? `With love, ${copy.sender}` : undefined}
           dur={closingFrames + trans}
