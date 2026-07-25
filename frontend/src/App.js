@@ -809,6 +809,13 @@ function CreateVideoPage() {
   const [loginPromptOpen, setLoginPromptOpen] = useState(false);
   const [resumeRenderAfterLogin, setResumeRenderAfterLogin] = useState(false);
   const [wizardStep, setWizardStep] = useState(0);
+  // reCAPTCHA is redeemed as the user leaves the Details step, in exchange for a
+  // short-lived pass ({ token, expiresAt }) spent at render time. A v3 token is
+  // single-use and expires in ~2 minutes, so it can't simply be minted early and
+  // held — and checking only at submit meant a failure surfaced after every
+  // photo had already been uploaded.
+  const [humanPass, setHumanPass] = useState(null);
+  const [verifyingHuman, setVerifyingHuman] = useState(false);
   const [walletBalance, setWalletBalance] = useState(null);
   const [topUpOpen, setTopUpOpen] = useState(false);
   const [resumeRenderAfterTopUp, setResumeRenderAfterTopUp] = useState(false);
@@ -865,7 +872,19 @@ function CreateVideoPage() {
   ];
   const currentStepKey = wizardSteps[wizardStep]?.key;
 
-  const goNext = () => {
+  // Return a usable pass, redeeming a fresh reCAPTCHA token if we don't hold one.
+  // Throws on a failed check so callers can block the step.
+  const ensureHumanPass = useCallback(async () => {
+    if (humanPass && humanPass.expiresAt > Date.now()) return humanPass.token;
+    const recaptchaToken = await executeRecaptcha();
+    const { data } = await axios.post(`${API}/verify-human`, { recaptchaToken });
+    // Expire a minute early so a pass can't lapse between this check and submit.
+    const expiresAt = Date.now() + Math.max(0, Number(data.expiresIn || 0) - 60) * 1000;
+    setHumanPass({ token: data.token, expiresAt });
+    return data.token;
+  }, [humanPass]);
+
+  const goNext = async () => {
     if (currentStepKey === "details") {
       if (isDataDriven) {
         const missing = validateDataDrivenFields(formSchema?.fields || [], fields);
@@ -889,6 +908,18 @@ function CreateVideoPage() {
           setTopUpOpen(true);
           return;
         }
+      }
+      // Last gate on this step: prove the visitor is human now, so a failure is
+      // reported here rather than after they've uploaded all their photos.
+      setVerifyingHuman(true);
+      try {
+        await ensureHumanPass();
+      } catch (error) {
+        const detail = error?.response?.data?.detail;
+        toast.error(typeof detail === "string" ? detail : "Security check could not be completed. Please refresh and try again.");
+        return;
+      } finally {
+        setVerifyingHuman(false);
       }
     }
     if (currentStepKey === "images") {
@@ -1021,7 +1052,9 @@ function CreateVideoPage() {
     setJobProgress(0);
     setJobStatus("queued");
     try {
-      const recaptchaToken = await executeRecaptcha();
+      // Normally already held from the Details step; this only runs a check now
+      // if the user skipped straight here or sat on the form past the TTL.
+      const humanToken = await ensureHumanPass();
       const tags = String(details.tags || "")
         .split(",")
         .map((tag) => tag.trim())
@@ -1039,7 +1072,7 @@ function CreateVideoPage() {
             // perScreen templates derive length from screen count (server re-computes authoritatively).
             durationInSeconds: durationMode === "perScreen" ? derivedDuration : Number(details.durationInSeconds) || 30,
             tags,
-            recaptchaToken,
+            humanToken,
           }
         : {
             template,
@@ -1054,7 +1087,7 @@ function CreateVideoPage() {
             schedule: category === "Engagement" ? [{ name: "Engagement", time: details.eventDate }] : category === "Birthday" ? [] : schedule,
             durationInSeconds: Number(details.durationInSeconds) || 30,
             tags,
-            recaptchaToken,
+            humanToken,
           };
       const response = await axios.post(`${API}/renders`, payload, {
         headers: { Authorization: `Bearer ${credential}` },
@@ -1075,6 +1108,13 @@ function CreateVideoPage() {
         toast.error("Please sign in again to render your video");
       } else if (!error?.response && error?.message?.includes("reCAPTCHA")) {
         toast.error("Security check could not be completed. Please refresh and try again.");
+      } else if (error?.response?.status === 403) {
+        // The pass was rejected (expired against the server clock, or the signing
+        // secret rotated). Drop it so the next attempt redeems a fresh one rather
+        // than replaying the same dead pass.
+        setHumanPass(null);
+        const detail = error?.response?.data?.detail;
+        toast.error(typeof detail === "string" ? detail : "Security check failed. Please try again.");
       } else {
         // Most endpoints return a string `detail`; the credit-gate (402) on
         // /renders returns a structured {message, required, balance} instead
@@ -1084,7 +1124,7 @@ function CreateVideoPage() {
         toast.error(message || "Failed to queue render");
       }
     }
-  }, [credential, template, details, photos, musicId, customMusicUrl, schedule, category, signOut, isDataDriven, fields, photoCaptions, usesPhotoStep, durationMode, derivedDuration]);
+  }, [credential, template, details, photos, musicId, customMusicUrl, schedule, category, signOut, isDataDriven, fields, photoCaptions, usesPhotoStep, durationMode, derivedDuration, ensureHumanPass]);
 
   const handleRender = async () => {
     if (!isDataDriven && (!details.partnerOne.trim() || !details.partnerTwo.trim())) {
@@ -1378,7 +1418,7 @@ function CreateVideoPage() {
               <div className="mt-7 flex items-center justify-between gap-3 border-t border-[#ECD5E2] pt-5">
                 <button type="button" onClick={goBack} disabled={wizardStep === 0} className="rounded-full border border-[#E8C9DB] px-5 py-2.5 text-sm font-bold text-[#8D1B63] transition hover:bg-[#FFF0F7] disabled:cursor-not-allowed disabled:opacity-35">Back</button>
                 {wizardStep < wizardSteps.length - 1 ? (
-                  <button type="button" onClick={goNext} className="rounded-full bg-[#C80A76] px-6 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-[#A4176D]">Continue <span aria-hidden="true">→</span></button>
+                  <button type="button" onClick={goNext} disabled={verifyingHuman} className="rounded-full bg-[#C80A76] px-6 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-[#A4176D] disabled:cursor-not-allowed disabled:opacity-60">{verifyingHuman ? "Checking…" : <>Continue <span aria-hidden="true">→</span></>}</button>
                 ) : (
                   <button type="button" onClick={() => setWizardStep(0)} className="rounded-full border border-[#E8C9DB] px-5 py-2.5 text-sm font-bold text-[#8D1B63] transition hover:bg-[#FFF0F7]">Edit category</button>
                 )}

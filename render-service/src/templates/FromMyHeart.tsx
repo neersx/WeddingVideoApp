@@ -12,8 +12,7 @@ import {loadFont as loadCormorant} from '@remotion/google-fonts/CormorantGaramon
 import {loadFont as loadOutfit} from '@remotion/google-fonts/Outfit';
 import {WeddingProps, ResolvedCopy} from './types';
 import {BrandOutro} from './BrandOutro';
-import {ClosingMessageScene} from './ClosingMessageScene';
-import {closingPhotoIndex, planHeartfeltTiming} from './heartfeltTiming';
+import {planHeartfeltTiming} from './heartfeltTiming';
 
 const {fontFamily: serif} = loadCormorant();
 const {fontFamily: sans} = loadOutfit();
@@ -21,15 +20,15 @@ const {fontFamily: sans} = loadOutfit();
 // Warm, emotional palette — soft cinematic, no party colours.
 const C = {ink: '#160A0F', cream: '#FFF7EA', rose: '#D98774', wine: '#5E1A2E', amber: '#F1B56B', glow: '#FFD9A8'};
 
-// Resolve copy with graceful fallbacks so no scene is ever blank.
+// Resolve copy with graceful fallbacks so no scene is ever blank. There are no
+// separate opening/closing message fields any more — the first and last image
+// messages ARE the opening and closing text (see the scene roles below).
 const useCopy = (props: WeddingProps) => {
   const r: ResolvedCopy = props.resolved || {};
   const celebrant = r.celebrantName || props.couple?.partnerOne || 'You';
   const sender = r.senderName || '';
   const recipientTerm = r.recipientTerm || '';
   const occasionLabel = r.occasionLabel || '';
-  const intro = r.introMessage || (occasionLabel ? `${occasionLabel} wishes, ${celebrant}` : `This one's for you, ${celebrant}`);
-  const final = r.finalMessage || 'Here’s to you, today and always.';
   const fallbacks = [
     `To my ${recipientTerm || 'favourite person'}…`,
     'every moment with you is a gift.',
@@ -41,7 +40,7 @@ const useCopy = (props: WeddingProps) => {
   const eyebrow = [occasionLabel, recipientTerm ? `For my ${recipientTerm}` : '']
     .filter(Boolean)
     .join('  ·  ');
-  return {celebrant, sender, recipientTerm, occasionLabel, intro, final, photoMessages, eyebrow};
+  return {celebrant, sender, recipientTerm, occasionLabel, photoMessages, eyebrow};
 };
 
 // ---------- Reusable motion primitives ----------
@@ -73,7 +72,7 @@ const KenBurns: React.FC<{src?: string; index: number; dur: number}> = ({src, in
     <Img
       src={src}
       pauseWhenLoading
-      style={{position: 'absolute', inset: '-7%', width: '114%', height: '114%', objectFit: 'cover', transform: `scale(${scale}) translate(${px}px, ${py}px)`, filter: 'saturate(.95) brightness(.93) contrast(1.03)'}}
+      style={{position: 'absolute', inset: '-7%', width: '114%', height: '114%', objectFit: 'cover', transform: `scale(${scale}) translate(${px}px, ${py}px)`, filter: 'saturate(.95) brightness(.9) contrast(1.03)'}}
     />
   );
 };
@@ -81,8 +80,8 @@ const KenBurns: React.FC<{src?: string; index: number; dur: number}> = ({src, in
 // Warm readability overlay: bottom gradient for lower-third text + soft vignette.
 const WarmOverlay: React.FC = () => (
   <>
-    <AbsoluteFill style={{background: 'linear-gradient(180deg, rgba(22,10,15,.30) 0%, rgba(22,10,15,0) 26%, rgba(22,10,15,0) 46%, rgba(22,10,15,.78) 100%)'}} />
-    <AbsoluteFill style={{background: 'radial-gradient(120% 80% at 50% 42%, rgba(0,0,0,0) 52%, rgba(20,7,12,.5) 100%)'}} />
+    <AbsoluteFill style={{background: 'linear-gradient(180deg, rgba(22,10,15,.34) 0%, rgba(22,10,15,0) 26%, rgba(22,10,15,0) 44%, rgba(22,10,15,.82) 100%)'}} />
+    <AbsoluteFill style={{background: 'radial-gradient(120% 80% at 50% 42%, rgba(0,0,0,0) 50%, rgba(20,7,12,.55) 100%)'}} />
     <AbsoluteFill style={{background: 'radial-gradient(60% 40% at 26% 20%, rgba(255,217,168,.16), transparent 70%)', mixBlendMode: 'screen'}} />
   </>
 );
@@ -98,45 +97,100 @@ const LightLeak: React.FC = () => {
   );
 };
 
-// ---------- Text blocks ----------
+// ---------- Message card ----------
+// Every message sits in a legible, softly-lit panel so text stays comfortable
+// over any photo. Opening and closing slides use the large, centred emphasis;
+// middle slides use a smaller lower-third card.
 
-const Caption: React.FC<{text: string; from?: number}> = ({text, from = 6}) => (
-  <Reveal from={from} style={{position: 'absolute', left: 84, right: 84, bottom: 300, textAlign: 'center', color: C.cream, fontFamily: serif, fontSize: 84, lineHeight: 1.16, fontStyle: 'italic', textShadow: '0 6px 34px rgba(0,0,0,.55)'}}>
-    {text}
-  </Reveal>
-);
+type Role = 'opening' | 'middle' | 'closing';
 
-const Eyebrow: React.FC<{text: string}> = ({text}) =>
-  text ? (
-    <Reveal from={4} y={14} style={{position: 'absolute', left: 84, right: 84, top: 150, textAlign: 'center', color: C.glow, fontFamily: sans, fontSize: 34, letterSpacing: 6, textTransform: 'uppercase', textShadow: '0 2px 16px rgba(0,0,0,.5)'}}>
-      {text}
-    </Reveal>
-  ) : null;
+const MessageCard: React.FC<{
+  text: string;
+  role: Role;
+  from: number;
+  eyebrow?: string;
+  signature?: string;
+  signatureFrom?: number;
+}> = ({text, role, from, eyebrow, signature, signatureFrom = from + 20}) => {
+  const frame = useCurrentFrame();
+  const emphasis = role !== 'middle';
+  const fontSize = emphasis ? 96 : 74;
 
-// ---------- Scenes ----------
+  const wrapper: React.CSSProperties = emphasis
+    ? {position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 96px'}
+    : {position: 'absolute', left: 0, right: 0, bottom: 220, display: 'flex', justifyContent: 'center', padding: '0 84px'};
+
+  const sigOpacity = interpolate(frame - signatureFrom, [0, 18], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
+
+  return (
+    <div style={wrapper}>
+      <Reveal from={from} y={emphasis ? 30 : 22} style={{maxWidth: 900, textAlign: 'center'}}>
+        <div
+          style={{
+            position: 'relative',
+            padding: emphasis ? '56px 64px 52px' : '38px 52px',
+            borderRadius: 40,
+            background: 'linear-gradient(180deg, rgba(30,12,18,.60) 0%, rgba(18,8,12,.74) 100%)',
+            border: '1px solid rgba(255,217,168,.26)',
+            boxShadow: '0 26px 70px rgba(0,0,0,.45)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+          }}
+        >
+          {/* Gold accent bar — the "highlight" that lifts the card off the photo. */}
+          <div style={{width: emphasis ? 92 : 66, height: 3, margin: '0 auto 22px', borderRadius: 3, background: `linear-gradient(90deg, transparent, ${C.glow}, ${C.amber}, transparent)`}} />
+
+          {eyebrow ? (
+            <div style={{marginBottom: 18, color: C.glow, fontFamily: sans, fontWeight: 700, fontSize: 32, letterSpacing: 6, textTransform: 'uppercase', textShadow: '0 2px 14px rgba(0,0,0,.6)'}}>
+              {eyebrow}
+            </div>
+          ) : null}
+
+          <div
+            style={{
+              fontFamily: serif,
+              fontWeight: 700,
+              fontStyle: 'italic',
+              fontSize,
+              lineHeight: 1.2,
+              color: C.cream,
+              textShadow: '0 4px 26px rgba(0,0,0,.6)',
+            }}
+          >
+            {text}
+          </div>
+
+          {signature ? (
+            <div style={{marginTop: 30, opacity: sigOpacity, fontFamily: sans, fontWeight: 700, fontSize: 34, letterSpacing: 1, color: C.glow, textShadow: '0 3px 16px rgba(0,0,0,.55)'}}>
+              {signature}
+            </div>
+          ) : null}
+        </div>
+      </Reveal>
+    </div>
+  );
+};
+
+// ---------- Scene ----------
 
 type SceneProps = {
   src?: string;
-  caption: string;
+  message: string;
   index: number;
   dur: number;
   trans: number;
+  role: Role;
   eyebrow?: string;
-  intro?: string;
+  signature?: string;
 };
 
-const PhotoScene: React.FC<SceneProps> = ({src, caption, index, dur, trans, eyebrow, intro}) => {
+const PhotoScene: React.FC<SceneProps> = ({src, message, index, dur, trans, role, eyebrow, signature}) => {
   const frame = useCurrentFrame();
+  const {fps} = useVideoConfig();
   // Crossfade: fade the whole scene in and out over `trans` frames.
   const sceneOpacity = interpolate(frame, [0, trans, dur - trans, dur], [0, 1, 1, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
-  // First scene: play the opening wish, then dissolve into this photo's caption.
-  // Floor at trans+19 so the interpolate keyframes below ([trans, trans+18,
-  // introOut, introOut+16]) stay strictly increasing even when a very short
-  // scene (e.g. a long closing message eating most of the budget) would
-  // otherwise put dur*0.5 below trans+18.
-  const introOut = Math.max(trans + 19, Math.round(dur * 0.5));
-  const captionIn = intro ? Math.round(dur * 0.44) : 6;
-  const introOpacity = intro ? interpolate(frame, [trans, trans + 18, introOut, introOut + 16], [0, 1, 1, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'}) : 0;
+  // Let the photo breathe for a beat before the words rise in.
+  const cardFrom = Math.max(trans + 2, Math.min(Math.round(fps * 0.7), Math.floor(dur * 0.24)));
 
   return (
     <AbsoluteFill style={{opacity: sceneOpacity}}>
@@ -145,16 +199,7 @@ const PhotoScene: React.FC<SceneProps> = ({src, caption, index, dur, trans, eyeb
       </AbsoluteFill>
       <WarmOverlay />
       <LightLeak />
-
-      {eyebrow ? <Eyebrow text={eyebrow} /> : null}
-
-      {intro ? (
-        <div style={{opacity: introOpacity, position: 'absolute', left: 92, right: 92, top: 0, bottom: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center'}}>
-          <div style={{fontFamily: serif, fontSize: 112, fontStyle: 'italic', lineHeight: 1.1, color: C.cream, textShadow: '0 6px 34px rgba(0,0,0,.55)'}}>{intro}</div>
-        </div>
-      ) : null}
-
-      <Caption text={caption} from={captionIn} />
+      <MessageCard text={message} role={role} from={cardFrom} eyebrow={eyebrow} signature={signature} signatureFrom={cardFrom + 26} />
     </AbsoluteFill>
   );
 };
@@ -180,25 +225,15 @@ export const FromMyHeart: React.FC<WeddingProps> = (props) => {
   const photos = props.photos || [];
   const maxSlides = Number(props.settings?.maxSlides) || 5;
 
-  // Photo scene count follows the uploaded images (capped by maxSlides). Every
-  // image gets its own scene + caption, honouring the captionPerImage setting.
+  // One scene per uploaded image (capped by maxSlides). Every image carries its
+  // own message; the first and last are the opening and closing.
   const photoCount = Math.max(1, Math.min(photos.length || copy.photoMessages.length, maxSlides));
 
-  // Reserve a clean branded outro (~15% of runtime, 2–5s) and a dedicated
-  // closing-message beat, then pace the photo scenes at 2.5–3.5s each with the
-  // opening and closing slides pinned to the full 3.5s. See heartfeltTiming.ts
-  // for the allocation; the closing beat is sized from the actual message
-  // length so the longest supported message always types out and reveals its
-  // signature in full, and it absorbs any frames the per-slide cap leaves over.
+  // Reserve a branded outro (~15% of runtime, 2–5s); the photo slides fill the
+  // rest. The opening and closing slides run ~4s (never under 3.5s while runtime
+  // allows), middle slides 2.5–3.5s. See heartfeltTiming.ts.
   const trans = Math.round(fps * 0.4);
-  const {slides, photoTotal, closingFrames} = planHeartfeltTiming({
-    durationInFrames,
-    fps,
-    photoCount,
-    closingMessage: copy.final,
-    hasSignature: Boolean(copy.sender),
-    trans,
-  });
+  const {slides, photoTotal} = planHeartfeltTiming({durationInFrames, fps, photoCount});
 
   const musicVolume = interpolate(
     frame,
@@ -213,20 +248,23 @@ export const FromMyHeart: React.FC<WeddingProps> = (props) => {
 
       {Array.from({length: photoCount}).map((_, i) => {
         const isFirst = i === 0;
+        const isLast = i === photoCount - 1;
+        const role: Role = isFirst ? 'opening' : isLast ? 'closing' : 'middle';
         const {from, dur: base} = slides[i];
-        // Overlap into the next scene (closing message, or outro) by `trans`.
+        // Overlap into the next scene (or the outro) by `trans`.
         const dur = base + trans;
-        const caption = copy.photoMessages[i] || copy.photoMessages[copy.photoMessages.length - 1] || copy.final;
+        const message = copy.photoMessages[i] || copy.photoMessages[copy.photoMessages.length - 1] || '';
         return (
           <Sequence key={i} from={from} durationInFrames={dur}>
             <PhotoScene
               src={photos[i]}
-              caption={caption}
+              message={message}
               index={i}
               dur={dur}
               trans={trans}
+              role={role}
               eyebrow={isFirst ? copy.eyebrow : undefined}
-              intro={isFirst ? copy.intro : undefined}
+              signature={isLast && copy.sender ? `With love, ${copy.sender}` : undefined}
             />
           </Sequence>
         );
@@ -234,26 +272,8 @@ export const FromMyHeart: React.FC<WeddingProps> = (props) => {
 
       <BrandFooter visibleUntil={photoTotal} />
 
-      {/* Dedicated closing-message beat — the second-to-last photo (see
-          closingPhotoIndex: the opening message owns the first, and the last is
-          skipped so the final slide doesn't run back-to-back on the same image),
-          large typed final message in a focused overlay panel, separate from
-          any caption. */}
-      <Sequence from={photoTotal} durationInFrames={closingFrames + trans}>
-        <ClosingMessageScene
-          src={photos[closingPhotoIndex(photoCount)]}
-          message={copy.final}
-          signature={copy.sender ? `With love, ${copy.sender}` : undefined}
-          dur={closingFrames + trans}
-          trans={trans}
-          palette={{ink: C.ink, cream: C.cream, accent: C.glow, overlayRgb: '22,10,15'}}
-          fontFamilySerif={serif}
-          fontFamilySans={sans}
-        />
-      </Sequence>
-
-      <Sequence from={photoTotal + closingFrames} durationInFrames={durationInFrames - photoTotal - closingFrames}>
-        <BrandOutro durationInFrames={durationInFrames - photoTotal - closingFrames} />
+      <Sequence from={photoTotal} durationInFrames={durationInFrames - photoTotal}>
+        <BrandOutro durationInFrames={durationInFrames - photoTotal} />
       </Sequence>
     </AbsoluteFill>
   );

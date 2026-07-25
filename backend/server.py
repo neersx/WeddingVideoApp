@@ -86,6 +86,13 @@ try:
     RECAPTCHA_SCORE_THRESHOLD = float(os.environ.get('RECAPTCHA_SCORE_THRESHOLD', '0.5') or '0.5')
 except ValueError:
     RECAPTCHA_SCORE_THRESHOLD = 0.5
+# How long a /verify-human pass stays usable. Long enough to fill the wizard
+# (photos + music) without re-checking, short enough that a scraped pass isn't
+# a durable bypass.
+try:
+    HUMAN_PASS_TTL_MINUTES = int(os.environ.get('HUMAN_PASS_TTL_MINUTES', '45') or '45')
+except ValueError:
+    HUMAN_PASS_TTL_MINUTES = 45
 UPLOADS_DIR = ROOT_DIR / 'uploads'
 RENDERS_DIR = ROOT_DIR / 'renders'
 MUSIC_DIR = ROOT_DIR / 'music'
@@ -371,9 +378,11 @@ DEFAULT_TEMPLATE_DOCUMENTS = [
             # the chosen duration, falling back to maxImages.
             "imagesPerDuration": {"10": 3, "20": 4, "30": 5},
             "captionPerImage": True,
-            "introMessage": {"supported": True, "maxLength": 120},
+            # No standalone opening/closing message fields: the first and last
+            # image messages ARE the opening and closing text (the render gives
+            # those two slides a longer, emphasised beat). See the render service
+            # (FromMyHeart.tsx / ForeverSpecial.tsx).
             "perImageMessage": {"supported": True, "maxLength": 120},
-            "finalMessage": {"supported": True, "maxLength": 120},
             "eventDate": {"supported": True},
             "relationship": {"supported": True},
         },
@@ -402,9 +411,10 @@ DEFAULT_TEMPLATE_DOCUMENTS = [
             "durations": [10, 20, 30],
             "imagesPerDuration": {"10": 3, "20": 4, "30": 5},
             "captionPerImage": True,
-            "introMessage": {"supported": True, "maxLength": 120},
+            # No standalone opening/closing message fields — the first and last
+            # image messages serve as the opening and closing text. See the
+            # matching note on from-my-heart-cinematic above.
             "perImageMessage": {"supported": True, "maxLength": 120},
-            "finalMessage": {"supported": True, "maxLength": 120},
             "eventDate": {"supported": True},
             "relationship": {"supported": True},
         },
@@ -937,6 +947,14 @@ class RenderRequest(BaseModel):
     durationInSeconds: int = 30
     tags: List[str] = Field(default_factory=list)
     recaptchaToken: Optional[str] = None
+    # Pass issued by /verify-human earlier in the wizard (see create_human_pass).
+    # Preferred over recaptchaToken so the check fails while the user is still
+    # filling the form rather than after they've uploaded every photo.
+    humanToken: Optional[str] = None
+
+
+class VerifyHumanRequest(BaseModel):
+    recaptchaToken: Optional[str] = None
 
 
 class GoogleLoginRequest(BaseModel):
@@ -959,6 +977,12 @@ class GoogleUser(BaseModel):
     email_verified: bool = False
     azp: str = ""
     provider: str = "google"
+    # True when this identity was established by the native iOS/Android app.
+    # Native clients can't produce a reCAPTCHA v3 web token, so they skip that
+    # check. Derived from the Google `azp` claim (native OAuth client id) or the
+    # Apple flow, then carried in the session JWT — `azp` itself only exists on a
+    # raw Google id token, not on our own session tokens.
+    native_client: bool = False
 
 
 class TemplateUpdateRequest(BaseModel):
@@ -1022,6 +1046,64 @@ async def _save_google_user(user: GoogleUser):
     return user_doc
 
 
+def create_human_pass(result: Optional[dict]) -> str:
+    """Mint a short-lived pass proving reCAPTCHA already succeeded for this
+    session of the create wizard.
+
+    reCAPTCHA v3 tokens are single-use and expire in ~2 minutes, so they can't be
+    minted at the start of the form and spent at the end. Instead /verify-human
+    redeems the token immediately and hands back this pass, which the client
+    presents when it finally submits the render. Carries the verification
+    metadata so the render doc's audit record stays identical."""
+    now = datetime.now(timezone.utc)
+    payload = {
+        "typ": "human",
+        "iss": "invitavideos",
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(minutes=HUMAN_PASS_TTL_MINUTES)).timestamp()),
+        # None when reCAPTCHA isn't configured (local dev) — mirrors
+        # verify_recaptcha_token returning None so nothing is recorded.
+        "recaptcha": None if result is None else {
+            "score": result.get("score"),
+            "action": result.get("action"),
+            "hostname": result.get("hostname"),
+        },
+    }
+    return jose_jwt.encode(payload, SESSION_SECRET, algorithm="HS256")
+
+
+def _verify_human_pass(token: Optional[str]) -> Optional[dict]:
+    """Return the pass's recorded reCAPTCHA metadata dict for a valid, unexpired
+    pass; None if the pass is missing, malformed, expired or not a human pass.
+
+    A valid pass whose check ran without reCAPTCHA configured yields {} — falsy
+    like a failure, so callers must test `is not None`, not truthiness."""
+    if not token:
+        return None
+    try:
+        payload = jose_jwt.decode(token, SESSION_SECRET, algorithms=["HS256"], options={"verify_aud": False})
+    except Exception:  # noqa: BLE001 — any decode/expiry error => not a valid pass
+        return None
+    if payload.get("typ") != "human":
+        return None
+    return payload.get("recaptcha") or {}
+
+
+def _is_native_client(user: GoogleUser) -> bool:
+    """Whether this identity came from the native iOS/Android app.
+
+    Two signals, checked at sign-in while the provider's own claims are still in
+    hand: a Google id token whose `azp` is one of the app's OAuth client ids, or
+    the Apple flow (only the native app calls /auth/apple — the web app signs in
+    with Google). `native_client` covers users already restored from a session
+    JWT, where neither raw claim survives."""
+    if user.native_client:
+        return True
+    if user.provider == "apple":
+        return True
+    return bool(user.azp and user.azp in MOBILE_GOOGLE_CLIENT_IDS)
+
+
 def create_session_token(user: GoogleUser) -> str:
     """Mint a first-party session JWT (HS256) the app uses as its Bearer."""
     now = datetime.now(timezone.utc)
@@ -1031,6 +1113,9 @@ def create_session_token(user: GoogleUser) -> str:
         "name": user.name,
         "picture": user.picture,
         "provider": user.provider or "google",
+        # Preserve "this came from the native app" across the session's lifetime;
+        # the raw provider claims that prove it aren't available on later requests.
+        "native": _is_native_client(user),
         "typ": "session",
         "iss": "invitavideos",
         "iat": int(now.timestamp()),
@@ -1048,13 +1133,22 @@ def _verify_session_token(token: str) -> Optional[GoogleUser]:
         return None
     if payload.get("typ") != "session" or not payload.get("sub"):
         return None
+    provider = str(payload.get("provider", "google"))
+    # Session tokens minted before the "native" claim existed have to be treated
+    # as native: they were only ever issued to the app (the web app authenticates
+    # with its raw Google credential), and without this every already-signed-in
+    # app user would hit "reCAPTCHA verification is required" until their 30-day
+    # token expired. Safe to drop this fallback once SESSION_TTL_DAYS has passed
+    # since deploying the claim.
+    native = bool(payload.get("native", True))
     return GoogleUser(
         sub=str(payload.get("sub", "")),
         email=str(payload.get("email", "")),
         name=str(payload.get("name", "")),
         picture=str(payload.get("picture", "")),
         email_verified=True,
-        provider=str(payload.get("provider", "google")),
+        provider=provider,
+        native_client=native,
     )
 
 
@@ -1113,6 +1207,8 @@ async def _verify_apple_credential(identity_token: str) -> GoogleUser:
         picture="",
         email_verified=bool(payload.get("email_verified", True)),
         provider="apple",
+        # Sign in with Apple is only wired up in the native app.
+        native_client=True,
     )
 
 
@@ -1321,6 +1417,24 @@ async def migrate_heartfelt_rename():
                 {"_id": track["_id"]},
                 {"$set": {"categories": ["Heartfelt" if c == "From My Heart" else c for c in categories]}},
             )
+
+
+async def migrate_heartfelt_drop_opening_closing():
+    """Remove the standalone opening/closing message capabilities from the two
+    Heartfelt templates. The first and last image messages now serve as the
+    opening and closing text, so these fields are dropped from the form. Seeding
+    is insert-only, so already-seeded docs need their settings updated directly.
+    Idempotent."""
+    now = datetime.now(timezone.utc).isoformat()
+    for template_id in ("from-my-heart-cinematic", "forever-special"):
+        doc = await db.templates.find_one({"_id": template_id})
+        if not doc:
+            continue
+        settings = dict(doc.get("settings") or {})
+        if "introMessage" in settings or "finalMessage" in settings:
+            settings.pop("introMessage", None)
+            settings.pop("finalMessage", None)
+            await db.templates.update_one({"_id": template_id}, {"$set": {"settings": settings, "updated_at": now}})
 
 
 async def migrate_message_maxlength_120():
@@ -1658,6 +1772,17 @@ async def apple_login(req: AppleLoginRequest):
             user.email = existing.get("email", "")
     await _save_google_user(user)
     return {"user": user.model_dump(), "token": create_session_token(user)}
+
+
+@api_router.post("/verify-human")
+async def verify_human(req: VerifyHumanRequest, request: Request):
+    """Run the reCAPTCHA check early in the create wizard and hand back a pass.
+
+    Called by the web app as the user leaves the details step, so a failed check
+    surfaces there instead of after they've uploaded every photo. Raises the same
+    403s as the render-time check (see verify_recaptcha_token)."""
+    result = await verify_recaptcha_token(req.recaptchaToken, request.client.host if request.client else None)
+    return {"token": create_human_pass(result), "expiresIn": HUMAN_PASS_TTL_MINUTES * 60}
 
 
 @api_router.post("/upload")
@@ -2296,10 +2421,21 @@ async def create_render(
     request: Request,
     user: GoogleUser = Depends(require_google_user),
 ):
-    if user.azp and user.azp in MOBILE_GOOGLE_CLIENT_IDS:
+    # Native app clients can't run reCAPTCHA v3 (it's a browser API), so they're
+    # exempt. See _is_native_client — this must not test `azp` directly, which is
+    # absent from the session JWTs the app actually sends.
+    if _is_native_client(user):
         recaptcha_result = None
     else:
-        recaptcha_result = await verify_recaptcha_token(req.recaptchaToken, request.client.host if request.client else None)
+        # Preferred path: a pass from /verify-human, redeemed while the user was
+        # still filling the form. Fall back to verifying a raw token here for
+        # clients that haven't picked up the new flow yet (or whose pass expired
+        # during a long session).
+        pass_result = _verify_human_pass(req.humanToken)
+        if pass_result is not None:
+            recaptcha_result = pass_result or None
+        else:
+            recaptcha_result = await verify_recaptcha_token(req.recaptchaToken, request.client.host if request.client else None)
     template_doc = await db.templates.find_one({"_id": req.template})
     category_doc = await db.categories.find_one({"name": (template_doc or {}).get("category", "")})
     # The same manifest the client rendered its form from — form and validation
@@ -2422,7 +2558,7 @@ async def create_render(
             for item in f["schedule"] if isinstance(item, dict) and (item.get("name") or item.get("time"))
         ]
 
-    payload = req.model_dump(exclude={"recaptchaToken"})
+    payload = req.model_dump(exclude={"recaptchaToken", "humanToken"})
     payload["tags"] = list(dict.fromkeys(tag.strip() for tag in req.tags if tag.strip()))[:12]
     payload["resolved"] = resolve_render_copy(req.template, req.category, req.fields)
     payload["settings"] = template_settings
@@ -2708,6 +2844,7 @@ async def initialize_storage():
         await seed_default_categories()
         await migrate_category_types()
         await migrate_message_maxlength_120()
+        await migrate_heartfelt_drop_opening_closing()
         await migrate_render_visibility_defaults()
         await catalog.seed_default_packs(db)
         asyncio.create_task(_expiry_cleanup_loop())
@@ -2739,6 +2876,7 @@ async def initialize_storage():
         await seed_default_categories()
         await migrate_category_types()
         await migrate_message_maxlength_120()
+        await migrate_heartfelt_drop_opening_closing()
         await migrate_render_visibility_defaults()
         await catalog.seed_default_packs(db)
         asyncio.create_task(_expiry_cleanup_loop())
