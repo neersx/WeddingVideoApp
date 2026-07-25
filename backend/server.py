@@ -1291,6 +1291,20 @@ def _normalized_template_settings(document):
     # Normalize the per-duration image map to string keys / int values.
     raw_map = settings.get("imagesPerDuration") or {}
     settings["imagesPerDuration"] = {str(k): int(v) for k, v in raw_map.items() if str(v).strip()}
+    # maxSlides bounds how many photo slides the render draws (see
+    # FromMyHeart.tsx / ForeverSpecial.tsx). It must never sit below the most
+    # images any allowed duration lets a user upload — otherwise those extra
+    # images upload and validate fine, then silently never render (a 6-image /
+    # 60s reel with maxSlides=5 dropped its 6th photo). Raise it to the true
+    # ceiling from imagesPerDuration, falling back to maxImages for any duration
+    # without its own cap.
+    overall_max = int(settings.get("maxImages") or 0)
+    images_per_duration = settings["imagesPerDuration"]
+    max_uploadable = max(
+        (images_per_duration.get(str(int(d)), overall_max) for d in (settings.get("durations") or [])),
+        default=overall_max,
+    )
+    settings["maxSlides"] = max(int(settings.get("maxSlides") or 0), max_uploadable)
     per_image = settings.get("perImageMessage") or {}
     settings.setdefault("captionPerImage", bool(per_image.get("supported")))
     # Admin-set fallback for "My Music" when the user's own link is missing or
