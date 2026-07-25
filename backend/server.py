@@ -2601,6 +2601,11 @@ async def create_render(
     # dangling hold. Settled (captured or released) by _run_render_job once
     # the job finishes.
     credit_cost = pricing.cost_in_credits(template_settings, req.durationInSeconds)
+    # Mobile app renders are free for now: the native app has no top-up flow, so
+    # never charge (or credit-gate) a native client, whatever the template price.
+    # This also gives them the free-tier frame rate below, like every free render.
+    if _is_native_client(user):
+        credit_cost = 0
     # Free videos render at a lower fps (fewer frames = faster/cheaper render);
     # paid videos get the full frame rate. The render service reads this and
     # recomputes durationInFrames so the real-time length is unchanged.
