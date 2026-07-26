@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xcrun simctl *)",
+      "Bash(sips -g pixelWidth -g pixelHeight /private/tmp/claude-501/-Volumes-Projects-WeddingVideoApp/1fcf0b58-65e2-47b1-a819-06717052e5cc/scratchpad/ipad-check.png)"
+    ]
+  }
+}
