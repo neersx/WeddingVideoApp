@@ -13,6 +13,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.invitavideos.app",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -39,6 +40,7 @@
     },
     "plugins": [
       "expo-video",
+      "expo-apple-authentication",
       [
         "expo-image-picker",
         {

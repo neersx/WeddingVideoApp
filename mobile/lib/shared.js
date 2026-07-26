@@ -63,12 +63,30 @@ export function absoluteVideoUrl(value) {
   return `${origin}${value.startsWith('/') ? value : `/${value}`}`;
 }
 
+// FastAPI error responses put the reason in `detail`, but it isn't always a
+// string: the credit gate returns {message, required, balance} and validation
+// errors (422) return a list of {loc, msg, type}. Passing any of those straight
+// into new Error() renders "[object Object]" on screen, so flatten to text here.
+export function detailToMessage(detail, fallback = 'Request failed') {
+  if (!detail) return fallback;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    const msgs = detail.map((item) => (item && typeof item === 'object' ? item.msg : item)).filter(Boolean);
+    return msgs.length ? msgs.join('. ') : fallback;
+  }
+  if (typeof detail === 'object') return detail.message || detail.detail || fallback;
+  return String(detail);
+}
+
 export async function json(path, options = {}) {
   const response = await fetch(`${API}${path}`, options);
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(body.detail || 'Request failed');
+    const error = new Error(detailToMessage(body.detail, `Request failed (${response.status})`));
     error.status = response.status;
+    // Keep the raw structured detail so callers can read fields like the credit
+    // gate's {required, balance} without re-parsing the message.
+    error.detail = body.detail;
     throw error;
   }
   return body;
@@ -102,7 +120,7 @@ export async function uploadPhoto(photo) {
   form.append('file', file);
   const response = await expoFetch(`${API}/upload`, { method: 'POST', body: form });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.detail || `Photo upload failed (${response.status})`);
+  if (!response.ok) throw new Error(detailToMessage(body.detail, `Photo upload failed (${response.status})`));
   return body;
 }
 

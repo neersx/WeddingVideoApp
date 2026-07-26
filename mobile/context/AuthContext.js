@@ -9,6 +9,28 @@ const AppleAuthentication = Platform.OS === 'ios' ? require('expo-apple-authenti
 
 const AuthContext = createContext(null);
 
+// expo-apple-authentication relays Apple's own wording, which is opaque to a
+// user and unactionable in a bug report ("The authorization attempt failed for
+// an unknown reason" is ASAuthorizationError.unknown / code 1000 — Apple gives
+// no further detail). Translate the codes into something a tester can act on,
+// and keep the raw code visible so TestFlight reports identify the failure.
+function appleSignInMessage(e) {
+  const code = e?.code || '';
+  const hint = {
+    // 1000. Almost always the device's Apple Account: signed out of iCloud, or
+    // the account can't complete the request. Also what a build whose
+    // provisioning profile lacks the Sign in with Apple entitlement reports.
+    ERR_REQUEST_UNKNOWN:
+      'Apple could not complete the sign-in. Check that you are signed in to iCloud in Settings, then try again.',
+    ERR_REQUEST_NOT_HANDLED: 'Apple could not handle the sign-in request. Please try again.',
+    ERR_REQUEST_NOT_INTERACTIVE: 'Apple sign-in needs to be started from the app. Please try again.',
+    ERR_REQUEST_FAILED: 'Apple sign-in failed. Please try again.',
+    ERR_INVALID_RESPONSE: 'Apple returned an unexpected response. Please try again.',
+  }[code];
+  if (hint) return code ? `${hint} (${code})` : hint;
+  return [e?.message || 'Apple sign-in failed.', code && `(${code})`].filter(Boolean).join(' ');
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(DISABLE_GOOGLE_AUTH ? { email: 'local-dev@invitavideos.test', name: 'Local Development User' } : null);
   // `credential` is now a first-party session JWT returned by the backend after
@@ -66,7 +88,7 @@ export function AuthProvider({ children }) {
       setLoginVisible(false);
     } catch (e) {
       if (e?.code === 'ERR_REQUEST_CANCELED') return; // user dismissed the sheet
-      setError(e.message || 'Apple sign-in failed.');
+      setError(appleSignInMessage(e));
     } finally {
       setSigningIn(false);
     }

@@ -107,8 +107,16 @@ export default function CreateScreen({ route, navigation }) {
   async function choosePhotos() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) return Alert.alert('Photos permission needed', 'Allow photo access to add images to your video.');
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsMultipleSelection: true, selectionLimit: maxImages, quality: 0.9 });
-    if (!result.canceled) setPhotos(result.assets);
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsMultipleSelection: true, selectionLimit: maxImages, quality: 0.9 });
+      if (!result.canceled) setPhotos(result.assets);
+    } catch (e) {
+      // iOS can fail to hand back a JPEG for certain assets — iCloud-optimised
+      // or HEIC photos, and many of the simulator's stock images — raising
+      // "Cannot load representation of type public.jpeg". Surface it instead of
+      // letting it bubble up as an uncaught promise rejection.
+      setError('One of the selected photos couldn’t be opened. Try a different image, or a photo saved directly on this device.');
+    }
   }
 
   const removePhoto = (uri) => setPhotos((current) => current.filter((photo) => photo.uri !== uri));

@@ -4,6 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { AuthProvider } from './context/AuthContext';
 import { BottomNav } from './components/BottomNav';
+import { LoginModal } from './components/LoginModal';
 import LandingScreen from './screens/LandingScreen';
 import CreateScreen from './screens/CreateScreen';
 import MyDownloadsScreen from './screens/MyDownloadsScreen';
@@ -35,6 +36,7 @@ export default function App() {
           <Tab.Screen name="MyVideos" component={MyDownloadsScreen} />
         </Tab.Navigator>
       </NavigationContainer>
+      <LoginModal />
     </AuthProvider>
   );
 }
