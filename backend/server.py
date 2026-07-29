@@ -870,6 +870,12 @@ class _InMemoryCollection:
             return _InMemoryDeleteResult(1)
         return _InMemoryDeleteResult(0)
 
+    async def delete_many(self, filter_query):
+        ids = [doc["_id"] for doc in self._documents.values() if _matches(doc, filter_query)]
+        for doc_id in ids:
+            del self._documents[doc_id]
+        return _InMemoryDeleteResult(len(ids))
+
     async def count_documents(self, filter_query):
         return sum(1 for document in self._documents.values() if _matches(document, filter_query))
 
@@ -1153,13 +1159,26 @@ def _verify_session_token(token: str) -> Optional[GoogleUser]:
 
 
 async def _get_apple_jwks():
-    """Apple's rotating public keys, cached ~1h."""
+    """Apple's rotating public keys, cached ~1h.
+
+    Raises HTTPException (never lets an httpx error propagate unhandled) so a
+    transient DNS/TLS/timeout blip fetching Apple's endpoint surfaces to the
+    client as a diagnosable 503 instead of a bare, unlogged 500."""
     if _apple_jwks_cache["keys"] and (time.time() - _apple_jwks_cache["fetched"]) < 3600:
         return _apple_jwks_cache["keys"]
-    async with httpx.AsyncClient(timeout=httpx.Timeout(10, connect=5)) as hc:
-        resp = await hc.get(APPLE_KEYS_URL)
-    resp.raise_for_status()
-    keys = resp.json().get("keys", [])
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10, connect=5)) as hc:
+            resp = await hc.get(APPLE_KEYS_URL)
+        resp.raise_for_status()
+        keys = resp.json().get("keys", [])
+    except httpx.HTTPError as exc:
+        logger.error("Failed to fetch Apple JWKS from %s: %s", APPLE_KEYS_URL, exc)
+        # Serve a stale cache rather than fail outright if we have one — Apple's
+        # keys rotate infrequently, so a cache that's a bit over an hour old is
+        # still almost certainly valid.
+        if _apple_jwks_cache["keys"]:
+            return _apple_jwks_cache["keys"]
+        raise HTTPException(status_code=503, detail="Could not reach Apple to verify sign-in. Please try again.") from exc
     _apple_jwks_cache["keys"] = keys
     _apple_jwks_cache["fetched"] = time.time()
     return keys
@@ -1438,17 +1457,29 @@ async def migrate_heartfelt_drop_opening_closing():
     Heartfelt templates. The first and last image messages now serve as the
     opening and closing text, so these fields are dropped from the form. Seeding
     is insert-only, so already-seeded docs need their settings updated directly.
-    Idempotent."""
+    Must also strip the legacy `capabilities` field: _normalized_template_settings
+    merges it into `settings` via setdefault, so a doc with a stale capabilities
+    entry silently reintroduces a field removed from settings alone. Idempotent."""
     now = datetime.now(timezone.utc).isoformat()
     for template_id in ("from-my-heart-cinematic", "forever-special"):
         doc = await db.templates.find_one({"_id": template_id})
         if not doc:
             continue
+        update = {}
         settings = dict(doc.get("settings") or {})
         if "introMessage" in settings or "finalMessage" in settings:
             settings.pop("introMessage", None)
             settings.pop("finalMessage", None)
-            await db.templates.update_one({"_id": template_id}, {"$set": {"settings": settings, "updated_at": now}})
+            update["settings"] = settings
+        capabilities = doc.get("capabilities")
+        if isinstance(capabilities, dict) and ("introMessage" in capabilities or "finalMessage" in capabilities):
+            capabilities = dict(capabilities)
+            capabilities.pop("introMessage", None)
+            capabilities.pop("finalMessage", None)
+            update["capabilities"] = capabilities
+        if update:
+            update["updated_at"] = now
+            await db.templates.update_one({"_id": template_id}, {"$set": update})
 
 
 async def migrate_message_maxlength_120():
@@ -2735,6 +2766,21 @@ async def list_my_renders(user: GoogleUser = Depends(require_google_user)):
         }
         for d in docs
     ]
+
+
+@api_router.delete("/account")
+async def delete_account(user: GoogleUser = Depends(require_google_user)):
+    """Apple Guideline 5.1.1(v): account deletion must be reachable in-app and
+    must actually erase data, not just deactivate. Removes the user's render
+    files, render records, wallet, and profile."""
+    docs = await db.renders.find({"userId": user.sub}).to_list(10000)
+    for doc in docs:
+        (RENDERS_DIR / f"{doc['_id']}.mp4").unlink(missing_ok=True)
+    await db.renders.delete_many({"userId": user.sub})
+    await db.wallets.delete_one({"_id": user.sub})
+    await db.wallet_transactions.delete_many({"userId": user.sub})
+    await db.users.delete_one({"_id": user.sub})
+    return {"deleted": True}
 
 
 @api_router.get("/renders/{render_id}")
