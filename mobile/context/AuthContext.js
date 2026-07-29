@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState } from 'react';
 import { Alert, Platform } from 'react-native';
-import { GoogleSignin, isSuccessResponse, isErrorWithCode, statusCodes } from '@react-native-google-signin/google-signin';
+import { GoogleSignin, isSuccessResponse, isCancelledResponse, isErrorWithCode, statusCodes } from '@react-native-google-signin/google-signin';
 import { DISABLE_GOOGLE_AUTH, isCredentialExpired, json } from '../lib/shared';
 
 // expo-apple-authentication calls its native module at import time and only
@@ -31,6 +31,16 @@ function appleSignInMessage(e) {
   return [e?.message || 'Apple sign-in failed.', code && `(${code})`].filter(Boolean).join(' ');
 }
 
+// Surfaces an auth failure two ways: the inline error text in LoginModal (easy
+// to miss if the sheet is mid-dismiss) and a native Alert (impossible to miss,
+// works identically on iOS/Android). Also logs to the console so `adb logcat`
+// / Metro output has the raw error for debugging silent native-SDK failures.
+function reportAuthError(setError, message, raw) {
+  if (raw) console.error('[auth]', message, raw);
+  setError(message);
+  Alert.alert('Sign-in failed', message);
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(DISABLE_GOOGLE_AUTH ? { email: 'local-dev@invitavideos.test', name: 'Local Development User' } : null);
   // `credential` is now a first-party session JWT returned by the backend after
@@ -48,16 +58,22 @@ export function AuthProvider({ children }) {
     try {
       await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
       const result = await GoogleSignin.signIn();
-      if (!isSuccessResponse(result)) return; // user cancelled
+      if (isCancelledResponse(result)) return; // user backed out of the picker — not an error
+      if (!isSuccessResponse(result)) {
+        // e.g. 'noSavedCredentialFound' — a real dead end (no Google account on
+        // the device to pick), previously swallowed silently.
+        reportAuthError(setError, 'No Google account is available to sign in with. Add one in your device settings and try again.', result);
+        return;
+      }
       const token = result.data?.idToken;
-      if (!token) return setError('Google did not return an ID token. Check your Google client IDs.');
+      if (!token) return reportAuthError(setError, 'Google did not return an ID token. Check your Google client IDs.', result);
       const data = await json('/auth/google', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credential: token }) });
       setUser(data.user || data);
       setCredential(data.token || null);
       setLoginVisible(false);
     } catch (e) {
       if (isErrorWithCode(e) && e.code === statusCodes.SIGN_IN_CANCELLED) return;
-      setError(e.message || 'Google sign-in failed.');
+      reportAuthError(setError, e.message || 'Google sign-in failed.', e);
     } finally {
       setSigningIn(false);
     }
@@ -74,7 +90,7 @@ export function AuthProvider({ children }) {
         ],
       });
       const identityToken = cred.identityToken;
-      if (!identityToken) return setError('Apple did not return an identity token.');
+      if (!identityToken) return reportAuthError(setError, 'Apple did not return an identity token.', cred);
       const fullName = cred.fullName
         ? [cred.fullName.givenName, cred.fullName.familyName].filter(Boolean).join(' ')
         : '';
@@ -88,7 +104,7 @@ export function AuthProvider({ children }) {
       setLoginVisible(false);
     } catch (e) {
       if (e?.code === 'ERR_REQUEST_CANCELED') return; // user dismissed the sheet
-      setError(appleSignInMessage(e));
+      reportAuthError(setError, appleSignInMessage(e), e);
     } finally {
       setSigningIn(false);
     }

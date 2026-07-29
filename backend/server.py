@@ -1242,9 +1242,15 @@ def _verify_google_credential(credential: str) -> GoogleUser:
             GOOGLE_CLIENT_IDS,
         )
     except ValueError as exc:
+        # The real reason (e.g. "Wrong recipient, payload audience != accepted
+        # audiences" — the #1 Android cause, a client id missing from
+        # GOOGLE_CLIENT_IDS) is swallowed by the generic 401 sent to the client.
+        # Log it so an Android-only sign-in failure is diagnosable server-side.
+        logger.warning("Google credential verification failed: %s", exc)
         raise HTTPException(status_code=401, detail="Invalid Google credential") from exc
 
     if payload.get("iss") not in {"accounts.google.com", "https://accounts.google.com"}:
+        logger.warning("Google credential had unexpected issuer: %s", payload.get("iss"))
         raise HTTPException(status_code=401, detail="Invalid Google issuer")
 
     user = GoogleUser(
