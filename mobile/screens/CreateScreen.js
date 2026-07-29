@@ -15,6 +15,18 @@ import {
   uploadPhoto,
 } from '../lib/shared';
 
+const STATUS_LABEL = { queued: 'Queued', rendering: 'Rendering', done: 'Ready', failed: 'Failed' };
+const RENDER_MESSAGES = [
+  'Setting the scene…',
+  'Arranging your photos…',
+  'Cueing the music…',
+  'Animating your names…',
+  'Adding a little sparkle…',
+  'Painting the final frames…',
+  'Almost ready to celebrate…',
+];
+const formatElapsed = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+
 export default function CreateScreen({ route, navigation }) {
   const category = route.params?.category || 'Wedding';
   const { user, credential, ensureValidCredential } = useAuth();
@@ -36,10 +48,17 @@ export default function CreateScreen({ route, navigation }) {
   const [fields, setFields] = useState({});
   const [status, setStatus] = useState('');
   const [isWorking, setIsWorking] = useState(false);
-  // Set once the render job is accepted by the server. The render then runs
-  // server-side independently — the user is sent to My Downloads instead of
-  // waiting on a spinner.
+  // Set once the render job is accepted by the server. We then poll the job
+  // (mirrors the web app's PreviewPane/pollJob) and show live progress instead
+  // of a static "check back later" message.
   const [submitted, setSubmitted] = useState(false);
+  const [jobId, setJobId] = useState('');
+  const [jobStatus, setJobStatus] = useState('queued');
+  const [jobProgress, setJobProgress] = useState(0);
+  const [jobError, setJobError] = useState('');
+  const [videoUrl, setVideoUrl] = useState('');
+  const [elapsed, setElapsed] = useState(0);
+  const [messageIndex, setMessageIndex] = useState(0);
   const [error, setError] = useState('');
 
   useEffect(() => { json('/templates').then(setTemplates).catch((e) => setError(e.message)); json('/music').then(setTracks).catch(() => {}); json('/categories').then(setCategoryDefs).catch(() => {}); }, []);
@@ -103,6 +122,34 @@ export default function CreateScreen({ route, navigation }) {
   }, [activeCategoryDef, manifest]);
   const setField = (key, value) => setDetails((current) => ({ ...current, [key]: value }));
   const setFieldValue = (key, value) => setFields((current) => ({ ...current, [key]: value }));
+
+  // Poll the render job every 2s, same cadence and fields as the web app's
+  // pollJob (frontend/src/App.js) — status: queued|rendering|done|failed,
+  // progress: 0-1 float.
+  useEffect(() => {
+    if (!jobId) return;
+    let cancelled = false;
+    const poll = () => {
+      json(`/renders/${jobId}`).then((r) => {
+        if (cancelled) return;
+        setJobStatus(r.status);
+        setJobProgress(Number(r.progress) || 0);
+        if (r.status === 'done') { setVideoUrl(r.video_url || ''); clearInterval(interval); }
+        else if (r.status === 'failed') { setJobError(r.error || 'The render failed. Please try again.'); clearInterval(interval); }
+      }).catch(() => {}); // transient network errors are ignored — same interval retries
+    };
+    poll();
+    const interval = setInterval(poll, 2000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [jobId]);
+
+  // Elapsed-time timer + rotating status messages while the job is in flight.
+  useEffect(() => {
+    if (!jobId || jobStatus === 'done' || jobStatus === 'failed') return;
+    const timer = setInterval(() => setElapsed((s) => s + 1), 1000);
+    const msg = setInterval(() => setMessageIndex((i) => (i + 1) % RENDER_MESSAGES.length), 2600);
+    return () => { clearInterval(timer); clearInterval(msg); };
+  }, [jobId, jobStatus]);
 
   async function choosePhotos() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -176,7 +223,8 @@ export default function CreateScreen({ route, navigation }) {
       // Fire-and-forget: the server renders independently. We don't block the
       // user on a spinner — the finished video lands in My Downloads.
       if (!render?.jobId) throw new Error('The render could not be started. Please try again.');
-      setSubmitted(true); setStatus('');
+      setJobStatus('queued'); setJobProgress(0); setJobError(''); setVideoUrl(''); setElapsed(0); setMessageIndex(0);
+      setSubmitted(true); setJobId(render.jobId); setStatus('');
     } catch (e) { setError(e.message); setStatus(''); }
     finally { setIsWorking(false); }
   }
@@ -193,6 +241,10 @@ export default function CreateScreen({ route, navigation }) {
     setError('');
     setStatus('');
     setSubmitted(false);
+    setJobId('');
+    setJobStatus('queued');
+    setJobError('');
+    setVideoUrl('');
     setPhotos([]);
     setPhotoMessages({});
     setStep(0);
@@ -210,14 +262,43 @@ export default function CreateScreen({ route, navigation }) {
 
           {submitted ? (
             <View style={styles.result}>
-              <Text style={styles.resultTitle}>🎬 Your video is being created!</Text>
-              <Text style={styles.confirmBody}>This usually takes a minute or two. We'll have your reel ready in My Downloads — you can leave this screen.</Text>
-              <Pressable onPress={() => navigation.navigate('MyVideos')} style={styles.shareButton}>
-                <Text style={styles.shareButtonText}>Go to My Videos</Text>
-              </Pressable>
-              <Pressable onPress={startNewReel} style={[styles.saveButton, { marginTop: 10 }]}>
-                <Text style={styles.saveButtonText}>Create another reel</Text>
-              </Pressable>
+              {jobStatus === 'failed' ? (
+                <>
+                  <Text style={styles.resultTitle}>⚠️ Something went wrong</Text>
+                  <Text style={styles.confirmBody}>{jobError || 'The render failed. Please try again.'}</Text>
+                  <Pressable onPress={startNewReel} style={styles.shareButton}>
+                    <Text style={styles.shareButtonText}>Try again</Text>
+                  </Pressable>
+                </>
+              ) : jobStatus === 'done' ? (
+                <>
+                  <Text style={styles.resultTitle}>🎉 Your video is ready!</Text>
+                  <Text style={styles.confirmBody}>Your reel finished rendering in {formatElapsed(elapsed)}. Find it any time in My Downloads.</Text>
+                  <Pressable onPress={() => navigation.navigate('MyVideos')} style={styles.shareButton}>
+                    <Text style={styles.shareButtonText}>Go to My Videos</Text>
+                  </Pressable>
+                  <Pressable onPress={startNewReel} style={[styles.saveButton, { marginTop: 10 }]}>
+                    <Text style={styles.saveButtonText}>Create another reel</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.resultTitle}>🎬 Your video is being created!</Text>
+                  <View style={styles.renderLoaderRing}>
+                    <ActivityIndicator size="large" color={palette.gold} />
+                  </View>
+                  <Text style={styles.renderPercent}>{jobStatus === 'rendering' ? `${Math.round(jobProgress * 100)}%` : '…'}</Text>
+                  <View style={styles.progressTrack}>
+                    <View style={[styles.progressFill, { width: jobStatus === 'rendering' ? `${Math.max(4, Math.round(jobProgress * 100))}%` : '8%' }]} />
+                  </View>
+                  <Text style={styles.renderMessage}>{RENDER_MESSAGES[messageIndex]}</Text>
+                  <Text style={styles.renderMeta}>{STATUS_LABEL[jobStatus]} · {formatElapsed(elapsed)}</Text>
+                  <Text style={styles.confirmBody}>This usually takes a minute or two. We'll have your reel ready in My Downloads — you can leave this screen.</Text>
+                  <Pressable onPress={() => navigation.navigate('MyVideos')} style={styles.saveButton}>
+                    <Text style={styles.saveButtonText}>Go to My Videos</Text>
+                  </Pressable>
+                </>
+              )}
             </View>
           ) : (
           <>
@@ -422,7 +503,9 @@ export default function CreateScreen({ route, navigation }) {
                         placeholderTextColor={palette.textMuted}
                         selectionColor={palette.gold}
                         maxLength={captionMaxLength}
-                        style={[styles.input, styles.flex, missing && styles.inputRequired]}
+                        multiline
+                        numberOfLines={2}
+                        style={[styles.input, styles.captionInput, styles.flex, missing && styles.inputRequired]}
                       />
                     </View>
                   );})}

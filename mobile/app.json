@@ -12,6 +12,7 @@
     ],
     "ios": {
       "supportsTablet": true,
+      "requireFullScreen": true,
       "bundleIdentifier": "com.invitavideos.app",
       "usesAppleSignIn": true,
       "infoPlist": {

@@ -8,6 +8,7 @@ import { LoginModal } from './components/LoginModal';
 import LandingScreen from './screens/LandingScreen';
 import CreateScreen from './screens/CreateScreen';
 import MyDownloadsScreen from './screens/MyDownloadsScreen';
+import SettingsScreen from './screens/SettingsScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -34,6 +35,7 @@ export default function App() {
         >
           <Tab.Screen name="CreateTab" component={CreateStack} />
           <Tab.Screen name="MyVideos" component={MyDownloadsScreen} />
+          <Tab.Screen name="Settings" component={SettingsScreen} />
         </Tab.Navigator>
       </NavigationContainer>
       <LoginModal />

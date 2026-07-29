@@ -109,6 +109,17 @@ export function AuthProvider({ children }) {
     ]);
   }
 
+  // Permanently erases the account server-side (profile, renders, wallet) —
+  // required by App Store Guideline 5.1.1(v): account deletion must be
+  // reachable in-app, not just a sign-out/deactivate.
+  async function deleteAccount() {
+    const cred = await ensureValidCredential();
+    if (!cred) throw new Error('You need to be signed in to delete your account.');
+    await json('/account', { method: 'DELETE', headers: { Authorization: `Bearer ${cred}` } });
+    setUser(null);
+    setCredential(null);
+  }
+
   // Return a currently-valid session token. Session JWTs last ~30 days; if the
   // stored one is missing/expired we try to silently re-establish it via Google
   // (Apple can't refresh silently — those users re-tap Sign in with Apple).
@@ -131,7 +142,7 @@ export function AuthProvider({ children }) {
     return null;
   }
 
-  const value = { user, credential, signingIn, error, setError, signInWithGoogle, signInWithApple, confirmSignOut, ensureValidCredential, promptLogin, closeLogin, loginVisible };
+  const value = { user, credential, signingIn, error, setError, signInWithGoogle, signInWithApple, confirmSignOut, deleteAccount, ensureValidCredential, promptLogin, closeLogin, loginVisible };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

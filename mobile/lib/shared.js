@@ -193,8 +193,9 @@ export const styles = StyleSheet.create({
 
   // Per-photo caption inputs
   captionSection: { marginTop: 20 },
-  captionRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
-  captionThumb: { width: 48, height: 48, borderRadius: 10, backgroundColor: palette.surface },
+  captionRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 10 },
+  captionThumb: { width: 48, height: 76, borderRadius: 10, backgroundColor: palette.surface },
+  captionInput: { minHeight: 76, textAlignVertical: 'top', paddingTop: Platform.OS === 'ios' ? 12 : 10 },
 
   // Template cards
   templateList: { paddingRight: 8, paddingBottom: 8 },
@@ -304,6 +305,12 @@ export const styles = StyleSheet.create({
   result: { marginTop: 26, backgroundColor: palette.surface, borderRadius: 18, borderWidth: 1, borderColor: palette.border, padding: 16, ...cardShadow },
   resultTitle: { color: palette.text, fontSize: 19, fontWeight: '800', marginBottom: 12 },
   confirmBody: { color: palette.textSoft, fontSize: 14.5, lineHeight: 21, marginBottom: 18 },
+
+  // Render progress (mirrors the web app's PreviewPane overlay)
+  renderLoaderRing: { alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
+  renderPercent: { color: palette.text, fontSize: 32, fontWeight: '800', textAlign: 'center', fontVariant: ['tabular-nums'], marginBottom: 10 },
+  renderMessage: { color: palette.textSoft, fontSize: 13.5, fontWeight: '600', textAlign: 'center', marginTop: 12 },
+  renderMeta: { color: palette.textMuted, fontSize: 11, fontWeight: '700', textAlign: 'center', textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 6, marginBottom: 16 },
   video: { width: '100%', height: 440, backgroundColor: '#0D0913', borderRadius: 14 },
   videoLoading: { position: 'absolute', left: 0, right: 0, top: 190, alignItems: 'center', gap: 8 },
   videoLoadingText: { color: palette.textSoft },
@@ -411,6 +418,13 @@ export const styles = StyleSheet.create({
   smallBtnText: { color: palette.text, fontSize: 13, fontWeight: '700' },
   smallBtnPrimary: { backgroundColor: palette.gold, borderRadius: 11, paddingVertical: 8, paddingHorizontal: 18, alignSelf: 'flex-start' },
   smallBtnPrimaryText: { color: palette.bg, fontSize: 13, fontWeight: '800' },
+  smallBtnDanger: { backgroundColor: 'transparent', borderWidth: 1, borderColor: palette.danger, borderRadius: 11, paddingVertical: 8, paddingHorizontal: 16, alignSelf: 'flex-start' },
+  smallBtnDangerText: { color: palette.danger, fontSize: 13, fontWeight: '700' },
+
+  // Settings
+  settingsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: palette.border },
+  settingsLabel: { color: palette.textMuted, fontSize: 13 },
+  settingsValue: { color: palette.text, fontSize: 14, fontWeight: '600', maxWidth: '65%', textAlign: 'right' },
   dlCreateBtn: { alignSelf: 'center', marginTop: 10, backgroundColor: palette.coral, borderRadius: 14, paddingVertical: 13, paddingHorizontal: 28, ...cardShadow },
   dlCreateBtnText: { color: '#fff', fontSize: 15, fontWeight: '800' },
 
