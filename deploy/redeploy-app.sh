@@ -18,7 +18,18 @@ PULL_LATEST="${PULL_LATEST:-true}"
 INSTALL_DEPS="${INSTALL_DEPS:-true}"
 RESTART_SERVICES="${RESTART_SERVICES:-true}"
 NPM_CACHE_DIR="${NPM_CACHE_DIR:-/var/lib/${APP_USER}/.npm}"
+# GOOGLE_CLIENT_ID is the BACKEND's audience allowlist and may be a
+# comma-separated list (e.g. "old,new" while migrating web clients — see
+# _verify_google_credential in backend/server.py). The frontend's Google
+# Identity Services `client_id` must be a single id, never a list — passing
+# the raw comma-separated value here bakes an invalid client_id into the
+# built bundle and breaks web login in production with "Error 401:
+# invalid_client" (mobile keeps working because it authenticates via its own
+# EXPO_PUBLIC_GOOGLE_CLIENT_ID, a separate pipeline). Set
+# FRONTEND_GOOGLE_CLIENT_ID explicitly during a multi-id migration; otherwise
+# it defaults to the first id in GOOGLE_CLIENT_ID.
 GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-}"
+FRONTEND_GOOGLE_CLIENT_ID="${FRONTEND_GOOGLE_CLIENT_ID:-}"
 MOBILE_GOOGLE_CLIENT_IDS="${MOBILE_GOOGLE_CLIENT_IDS:-}"
 ADMIN_EMAILS="${ADMIN_EMAILS:-}"
 RECAPTCHA_SITE_KEY="${RECAPTCHA_SITE_KEY:-}"
@@ -89,6 +100,11 @@ fi
 if [[ -z "$GOOGLE_CLIENT_ID" ]]; then
   GOOGLE_CLIENT_ID="$(read_env_value GOOGLE_CLIENT_ID)"
 fi
+if [[ -z "$FRONTEND_GOOGLE_CLIENT_ID" ]]; then
+  # First id only — GOOGLE_CLIENT_ID may be a comma-separated audience list;
+  # the frontend build needs exactly one.
+  FRONTEND_GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID%%,*}"
+fi
 if [[ -z "$ADMIN_EMAILS" ]]; then
   ADMIN_EMAILS="$(read_env_value ADMIN_EMAILS)"
 fi
@@ -119,7 +135,7 @@ if [[ "$INSTALL_DEPS" == "true" ]]; then
 fi
 
 log "Building frontend"
-runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/frontend' && npm_config_cache='$NPM_CACHE_DIR' REACT_APP_BACKEND_URL='$FRONTEND_BACKEND_URL' REACT_APP_GOOGLE_CLIENT_ID='$GOOGLE_CLIENT_ID' REACT_APP_ADMIN_EMAILS='$ADMIN_EMAILS' REACT_APP_RECAPTCHA_SITE_KEY='$RECAPTCHA_SITE_KEY' npm run build"
+runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/frontend' && npm_config_cache='$NPM_CACHE_DIR' REACT_APP_BACKEND_URL='$FRONTEND_BACKEND_URL' REACT_APP_GOOGLE_CLIENT_ID='$FRONTEND_GOOGLE_CLIENT_ID' REACT_APP_ADMIN_EMAILS='$ADMIN_EMAILS' REACT_APP_RECAPTCHA_SITE_KEY='$RECAPTCHA_SITE_KEY' npm run build"
 
 log "Publishing frontend build to $WEB_ROOT"
 rm -rf "$WEB_ROOT"

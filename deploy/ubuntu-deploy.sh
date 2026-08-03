@@ -21,7 +21,14 @@ ENABLE_TLS="${ENABLE_TLS:-true}"
 CERTBOT_DOMAINS="${CERTBOT_DOMAINS:-$DOMAIN}"
 FRONTEND_BACKEND_URL="${FRONTEND_BACKEND_URL:-}"
 CORS_ORIGINS="${CORS_ORIGINS:-}"
+# GOOGLE_CLIENT_ID is the BACKEND's audience allowlist and may be a
+# comma-separated list (see backend/server.py's _verify_google_credential).
+# The frontend's Google Identity Services client_id must be a single id, so
+# FRONTEND_GOOGLE_CLIENT_ID defaults to just the first one — passing the raw
+# list bakes an invalid client_id into the bundle and breaks web login with
+# "Error 401: invalid_client" (see deploy/redeploy-app.sh for the same fix).
 GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-}"
+FRONTEND_GOOGLE_CLIENT_ID="${FRONTEND_GOOGLE_CLIENT_ID:-${GOOGLE_CLIENT_ID%%,*}}"
 ADMIN_EMAILS="${ADMIN_EMAILS:-}"
 RECAPTCHA_SITE_KEY="${RECAPTCHA_SITE_KEY:-}"
 RECAPTCHA_SECRET_KEY="${RECAPTCHA_SECRET_KEY:-}"
@@ -104,7 +111,7 @@ log "Installing renderer dependencies"
 runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/render-service' && npm install --legacy-peer-deps"
 
 log "Building frontend"
-runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/frontend' && npm install --legacy-peer-deps && REACT_APP_BACKEND_URL='$FRONTEND_BACKEND_URL' REACT_APP_GOOGLE_CLIENT_ID='$GOOGLE_CLIENT_ID' REACT_APP_ADMIN_EMAILS='$ADMIN_EMAILS' REACT_APP_RECAPTCHA_SITE_KEY='$RECAPTCHA_SITE_KEY' npm run build"
+runuser -u "$APP_USER" -- bash -lc "cd '$APP_DIR/frontend' && npm install --legacy-peer-deps && REACT_APP_BACKEND_URL='$FRONTEND_BACKEND_URL' REACT_APP_GOOGLE_CLIENT_ID='$FRONTEND_GOOGLE_CLIENT_ID' REACT_APP_ADMIN_EMAILS='$ADMIN_EMAILS' REACT_APP_RECAPTCHA_SITE_KEY='$RECAPTCHA_SITE_KEY' npm run build"
 rm -rf "$WEB_ROOT"
 mkdir -p "$WEB_ROOT"
 cp -a "$APP_DIR/frontend/build/." "$WEB_ROOT/"
