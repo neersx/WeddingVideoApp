@@ -965,6 +965,10 @@ class VerifyHumanRequest(BaseModel):
 
 class GoogleLoginRequest(BaseModel):
     credential: str
+    # Client-reported device class ("iOS Phone", "iPad", "Android Phone",
+    # "Android Tablet", "Web", ...) — stored on the user for support/diagnostics,
+    # never trusted for anything security-relevant.
+    source: Optional[str] = None
 
 
 class AppleLoginRequest(BaseModel):
@@ -973,6 +977,7 @@ class AppleLoginRequest(BaseModel):
     # native flow (not inside every token), so the client forwards them once here.
     fullName: Optional[str] = None
     email: Optional[str] = None
+    source: Optional[str] = None
 
 
 class GoogleUser(BaseModel):
@@ -1036,6 +1041,65 @@ def _redact_sub(sub: str) -> str:
         provider, raw = "", sub
     tail = raw if len(raw) <= 12 else f"{raw[:4]}..{raw[-4:]}"
     return f"{provider}:{tail}" if provider else tail
+
+
+def _sanitize_login_source(source: Optional[str]) -> str:
+    """Clamp the client-reported device class before it's stored — it's a free
+    text field from the client, so treat it as untrusted input, not an enum."""
+    value = (source or "").strip()
+    return value[:40] if value else "Unknown"
+
+
+def _login_error_text(exc: HTTPException) -> str:
+    return f"{exc.status_code}: {exc.detail}"[:500]
+
+
+def _unverified_sub(token: str, provider: str) -> Optional[str]:
+    """Best-effort account id from a login token that failed verification, so a
+    failed attempt can still be recorded against the right user doc. Reads the
+    `sub` claim WITHOUT verifying the signature — fine here because the result
+    is only ever used as an update_one filter (never created, never trusted for
+    identity/authorization), same namespacing as the verified path."""
+    try:
+        claims = jose_jwt.get_unverified_claims(token)
+    except Exception:  # noqa: BLE001
+        return None
+    sub = claims.get("sub")
+    if not sub:
+        return None
+    return f"apple:{sub}" if provider == "apple" else str(sub)
+
+
+async def _record_login_success(sub: str, source: str):
+    try:
+        await db.users.update_one(
+            {"_id": sub},
+            {"$set": {
+                "lastLoggedInSource": source,
+                "lastLoggedInError": None,
+                "lastLoggedInAt": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+    except Exception:  # noqa: BLE001 — diagnostics must never break a successful login
+        logger.exception("Auth: failed to record login success for %s", _redact_sub(sub))
+
+
+async def _record_login_failure(sub: Optional[str], detail: str):
+    """No-op if we can't identify the account (garbage token, unrelated 4xx before
+    a sub was ever read) — never upserts, so a failed attempt can't create a
+    user doc or write into one that doesn't already exist."""
+    if not sub:
+        return
+    try:
+        await db.users.update_one(
+            {"_id": sub},
+            {"$set": {
+                "lastLoggedInError": detail,
+                "lastLoggedInErrorAt": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+    except Exception:  # noqa: BLE001 — diagnostics must never mask the real error
+        logger.exception("Auth: failed to record login failure for %s", _redact_sub(sub))
 
 
 def _user_doc_from_google_user(user: GoogleUser):
@@ -1906,16 +1970,27 @@ async def health():
 
 @api_router.post("/auth/google")
 async def google_login(req: GoogleLoginRequest):
-    user = _verify_google_credential(req.credential)
-    logger.info("Google sign-in: verified %s (%s)", _redact_sub(user.sub), _redact_email(user.email))
-    await _save_google_user(user)
+    source = _sanitize_login_source(req.source)
+    try:
+        user = _verify_google_credential(req.credential)
+    except HTTPException as exc:
+        await _record_login_failure(_unverified_sub(req.credential, "google"), _login_error_text(exc))
+        raise
+    logger.info("Google sign-in: verified %s (%s) source=%s", _redact_sub(user.sub), _redact_email(user.email), source)
+    try:
+        await _save_google_user(user)
+    except HTTPException as exc:
+        await _record_login_failure(user.sub, _login_error_text(exc))
+        raise
     # `token` is a first-party session JWT for clients that want a stable session
     # (mobile). The web app can keep using its Google credential as before.
+    await _record_login_success(user.sub, source)
     return {"user": user.model_dump(), "token": create_session_token(user)}
 
 
 @api_router.post("/auth/apple")
 async def apple_login(req: AppleLoginRequest):
+    source = _sanitize_login_source(req.source)
     if not req.identityToken:
         logger.warning("Apple sign-in: request carried no identityToken")
         raise HTTPException(status_code=400, detail="identityToken is required")
@@ -1923,11 +1998,15 @@ async def apple_login(req: AppleLoginRequest):
     # which of these are present is the main thing that varies between two
     # devices signing in with the same app — worth recording before we verify.
     logger.info(
-        "Apple sign-in: received token (%d chars), fullName=%s email=%s",
+        "Apple sign-in: received token (%d chars), fullName=%s email=%s source=%s",
         len(req.identityToken), bool(req.fullName and req.fullName.strip()),
-        bool(req.email and req.email.strip()),
+        bool(req.email and req.email.strip()), source,
     )
-    user = await _verify_apple_credential(req.identityToken)
+    try:
+        user = await _verify_apple_credential(req.identityToken)
+    except HTTPException as exc:
+        await _record_login_failure(_unverified_sub(req.identityToken, "apple"), _login_error_text(exc))
+        raise
     # Apple only sends name/email on the first authorization, so take them from
     # the request when present; otherwise keep whatever we stored previously.
     if req.fullName and req.fullName.strip():
@@ -1939,7 +2018,12 @@ async def apple_login(req: AppleLoginRequest):
         if existing:
             user.email = existing.get("email", "")
     logger.info("Apple sign-in: verified %s (%s)", _redact_sub(user.sub), _redact_email(user.email))
-    await _save_google_user(user)
+    try:
+        await _save_google_user(user)
+    except HTTPException as exc:
+        await _record_login_failure(user.sub, _login_error_text(exc))
+        raise
+    await _record_login_success(user.sub, source)
     return {"user": user.model_dump(), "token": create_session_token(user)}
 
 

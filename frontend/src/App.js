@@ -211,7 +211,7 @@ function AuthProvider({ children }) {
   const [credential, setCredential] = useState(() => localStorage.getItem(AUTH_CREDENTIAL_STORAGE_KEY) || "");
 
   const signInWithGoogle = useCallback(async (credential) => {
-    const response = await axios.post(`${API}/auth/google`, { credential });
+    const response = await axios.post(`${API}/auth/google`, { credential, source: 'Web' });
     const nextUser = response.data.user;
     setUser(nextUser);
     setCredential(credential);

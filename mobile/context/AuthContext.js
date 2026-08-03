@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState } from 'react';
-import { Alert, Platform } from 'react-native';
+import { Alert, Dimensions, Platform } from 'react-native';
 import { GoogleSignin, isSuccessResponse, isCancelledResponse, isErrorWithCode, statusCodes } from '@react-native-google-signin/google-signin';
 import { DISABLE_GOOGLE_AUTH, isCredentialExpired, json } from '../lib/shared';
 
@@ -8,6 +8,22 @@ import { DISABLE_GOOGLE_AUTH, isCredentialExpired, json } from '../lib/shared';
 const AppleAuthentication = Platform.OS === 'ios' ? require('expo-apple-authentication') : null;
 
 const AuthContext = createContext(null);
+
+// Reported to the backend as `lastLoggedInSource` — support/diagnostics only,
+// never trusted for anything security-relevant server-side. `Platform.isPad`
+// is the standard RN signal for iPhone vs iPad (works on real devices and
+// simulators alike); Android has no equivalent flag, so fall back to the same
+// smallest-width >= 600dp heuristic Android itself uses for its sw600dp
+// tablet resource qualifier.
+function loginSource() {
+  if (Platform.OS === 'ios') return Platform.isPad ? 'iPad' : 'iOS Phone';
+  if (Platform.OS === 'android') {
+    const { width, height } = Dimensions.get('window');
+    return Math.min(width, height) >= 600 ? 'Android Tablet' : 'Android Phone';
+  }
+  if (Platform.OS === 'web') return 'Web';
+  return 'Unknown';
+}
 
 // expo-apple-authentication relays Apple's own wording, which is opaque to a
 // user and unactionable in a bug report ("The authorization attempt failed for
@@ -67,7 +83,7 @@ export function AuthProvider({ children }) {
       }
       const token = result.data?.idToken;
       if (!token) return reportAuthError(setError, 'Google did not return an ID token. Check your Google client IDs.', result);
-      const data = await json('/auth/google', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credential: token }) });
+      const data = await json('/auth/google', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credential: token, source: loginSource() }) });
       setUser(data.user || data);
       setCredential(data.token || null);
       setLoginVisible(false);
@@ -97,7 +113,7 @@ export function AuthProvider({ children }) {
       const data = await json('/auth/apple', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identityToken, fullName, email: cred.email || '' }),
+        body: JSON.stringify({ identityToken, fullName, email: cred.email || '', source: loginSource() }),
       });
       setUser(data.user || data);
       setCredential(data.token || null);
@@ -145,7 +161,7 @@ export function AuthProvider({ children }) {
     try {
       const result = await GoogleSignin.signInSilently();
       if (isSuccessResponse(result) && result.data?.idToken) {
-        const data = await json('/auth/google', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credential: result.data.idToken }) });
+        const data = await json('/auth/google', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credential: result.data.idToken, source: loginSource() }) });
         setUser(data.user || data);
         setCredential(data.token || null);
         return data.token || null;
