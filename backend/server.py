@@ -11,6 +11,7 @@ from jose import jwt as jose_jwt
 import os
 import time
 import logging
+import traceback
 import httpx
 import uuid
 import asyncio
@@ -80,6 +81,10 @@ APPLE_AUDIENCES = [
     a.strip() for a in os.environ.get('APPLE_BUNDLE_IDS', 'com.invitavideos.app').split(',') if a.strip()
 ]
 _apple_jwks_cache = {'keys': None, 'fetched': 0.0}
+# Centralized error log retention — bounds the error_logs collection so it
+# can't grow forever (see _ensure_error_log_indexes, a Mongo TTL index).
+ERROR_LOG_RETENTION_DAYS = int(os.environ.get('ERROR_LOG_RETENTION_DAYS', '90'))
+ERROR_LOG_CATEGORIES = {"login", "payment", "rendering", "image_upload", "download", "unhandled"}
 RECAPTCHA_SECRET_KEY = os.environ.get('RECAPTCHA_SECRET_KEY', '').strip()
 RECAPTCHA_EXPECTED_ACTION = os.environ.get('RECAPTCHA_EXPECTED_ACTION', 'render_video').strip()
 try:
@@ -903,6 +908,7 @@ class _InMemoryDB:
         self.coupons = _InMemoryCollection(unique_fields=[("code",)])
         self.coupon_redemptions = _InMemoryCollection(unique_fields=[("couponId", "userId")])
         self.pack_discounts = _InMemoryCollection()
+        self.error_logs = _InMemoryCollection()
 
 
 client = None
@@ -1100,6 +1106,73 @@ async def _record_login_failure(sub: Optional[str], detail: str):
         )
     except Exception:  # noqa: BLE001 — diagnostics must never mask the real error
         logger.exception("Auth: failed to record login failure for %s", _redact_sub(sub))
+
+
+async def log_error(
+    category: str,
+    message: str,
+    *,
+    detail: Optional[str] = None,
+    severity: str = "error",
+    status_code: Optional[int] = None,
+    path: Optional[str] = None,
+    user: Optional[GoogleUser] = None,
+    source: Optional[str] = None,
+    error_id: Optional[str] = None,
+    context: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Central write path for the errorLogs collection — every error-prone
+    flow (login, payment, rendering, image upload, download, plus any
+    unhandled exception) funnels through here so the Admin Portal has one
+    place to search/filter/triage failures, instead of grepping server logs
+    per incident (see the iPad Apple sign-in 500 that started this).
+
+    Never raises: a logging failure must never break the request it's
+    describing. `category` isn't hard-validated against ERROR_LOG_CATEGORIES
+    (a typo shouldn't drop the log), just recorded as given."""
+    try:
+        doc = {
+            "_id": uuid.uuid4().hex,
+            "category": (category or "unhandled")[:40],
+            "severity": severity if severity in ("error", "warning") else "error",
+            "message": (message or "")[:300],
+            "detail": (detail or "")[:2000] or None,
+            "statusCode": status_code,
+            "path": path,
+            "userId": _redact_sub(user.sub) if user and user.sub else None,
+            "userEmail": _redact_email(user.email) if user and user.email else None,
+            "source": source,
+            "errorId": error_id,
+            "context": context or None,
+            "resolved": False,
+            # A real BSON Date (not the ISO string every other collection uses)
+            # — required for the Mongo TTL index in _ensure_error_log_indexes
+            # to auto-expire old entries.
+            "created_at": datetime.now(timezone.utc),
+        }
+        await db.error_logs.insert_one(doc)
+    except Exception:  # noqa: BLE001 — logging the error must never mask it
+        logger.exception("Failed to write error log (category=%s): %s", category, message)
+
+
+async def _ensure_error_log_indexes():
+    """TTL index bounds collection growth to ERROR_LOG_RETENTION_DAYS; the
+    compound index supports the admin listing's category+date filter/sort.
+
+    Mongo rejects create_index on an existing index whose options differ, so
+    if ERROR_LOG_RETENTION_DAYS is ever changed, drop the stale TTL index
+    first rather than erroring at startup."""
+    if not hasattr(db.error_logs, "index_information"):
+        return
+    ttl_seconds = ERROR_LOG_RETENTION_DAYS * 86400
+    indexes = await db.error_logs.index_information()
+    for index_name, index in indexes.items():
+        if index.get("key") == [("created_at", 1)] and index.get("expireAfterSeconds") != ttl_seconds:
+            logger.info("Replacing error_logs TTL index %s (retention changed)", index_name)
+            await db.error_logs.drop_index(index_name)
+    await db.error_logs.create_index("created_at", expireAfterSeconds=ttl_seconds)
+    await db.error_logs.create_index([("category", 1), ("created_at", -1)])
+    await db.error_logs.create_index("resolved")
 
 
 def _user_doc_from_google_user(user: GoogleUser):
@@ -1968,19 +2041,42 @@ async def health():
     return {"api": "ok", "storage_backend": storage_backend, "render_service": render_status}
 
 
+def _login_severity(status_code: int) -> str:
+    """5xx means something on our side broke; 4xx is an expected rejection
+    (bad/expired credential, wrong audience) — still worth seeing, but not
+    at the same urgency."""
+    return "error" if status_code >= 500 else "warning"
+
+
+async def _log_login_failure(provider: str, sub: Optional[str], source: str, path: str, exc: HTTPException):
+    await log_error(
+        "login",
+        f"{provider} sign-in failed: {exc.detail}",
+        detail=_login_error_text(exc),
+        severity=_login_severity(exc.status_code),
+        status_code=exc.status_code,
+        path=path,
+        source=source,
+        context={"provider": provider, "userId": _redact_sub(sub) if sub else None},
+    )
+
+
 @api_router.post("/auth/google")
 async def google_login(req: GoogleLoginRequest):
     source = _sanitize_login_source(req.source)
     try:
         user = _verify_google_credential(req.credential)
     except HTTPException as exc:
-        await _record_login_failure(_unverified_sub(req.credential, "google"), _login_error_text(exc))
+        sub = _unverified_sub(req.credential, "google")
+        await _record_login_failure(sub, _login_error_text(exc))
+        await _log_login_failure("google", sub, source, "/auth/google", exc)
         raise
     logger.info("Google sign-in: verified %s (%s) source=%s", _redact_sub(user.sub), _redact_email(user.email), source)
     try:
         await _save_google_user(user)
     except HTTPException as exc:
         await _record_login_failure(user.sub, _login_error_text(exc))
+        await _log_login_failure("google", user.sub, source, "/auth/google", exc)
         raise
     # `token` is a first-party session JWT for clients that want a stable session
     # (mobile). The web app can keep using its Google credential as before.
@@ -2005,7 +2101,9 @@ async def apple_login(req: AppleLoginRequest):
     try:
         user = await _verify_apple_credential(req.identityToken)
     except HTTPException as exc:
-        await _record_login_failure(_unverified_sub(req.identityToken, "apple"), _login_error_text(exc))
+        sub = _unverified_sub(req.identityToken, "apple")
+        await _record_login_failure(sub, _login_error_text(exc))
+        await _log_login_failure("apple", sub, source, "/auth/apple", exc)
         raise
     # Apple only sends name/email on the first authorization, so take them from
     # the request when present; otherwise keep whatever we stored previously.
@@ -2022,6 +2120,7 @@ async def apple_login(req: AppleLoginRequest):
         await _save_google_user(user)
     except HTTPException as exc:
         await _record_login_failure(user.sub, _login_error_text(exc))
+        await _log_login_failure("apple", user.sub, source, "/auth/apple", exc)
         raise
     await _record_login_success(user.sub, source)
     return {"user": user.model_dump(), "token": create_session_token(user)}
@@ -2042,12 +2141,28 @@ async def verify_human(req: VerifyHumanRequest, request: Request):
 async def upload_photo(file: UploadFile = File(...)):
     ext = Path(file.filename or '').suffix.lower()
     if ext not in ALLOWED_IMAGE_EXTS:
+        await log_error(
+            "image_upload", f"Rejected upload: unsupported file type {ext}",
+            severity="warning", status_code=400, path="/upload", context={"filename": file.filename},
+        )
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
     name = f"{uuid.uuid4().hex}{ext}"
     data = await file.read()
     if len(data) > 15 * 1024 * 1024:
+        await log_error(
+            "image_upload", "Rejected upload: file too large",
+            severity="warning", status_code=400, path="/upload",
+            context={"filename": file.filename, "sizeBytes": len(data)},
+        )
         raise HTTPException(status_code=400, detail="File too large (max 15MB)")
-    (UPLOADS_DIR / name).write_bytes(data)
+    try:
+        (UPLOADS_DIR / name).write_bytes(data)
+    except OSError as exc:
+        await log_error(
+            "image_upload", "Failed to write uploaded file to disk",
+            detail=str(exc), status_code=500, path="/upload", context={"filename": file.filename},
+        )
+        raise HTTPException(status_code=500, detail="Could not save your photo. Please try again.") from exc
     return {"url": f"/api/uploads/{name}"}
 
 
@@ -2442,11 +2557,17 @@ async def admin_dashboard(_: GoogleUser = Depends(require_admin_user)):
     active_since = datetime.now(timezone.utc).timestamp() - 15 * 60
     recent_docs = await db.renders.find().sort("created_at", -1).to_list(200)
     live_users = len({d.get("userId") for d in recent_docs if d.get("userId") and d.get("created_at") and datetime.fromisoformat(d["created_at"]).timestamp() >= active_since})
+    since_24h = datetime.now(timezone.utc) - timedelta(hours=24)
+    error_counts_24h = {
+        cat: await db.error_logs.count_documents({"category": cat, "created_at": {"$gte": since_24h}})
+        for cat in sorted(ERROR_LOG_CATEGORIES)
+    }
     return {
         "users": users,
         "videos": renders,
         "liveUsers": live_users,
         "renders": {"queued": queued, "rendering": rendering, "done": done, "failed": failed},
+        "errorCounts24h": error_counts_24h,
         "recent": [
             {"id": d["_id"], "userEmail": d.get("userEmail"), "template": d.get("template"), "status": d.get("status"), "created_at": d.get("created_at")}
             for d in recent_docs[:10]
@@ -2555,6 +2676,87 @@ async def admin_update_render(
     }
 
 
+def _parse_date_bound(value: str, end_of_day: bool) -> datetime:
+    """error_logs.created_at is a real BSON Date (unlike every other
+    collection's ISO string), so its admin filter needs an actual datetime
+    to compare against rather than the string bounds /admin/renders uses."""
+    text = value if len(value) > 10 else f"{value}T{'23:59:59.999999' if end_of_day else '00:00:00'}"
+    parsed = datetime.fromisoformat(text)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+@api_router.get("/admin/error-logs")
+async def admin_error_logs(
+    page: int = 1,
+    pageSize: int = 50,
+    category: Optional[str] = None,
+    severity: Optional[str] = None,
+    resolved: Optional[bool] = None,
+    dateFrom: Optional[str] = None,
+    dateTo: Optional[str] = None,
+    _: GoogleUser = Depends(require_admin_user),
+):
+    page = max(1, page)
+    pageSize = max(1, min(200, pageSize))
+    filter_query: Dict[str, Any] = {}
+    if category:
+        filter_query["category"] = category
+    if severity:
+        filter_query["severity"] = severity
+    if resolved is not None:
+        filter_query["resolved"] = resolved
+    if dateFrom or dateTo:
+        date_range: Dict[str, Any] = {}
+        if dateFrom:
+            date_range["$gte"] = _parse_date_bound(dateFrom, end_of_day=False)
+        if dateTo:
+            date_range["$lte"] = _parse_date_bound(dateTo, end_of_day=True)
+        filter_query["created_at"] = date_range
+
+    total = await db.error_logs.count_documents(filter_query)
+    all_matching = await db.error_logs.find(filter_query).sort("created_at", -1).to_list(100000)
+    start = (page - 1) * pageSize
+    docs = all_matching[start:start + pageSize]
+
+    items = [
+        {
+            "id": d["_id"],
+            "category": d.get("category"),
+            "severity": d.get("severity"),
+            "message": d.get("message"),
+            "detail": d.get("detail"),
+            "statusCode": d.get("statusCode"),
+            "path": d.get("path"),
+            "userId": d.get("userId"),
+            "userEmail": d.get("userEmail"),
+            "source": d.get("source"),
+            "errorId": d.get("errorId"),
+            "context": d.get("context"),
+            "resolved": bool(d.get("resolved", False)),
+            "created_at": d["created_at"].isoformat() if isinstance(d.get("created_at"), datetime) else d.get("created_at"),
+        }
+        for d in docs
+    ]
+    return {"items": items, "total": total, "page": page, "pageSize": pageSize}
+
+
+class AdminErrorLogUpdateRequest(BaseModel):
+    resolved: bool
+
+
+@api_router.patch("/admin/error-logs/{log_id}")
+async def admin_update_error_log(
+    log_id: str,
+    req: AdminErrorLogUpdateRequest,
+    _: GoogleUser = Depends(require_admin_user),
+):
+    existing = await db.error_logs.find_one({"_id": log_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Error log not found")
+    await db.error_logs.update_one({"_id": log_id}, {"$set": {"resolved": req.resolved}})
+    return {"id": log_id, "resolved": req.resolved}
+
+
 async def _run_render_job(job_id: str, payload: dict, user_id: Optional[str] = None, credit_cost: int = 0):
     """Background worker: dispatch to render-service, poll progress, download mp4, update Mongo doc.
 
@@ -2569,6 +2771,10 @@ async def _run_render_job(job_id: str, payload: dict, user_id: Optional[str] = N
         if start.status_code != 200:
             detail = start.json().get('error', 'render service rejected job') if start.headers.get('content-type', '').startswith('application/json') else 'render service rejected job'
             await current_db.renders.update_one({"_id": job_id}, {"$set": {"status": "failed", "error": detail}})
+            await log_error(
+                "rendering", "Render service rejected job", detail=detail, status_code=start.status_code,
+                context={"renderId": job_id, "userId": _redact_sub(user_id) if user_id else None},
+            )
             return
         internal_id = start.json()["jobId"]
         await current_db.renders.update_one({"_id": job_id}, {"$set": {"status": "rendering", "internal_id": internal_id}})
@@ -2580,6 +2786,10 @@ async def _run_render_job(job_id: str, payload: dict, user_id: Optional[str] = N
             while True:
                 if asyncio.get_event_loop().time() > deadline:
                     await current_db.renders.update_one({"_id": job_id}, {"$set": {"status": "failed", "error": "timeout"}})
+                    await log_error(
+                        "rendering", "Render job timed out after 15 minutes",
+                        context={"renderId": job_id, "userId": _redact_sub(user_id) if user_id else None},
+                    )
                     return
                 await asyncio.sleep(2)
                 try:
@@ -2602,6 +2812,11 @@ async def _run_render_job(job_id: str, payload: dict, user_id: Optional[str] = N
                     dl = await hc.get(f"{RENDER_SERVICE_URL}/jobs/{internal_id}/video", timeout=httpx.Timeout(120, connect=10))
                     if dl.status_code != 200:
                         await current_db.renders.update_one({"_id": job_id}, {"$set": {"status": "failed", "error": "download failed"}})
+                        await log_error(
+                            "rendering", "Failed to download finished video from render service",
+                            status_code=dl.status_code,
+                            context={"renderId": job_id, "userId": _redact_sub(user_id) if user_id else None},
+                        )
                         return
                     out_path = RENDERS_DIR / f"{job_id}.mp4"
                     out_path.write_bytes(dl.content)
@@ -2621,14 +2836,23 @@ async def _run_render_job(job_id: str, payload: dict, user_id: Optional[str] = N
                     )
                     return
                 if status == "failed":
+                    render_error = data.get("error") or "render failed"
                     await current_db.renders.update_one(
                         {"_id": job_id},
-                        {"$set": {"status": "failed", "error": data.get("error") or "render failed"}},
+                        {"$set": {"status": "failed", "error": render_error}},
+                    )
+                    await log_error(
+                        "rendering", "Render service reported job failure", detail=render_error,
+                        context={"renderId": job_id, "userId": _redact_sub(user_id) if user_id else None},
                     )
                     return
     except Exception as e:  # noqa: BLE001
         logger.exception("render job crashed")
         await db.renders.update_one({"_id": job_id}, {"$set": {"status": "failed", "error": str(e)}})
+        await log_error(
+            "rendering", "Render job crashed with an unhandled exception", detail=traceback.format_exc(),
+            context={"renderId": job_id, "userId": _redact_sub(user_id) if user_id else None},
+        )
     finally:
         if credit_cost > 0 and user_id:
             final_doc = await db.renders.find_one({"_id": job_id})
@@ -3037,7 +3261,15 @@ async def get_render_video(render_id: str, request: Request, download: bool = Fa
     if not path.exists():
         doc = await db.renders.find_one({"_id": Path(render_id).name})
         if doc and doc.get("fileRemoved"):
+            await log_error(
+                "download", "Requested video has expired", severity="warning", status_code=410,
+                path="/renders/{render_id}/video", context={"renderId": render_id},
+            )
             raise HTTPException(status_code=410, detail="This video has expired and is no longer available for download")
+        await log_error(
+            "download", "Requested video not found", severity="warning", status_code=404,
+            path="/renders/{render_id}/video", context={"renderId": render_id},
+        )
         raise HTTPException(status_code=404, detail="Video not found")
     size = path.stat().st_size
     disposition = "attachment" if download else "inline"
@@ -3117,6 +3349,14 @@ async def log_unhandled_exception(request: Request, exc: Exception):
     screenshot can be matched to the traceback."""
     error_id = uuid.uuid4().hex[:12]
     logger.exception("Unhandled error %s on %s %s", error_id, request.method, request.url.path)
+    await log_error(
+        "unhandled",
+        f"{type(exc).__name__}: {exc}",
+        detail=traceback.format_exc(),
+        status_code=500,
+        path=request.url.path,
+        error_id=error_id,
+    )
     return JSONResponse(
         status_code=500,
         content={"detail": "Something went wrong. Please try again.", "errorId": error_id},
@@ -3147,6 +3387,7 @@ async def initialize_storage():
         db = client[db_name]
         billing_db.set_db(db)
         await _ensure_user_auth_indexes()
+        await _ensure_error_log_indexes()
         await db.renders.create_index("userId")
         await db.renders.create_index("created_at")
         await db.templates.create_index("category")

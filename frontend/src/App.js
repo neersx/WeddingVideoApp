@@ -1515,6 +1515,7 @@ const ADMIN_TABS = [
   ["/admin/categories", "Category forms"],
   ["/admin/users", "Users"],
   ["/admin/renders", "Video renders"],
+  ["/admin/error-logs", "Error Logs"],
   ["/admin/settings", "Settings"],
 ];
 
@@ -2269,6 +2270,186 @@ function AdminRendersPage() {
   </AdminPageFrame>;
 }
 
+const ERROR_LOG_CATEGORY_OPTIONS = ["login", "payment", "rendering", "image_upload", "download", "unhandled"];
+const ERROR_LOG_CATEGORY_LABELS = {
+  login: "Login",
+  payment: "Payment",
+  rendering: "Rendering",
+  image_upload: "Image Upload",
+  download: "Download",
+  unhandled: "Unhandled",
+};
+const ERROR_LOG_PAGE_SIZE = 50;
+
+function AdminErrorLogsPage() {
+  const { credential } = useAuth();
+  const [data, setData] = useState(null); // {items, total, page, pageSize}
+  const [page, setPage] = useState(1);
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [severityFilter, setSeverityFilter] = useState("");
+  const [resolvedFilter, setResolvedFilter] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [viewing, setViewing] = useState(null);
+  const authHeader = useMemo(() => ({ headers: { Authorization: `Bearer ${credential}` } }), [credential]);
+
+  const load = useCallback(() => {
+    const params = { page, pageSize: ERROR_LOG_PAGE_SIZE };
+    if (categoryFilter) params.category = categoryFilter;
+    if (severityFilter) params.severity = severityFilter;
+    if (resolvedFilter) params.resolved = resolvedFilter === "resolved";
+    if (dateFrom) params.dateFrom = dateFrom;
+    if (dateTo) params.dateTo = dateTo;
+    axios.get(`${API}/admin/error-logs`, { ...authHeader, params })
+      .then((r) => setData(r.data))
+      .catch(() => setData({ items: [], total: 0, page: 1, pageSize: ERROR_LOG_PAGE_SIZE }));
+  }, [authHeader, page, categoryFilter, severityFilter, resolvedFilter, dateFrom, dateTo]);
+  useEffect(() => { load(); }, [load]);
+  // A filter change invalidates the current page position — jump back to page 1.
+  useEffect(() => { setPage(1); }, [categoryFilter, severityFilter, resolvedFilter, dateFrom, dateTo]);
+
+  const toggleResolved = async (item) => {
+    try {
+      await axios.patch(`${API}/admin/error-logs/${item.id}`, { resolved: !item.resolved }, authHeader);
+      load();
+    } catch (error) {
+      toast.error(error?.response?.data?.detail || "Failed to update error log");
+    }
+  };
+
+  const items = data?.items || [];
+  const total = data?.total || 0;
+  const pageSize = data?.pageSize || ERROR_LOG_PAGE_SIZE;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const hasFilters = Boolean(categoryFilter || severityFilter || resolvedFilter || dateFrom || dateTo);
+
+  const inputClass = "w-full rounded-xl border border-[#ECD5E2] bg-white px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B4405F]";
+
+  return <AdminPageFrame eyebrow="Error logs" title="Error activity" description="Login, payment, rendering, upload, and download failures across the platform — filter by category and severity, then mark entries resolved once triaged.">
+    <div className="mt-6 flex flex-wrap items-end gap-3 rounded-3xl border border-[#ECD5E2] bg-white p-5">
+      <label className="text-xs">
+        <span className="mb-1 block font-semibold text-neutral-500">Category</span>
+        <select className={inputClass} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+          <option value="">All</option>
+          {ERROR_LOG_CATEGORY_OPTIONS.map((c) => <option key={c} value={c}>{ERROR_LOG_CATEGORY_LABELS[c]}</option>)}
+        </select>
+      </label>
+      <label className="text-xs">
+        <span className="mb-1 block font-semibold text-neutral-500">Severity</span>
+        <select className={inputClass} value={severityFilter} onChange={(e) => setSeverityFilter(e.target.value)}>
+          <option value="">All</option>
+          <option value="error">Error</option>
+          <option value="warning">Warning</option>
+        </select>
+      </label>
+      <label className="text-xs">
+        <span className="mb-1 block font-semibold text-neutral-500">Status</span>
+        <select className={inputClass} value={resolvedFilter} onChange={(e) => setResolvedFilter(e.target.value)}>
+          <option value="">All</option>
+          <option value="open">Open</option>
+          <option value="resolved">Resolved</option>
+        </select>
+      </label>
+      <label className="text-xs">
+        <span className="mb-1 block font-semibold text-neutral-500">From date</span>
+        <input type="date" className={inputClass} value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+      </label>
+      <label className="text-xs">
+        <span className="mb-1 block font-semibold text-neutral-500">To date</span>
+        <input type="date" className={inputClass} value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+      </label>
+      {hasFilters && (
+        <button onClick={() => { setCategoryFilter(""); setSeverityFilter(""); setResolvedFilter(""); setDateFrom(""); setDateTo(""); }} className="rounded-lg border border-[#ECD5E2] px-3 py-2 text-xs font-semibold text-[#8D1B63] hover:bg-[#FFF0F7]">Clear filters</button>
+      )}
+    </div>
+
+    <div className="mt-4 overflow-x-auto rounded-3xl border border-[#ECD5E2] bg-white">
+      <table className="min-w-full divide-y divide-[#F0DDE7] text-sm">
+        <thead className="bg-[#FFF8FB]">
+          <tr className="text-left text-xs font-semibold uppercase tracking-wide text-neutral-500">
+            <th className="px-4 py-3">Time</th>
+            <th className="px-4 py-3">Category</th>
+            <th className="px-4 py-3">Severity</th>
+            <th className="px-4 py-3">Message</th>
+            <th className="px-4 py-3">User</th>
+            <th className="px-4 py-3">Source</th>
+            <th className="px-4 py-3">Path / Status</th>
+            <th className="px-4 py-3">Resolved</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[#F0DDE7]">
+          {data === null && (
+            <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-neutral-500">Loading error logs…</td></tr>
+          )}
+          {data !== null && !items.length && (
+            <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-neutral-500">No errors found{hasFilters ? " for these filters" : ""}.</td></tr>
+          )}
+          {items.map((item) => (
+            <tr key={item.id} className="cursor-pointer hover:bg-[#FFF8FB]" onClick={() => setViewing(item)}>
+              <td className="px-4 py-3 text-xs text-neutral-500">{item.created_at ? new Date(item.created_at).toLocaleString() : ""}</td>
+              <td className="px-4 py-3"><span className="rounded-full bg-[#FFF3F8] px-3 py-1 text-xs font-semibold text-[#8D1B63]">{ERROR_LOG_CATEGORY_LABELS[item.category] || item.category}</span></td>
+              <td className="px-4 py-3">
+                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${item.severity === "error" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"}`}>{item.severity}</span>
+              </td>
+              <td className="px-4 py-3 max-w-xs truncate text-neutral-700">{item.message}</td>
+              <td className="px-4 py-3 text-xs text-neutral-500">{item.userEmail || "—"}</td>
+              <td className="px-4 py-3 text-xs text-neutral-500">{item.source || "—"}</td>
+              <td className="px-4 py-3 text-xs text-neutral-500">{item.path || "—"}{item.statusCode ? ` · ${item.statusCode}` : ""}</td>
+              <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                <button onClick={() => toggleResolved(item)} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${item.resolved ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-[#ECD5E2] text-[#8D1B63] hover:bg-[#FFF0F7]"}`}>
+                  {item.resolved ? "Resolved" : "Mark resolved"}
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+
+    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-neutral-500">
+      <div>{total} error{total === 1 ? "" : "s"} · Page {page} of {totalPages}</div>
+      <div className="flex gap-2">
+        <button disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="rounded-lg border border-[#ECD5E2] px-3 py-1.5 text-xs font-semibold text-[#8D1B63] transition hover:bg-[#FFF0F7] disabled:cursor-not-allowed disabled:opacity-40">Previous</button>
+        <button disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))} className="rounded-lg border border-[#ECD5E2] px-3 py-1.5 text-xs font-semibold text-[#8D1B63] transition hover:bg-[#FFF0F7] disabled:cursor-not-allowed disabled:opacity-40">Next</button>
+      </div>
+    </div>
+
+    <Dialog open={Boolean(viewing)} onOpenChange={(open) => !open && setViewing(null)}>
+      <DialogContent className="max-w-lg rounded-3xl border-[#EBD3E0] bg-white p-0 shadow-[0_24px_80px_rgba(50,17,58,0.22)]">
+        <div className="rounded-t-3xl bg-[#FFF6FA] px-6 py-5">
+          <DialogHeader>
+            <DialogTitle className="font-heading text-2xl font-extrabold text-[#32113A]">{viewing ? (ERROR_LOG_CATEGORY_LABELS[viewing.category] || viewing.category) : ""} error</DialogTitle>
+            <DialogDescription className="pt-2 leading-6 text-neutral-600">{viewing?.message}</DialogDescription>
+          </DialogHeader>
+        </div>
+        <div className="space-y-4 px-6 pb-6 pt-4 text-sm">
+          {viewing?.detail && (
+            <div>
+              <div className="mb-1 text-xs font-semibold text-neutral-500">Detail</div>
+              <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-xl border border-[#ECD5E2] bg-[#FFF8FB] p-3 text-xs text-neutral-700">{viewing.detail}</pre>
+            </div>
+          )}
+          {viewing?.context && (
+            <div>
+              <div className="mb-1 text-xs font-semibold text-neutral-500">Context</div>
+              <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-xl border border-[#ECD5E2] bg-[#FFF8FB] p-3 text-xs text-neutral-700">{JSON.stringify(viewing.context, null, 2)}</pre>
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-3 text-xs text-neutral-500">
+            <div><span className="font-semibold">Status code:</span> {viewing?.statusCode ?? "—"}</div>
+            <div><span className="font-semibold">Error ID:</span> {viewing?.errorId ?? "—"}</div>
+            <div><span className="font-semibold">User:</span> {viewing?.userEmail || viewing?.userId || "—"}</div>
+            <div><span className="font-semibold">Source:</span> {viewing?.source || "—"}</div>
+          </div>
+          <div className="flex justify-end gap-3 border-t border-[#F0DDE7] pt-4">
+            <button onClick={() => setViewing(null)} className="rounded-xl border border-[#ECD5E2] px-4 py-2 text-sm font-semibold text-[#8D1B63] hover:bg-[#FFF0F7]">Close</button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  </AdminPageFrame>;
+}
+
 function AdminSettingsPage() {
   return <AdminPageFrame eyebrow="Settings" title="Platform settings" description="Review the environment-backed settings used by the Invita Videos platform."><div className="mt-6 grid gap-4 sm:grid-cols-2"><div className="rounded-3xl border border-[#ECD5E2] bg-white p-6"><div className="section-label text-left text-[#9B256D]">Access</div><h2 className="mt-2 font-heading text-2xl font-extrabold text-[#32113A]">Admin protection</h2><p className="mt-3 text-sm leading-6 text-neutral-600">Admin access is protected by the configured administrator email list. Backend API checks remain active even when the navigation is hidden.</p></div><div className="rounded-3xl border border-[#ECD5E2] bg-white p-6"><div className="section-label text-left text-[#9B256D]">Rendering</div><h2 className="mt-2 font-heading text-2xl font-extrabold text-[#32113A]">Video pipeline</h2><p className="mt-3 text-sm leading-6 text-neutral-600">Templates, music, uploads, MongoDB storage, reCAPTCHA, and the render worker are configured through deployment environment files.</p></div></div></AdminPageFrame>;
 }
@@ -2783,6 +2964,7 @@ function App() {
           <Route path="/admin/credit-packs" element={<AdminGate><AdminCreditPacksPage /></AdminGate>} />
           <Route path="/admin/users" element={<AdminGate><AdminUsersPage /></AdminGate>} />
           <Route path="/admin/renders" element={<AdminGate><AdminRendersPage /></AdminGate>} />
+          <Route path="/admin/error-logs" element={<AdminGate><AdminErrorLogsPage /></AdminGate>} />
           <Route path="/admin/settings" element={<AdminGate><AdminSettingsPage /></AdminGate>} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>

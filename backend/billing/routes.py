@@ -8,7 +8,7 @@ from billing import catalog, payments, pricing, wallet
 from billing import gateway_razorpay as gateway
 from billing.db import get_db
 from billing.models import AdminCreditPackRequest, AdminWalletAdjustRequest, TopupRequest, VerifyPaymentRequest
-from server import GoogleUser, require_admin_user, require_google_user, resolve_template_form
+from server import GoogleUser, log_error, require_admin_user, require_google_user, resolve_template_form
 
 router = APIRouter(prefix="/api")
 logger = logging.getLogger(__name__)
@@ -115,8 +115,16 @@ async def create_topup(req: TopupRequest, user: GoogleUser = Depends(require_goo
     try:
         return await payments.create_topup_order(db, user.sub, req.packId, req.currency)
     except payments.PaymentError as exc:
+        await log_error(
+            "payment", f"Topup order rejected: {exc}", severity="warning", status_code=400,
+            path="/payments/topup", user=user, context={"packId": req.packId, "currency": req.currency},
+        )
         raise HTTPException(status_code=400, detail=str(exc))
     except RuntimeError as exc:
+        await log_error(
+            "payment", f"Topup order failed: {exc}", severity="error", status_code=503,
+            path="/payments/topup", user=user, context={"packId": req.packId, "currency": req.currency},
+        )
         raise HTTPException(status_code=503, detail=str(exc))
 
 
@@ -128,6 +136,10 @@ async def verify_topup(req: VerifyPaymentRequest, user: GoogleUser = Depends(req
             db, user.sub, req.paymentId, req.razorpayPaymentId, req.razorpayOrderId, req.razorpaySignature,
         )
     except payments.PaymentError as exc:
+        await log_error(
+            "payment", f"Payment verification rejected: {exc}", severity="warning", status_code=400,
+            path="/payments/verify", user=user, context={"paymentId": req.paymentId, "razorpayOrderId": req.razorpayOrderId},
+        )
         raise HTTPException(status_code=400, detail=str(exc))
     w = await wallet.get_wallet(db, user.sub)
     return {"status": payment["status"], "balance": w["balance"]}
@@ -169,10 +181,15 @@ async def razorpay_webhook(request: Request):
     raw_body = await request.body()
     signature = request.headers.get("X-Razorpay-Signature", "")
     if not gateway.verify_webhook_signature(raw_body, signature):
+        await log_error("payment", "Razorpay webhook signature verification failed", status_code=400, path="/webhooks/razorpay")
         raise HTTPException(status_code=400, detail="Invalid webhook signature")
     try:
         event_payload = json.loads(raw_body)
-    except ValueError:
+    except ValueError as exc:
+        await log_error(
+            "payment", "Razorpay webhook payload was malformed", detail=str(exc),
+            status_code=400, path="/webhooks/razorpay",
+        )
         raise HTTPException(status_code=400, detail="Malformed webhook payload")
     await payments.handle_webhook(db, event_payload.get("event", ""), event_payload)
     return {"status": "ok"}
