@@ -1,5 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, Form, BackgroundTasks, Header, Depends, Request
-from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -1017,6 +1017,27 @@ class CategoryFormRequest(BaseModel):
     sortOrder: int = 100
 
 
+def _redact_email(email: str) -> str:
+    """`ada@example.com` -> `a**@example.com`. Enough to correlate a support
+    report with a log line without writing the address itself to the log."""
+    if not email or "@" not in email:
+        return "<none>"
+    local, _, domain = email.partition("@")
+    return f"{local[:1]}**@{domain}"
+
+
+def _redact_sub(sub: str) -> str:
+    """Provider subject ids are stable account identifiers, so log only enough to
+    tell two accounts apart across lines (`apple:0016..a3f1`)."""
+    if not sub:
+        return "<none>"
+    provider, _, raw = sub.partition(":")
+    if not raw:
+        provider, raw = "", sub
+    tail = raw if len(raw) <= 12 else f"{raw[:4]}..{raw[-4:]}"
+    return f"{provider}:{tail}" if provider else tail
+
+
 def _user_doc_from_google_user(user: GoogleUser):
     now = datetime.now(timezone.utc).isoformat()
     doc = {
@@ -1046,9 +1067,41 @@ async def _save_google_user(user: GoogleUser):
         if not user_doc.get("email"):
             user_doc.pop("email", None)
         await db.users.update_one({"_id": user.sub}, {"$set": user_doc})
-    else:
-        user_doc["created_at"] = user_doc["updated_at"]
+        logger.info("Auth: signed in returning %s user %s", user_doc.get("provider"), _redact_sub(user.sub))
+        return user_doc
+
+    user_doc["created_at"] = user_doc["updated_at"]
+    try:
         await db.users.insert_one(user_doc)
+    except DuplicateKeyError as exc:
+        # Registering a *new* account is the only place a stale index can bite.
+        # A legacy non-sparse unique index on googleSub/appleSub indexes every
+        # user missing that field under a single `null`, so the first Apple user
+        # registers and every later one collides — surfacing as an unhandled
+        # E11000 (bare HTTP 500) on a device that just happens to be signing in
+        # with an account we've never seen. _ensure_user_auth_indexes() repairs
+        # that, but it only runs at startup, so a server that hasn't restarted
+        # since it shipped still carries the bad index. Repair in place and retry
+        # once rather than failing a legitimate sign-up.
+        logger.warning(
+            "Auth: duplicate key registering new %s user %s (%s) — repairing user indexes and retrying",
+            user_doc.get("provider"), _redact_sub(user.sub), exc,
+        )
+        try:
+            await _ensure_user_auth_indexes()
+        except Exception:  # noqa: BLE001 — repair is best-effort; the retry still gets a chance
+            logger.exception("Auth: user index repair failed")
+        try:
+            await db.users.insert_one(user_doc)
+        except DuplicateKeyError:
+            logger.exception(
+                "Auth: could not register new %s user %s after index repair",
+                user_doc.get("provider"), _redact_sub(user.sub),
+            )
+            raise HTTPException(
+                status_code=500, detail="Could not create your account. Please try again.",
+            ) from exc
+    logger.info("Auth: registered new %s user %s", user_doc.get("provider"), _redact_sub(user.sub))
     return user_doc
 
 
@@ -1059,7 +1112,13 @@ async def _ensure_user_auth_indexes():
     single ``null`` value. That lets the first Apple user register, then makes
     every subsequent Apple insert fail with E11000/HTTP 500. Repair the legacy
     index in place before creating sparse unique indexes for both providers.
+
+    Also called on the duplicate-key path in _save_google_user, so it has to be
+    safe to run against the in-memory backend (which has no real indexes).
     """
+    if not hasattr(db.users, "index_information"):
+        return
+
     indexes = await db.users.index_information()
     provider_fields = ("googleSub", "appleSub")
 
@@ -1076,6 +1135,9 @@ async def _ensure_user_auth_indexes():
     await db.users.create_index("email")
     await db.users.create_index("googleSub", unique=True, sparse=True)
     await db.users.create_index("appleSub", unique=True, sparse=True)
+    # Logged so a sign-in 500 can be diagnosed from the deploy's own logs without
+    # needing shell access to the database.
+    logger.info("Auth: users indexes now %s", sorted(await db.users.index_information()))
 
 
 def create_human_pass(result: Optional[dict]) -> str:
@@ -1215,6 +1277,7 @@ async def _verify_apple_credential(identity_token: str) -> GoogleUser:
     try:
         header = jose_jwt.get_unverified_header(identity_token)
     except Exception as exc:  # noqa: BLE001
+        logger.warning("Apple sign-in: unparseable identity token (%d chars): %s", len(identity_token or ""), exc)
         raise HTTPException(status_code=401, detail="Invalid Apple credential") from exc
 
     kid = header.get("kid")
@@ -1226,6 +1289,10 @@ async def _verify_apple_credential(identity_token: str) -> GoogleUser:
         keys = await _get_apple_jwks()
         key = next((k for k in keys if k.get("kid") == kid), None)
     if not key:
+        logger.warning(
+            "Apple sign-in: no signing key for kid=%s (Apple currently publishes %s)",
+            kid, [k.get("kid") for k in keys],
+        )
         raise HTTPException(status_code=401, detail="Unknown Apple signing key")
 
     payload = None
@@ -1239,10 +1306,24 @@ async def _verify_apple_credential(identity_token: str) -> GoogleUser:
         except Exception as exc:  # noqa: BLE001 — try the next allowed audience
             last_error = exc
     if payload is None:
+        # Report the token's own aud/iss against what we accept: an audience
+        # mismatch (a build signed with a bundle id missing from
+        # APPLE_BUNDLE_IDS) is otherwise indistinguishable from an expired or
+        # forged token, and both come back as the same opaque 401.
+        try:
+            unverified = jose_jwt.get_unverified_claims(identity_token)
+            token_aud, token_iss = unverified.get("aud"), unverified.get("iss")
+        except Exception:  # noqa: BLE001 — diagnostics only
+            token_aud = token_iss = "<unreadable>"
+        logger.warning(
+            "Apple sign-in: token rejected (aud=%r iss=%r; accepted aud=%s iss=%s): %s",
+            token_aud, token_iss, APPLE_AUDIENCES, APPLE_ISSUER, last_error,
+        )
         raise HTTPException(status_code=401, detail="Invalid Apple credential") from last_error
 
     apple_sub = str(payload.get("sub", ""))
     if not apple_sub:
+        logger.warning("Apple sign-in: verified token carried no `sub` claim (aud=%r)", payload.get("aud"))
         raise HTTPException(status_code=401, detail="Apple credential missing account details")
     return GoogleUser(
         # Namespace the id so Apple and Google subs can never collide in `users`.
@@ -1826,6 +1907,7 @@ async def health():
 @api_router.post("/auth/google")
 async def google_login(req: GoogleLoginRequest):
     user = _verify_google_credential(req.credential)
+    logger.info("Google sign-in: verified %s (%s)", _redact_sub(user.sub), _redact_email(user.email))
     await _save_google_user(user)
     # `token` is a first-party session JWT for clients that want a stable session
     # (mobile). The web app can keep using its Google credential as before.
@@ -1835,7 +1917,16 @@ async def google_login(req: GoogleLoginRequest):
 @api_router.post("/auth/apple")
 async def apple_login(req: AppleLoginRequest):
     if not req.identityToken:
+        logger.warning("Apple sign-in: request carried no identityToken")
         raise HTTPException(status_code=400, detail="identityToken is required")
+    # Apple sends name/email only on the *first* authorization for an account, so
+    # which of these are present is the main thing that varies between two
+    # devices signing in with the same app — worth recording before we verify.
+    logger.info(
+        "Apple sign-in: received token (%d chars), fullName=%s email=%s",
+        len(req.identityToken), bool(req.fullName and req.fullName.strip()),
+        bool(req.email and req.email.strip()),
+    )
     user = await _verify_apple_credential(req.identityToken)
     # Apple only sends name/email on the first authorization, so take them from
     # the request when present; otherwise keep whatever we stored previously.
@@ -1847,6 +1938,7 @@ async def apple_login(req: AppleLoginRequest):
         existing = await db.users.find_one({"_id": user.sub})
         if existing:
             user.email = existing.get("email", "")
+    logger.info("Apple sign-in: verified %s (%s)", _redact_sub(user.sub), _redact_email(user.email))
     await _save_google_user(user)
     return {"user": user.model_dump(), "token": create_session_token(user)}
 
@@ -2928,6 +3020,23 @@ app.add_middleware(
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+
+@app.exception_handler(Exception)
+async def log_unhandled_exception(request: Request, exc: Exception):
+    """Turn every unhandled error into a logged traceback plus a reference id.
+
+    Without this an unhandled exception is a bare 500 with nothing in the logs,
+    which is exactly how a sign-in failure reported from a TestFlight device ends
+    up undiagnosable. HTTPException still takes FastAPI's normal path, so only
+    genuine bugs land here. The id goes to both the log and the client so a user's
+    screenshot can be matched to the traceback."""
+    error_id = uuid.uuid4().hex[:12]
+    logger.exception("Unhandled error %s on %s %s", error_id, request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Something went wrong. Please try again.", "errorId": error_id},
+    )
 
 
 @app.on_event("startup")
