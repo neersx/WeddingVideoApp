@@ -1052,6 +1052,32 @@ async def _save_google_user(user: GoogleUser):
     return user_doc
 
 
+async def _ensure_user_auth_indexes():
+    """Create provider-specific identity indexes without indexing missing IDs.
+
+    A non-sparse unique index on ``googleSub`` also indexes Apple users as a
+    single ``null`` value. That lets the first Apple user register, then makes
+    every subsequent Apple insert fail with E11000/HTTP 500. Repair the legacy
+    index in place before creating sparse unique indexes for both providers.
+    """
+    indexes = await db.users.index_information()
+    provider_fields = ("googleSub", "appleSub")
+
+    for index_name, index in indexes.items():
+        keys = index.get("key", [])
+        indexed_provider = next(
+            (field for field in provider_fields if keys == [(field, 1)]),
+            None,
+        )
+        if indexed_provider and (not index.get("unique") or not index.get("sparse")):
+            logger.info("Replacing legacy users index %s with a sparse unique index", index_name)
+            await db.users.drop_index(index_name)
+
+    await db.users.create_index("email")
+    await db.users.create_index("googleSub", unique=True, sparse=True)
+    await db.users.create_index("appleSub", unique=True, sparse=True)
+
+
 def create_human_pass(result: Optional[dict]) -> str:
     """Mint a short-lived pass proving reCAPTCHA already succeeded for this
     session of the create wizard.
@@ -2927,8 +2953,7 @@ async def initialize_storage():
         await client.admin.command("ping")
         db = client[db_name]
         billing_db.set_db(db)
-        await db.users.create_index("email")
-        await db.users.create_index("googleSub", unique=True)
+        await _ensure_user_auth_indexes()
         await db.renders.create_index("userId")
         await db.renders.create_index("created_at")
         await db.templates.create_index("category")
