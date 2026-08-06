@@ -1,7 +1,17 @@
 import React, { createContext, useContext, useState } from 'react';
 import { Alert, Dimensions, Platform } from 'react-native';
 import { GoogleSignin, isSuccessResponse, isCancelledResponse, isErrorWithCode, statusCodes } from '@react-native-google-signin/google-signin';
+import { getDeviceId } from '../lib/device';
 import { DISABLE_GOOGLE_AUTH, isCredentialExpired, json } from '../lib/shared';
+
+// A "guest" session (see ensureGuestSession) is a real signed-in-shaped user
+// object from the backend's point of view — it carries a Bearer token and can
+// render — but it isn't an account: no email, keyed only by an on-device id.
+// Everywhere in the UI that means "a real signed-in person" (My Videos,
+// Settings' account panel, the header avatar) must check this, not just `user`.
+export function isGuestUser(user) {
+  return !!user && user.provider === 'guest';
+}
 
 // expo-apple-authentication calls its native module at import time and only
 // exists on iOS, so require it lazily on iOS to avoid crashing web/Android.
@@ -152,9 +162,24 @@ export function AuthProvider({ children }) {
     setCredential(null);
   }
 
+  // Mints (or re-mints) a guest session keyed by this device's persisted id.
+  // Guests can render — App Store Guideline 5.1.1(v) forbids requiring
+  // registration for a feature that isn't account-based — but everything
+  // account-based (My Videos, Settings' profile panel) stays gated on a real
+  // sign-in via isGuestUser().
+  async function ensureGuestSession() {
+    const deviceId = await getDeviceId();
+    const data = await json('/auth/guest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceId, source: loginSource() }) });
+    setUser(data.user || data);
+    setCredential(data.token || null);
+    return data.token || null;
+  }
+
   // Return a currently-valid session token. Session JWTs last ~30 days; if the
   // stored one is missing/expired we try to silently re-establish it via Google
-  // (Apple can't refresh silently — those users re-tap Sign in with Apple).
+  // (Apple can't refresh silently — those users re-tap Sign in with Apple), and
+  // failing that fall back to a guest session so rendering never hard-requires
+  // sign-in.
   async function ensureValidCredential() {
     if (DISABLE_GOOGLE_AUTH) return credential || 'local-development';
     if (credential && !isCredentialExpired(credential)) return credential;
@@ -167,14 +192,57 @@ export function AuthProvider({ children }) {
         return data.token || null;
       }
     } catch (e) {
-      // No silent Google session to restore — fall through to signed-out.
+      // No silent Google session to restore — fall through to a guest session.
+    }
+    try {
+      return await ensureGuestSession();
+    } catch (e) {
+      // No network / backend unreachable — genuinely signed out.
     }
     setUser(null);
     setCredential(null);
     return null;
   }
 
-  const value = { user, credential, signingIn, error, setError, signInWithGoogle, signInWithApple, confirmSignOut, deleteAccount, ensureValidCredential, promptLogin, closeLogin, loginVisible };
+  // Like ensureValidCredential, but never falls back to a guest session — for
+  // account-based screens (My Videos, Settings) that must silently restore a
+  // real login across app relaunches without flipping an unauthenticated
+  // visitor into a guest just for having opened the screen. Returns null if
+  // the only session available is a guest one.
+  async function ensureSignedInCredential() {
+    if (DISABLE_GOOGLE_AUTH) return credential || 'local-development';
+    if (credential && !isCredentialExpired(credential) && !isGuestUser(user)) return credential;
+    try {
+      const result = await GoogleSignin.signInSilently();
+      if (isSuccessResponse(result) && result.data?.idToken) {
+        const data = await json('/auth/google', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credential: result.data.idToken, source: loginSource() }) });
+        setUser(data.user || data);
+        setCredential(data.token || null);
+        return data.token || null;
+      }
+    } catch (e) {
+      // No silent Google session to restore.
+    }
+    return null;
+  }
+
+  const value = {
+    user,
+    isGuest: isGuestUser(user),
+    credential,
+    signingIn,
+    error,
+    setError,
+    signInWithGoogle,
+    signInWithApple,
+    confirmSignOut,
+    deleteAccount,
+    ensureValidCredential,
+    ensureSignedInCredential,
+    promptLogin,
+    closeLogin,
+    loginVisible,
+  };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

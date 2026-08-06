@@ -73,6 +73,17 @@ MOBILE_GOOGLE_CLIENT_IDS = {
 # identity tokens are short-lived and can't be silently refreshed).
 SESSION_SECRET = os.environ.get('SESSION_SECRET', '').strip() or 'insecure-dev-session-secret-change-me-in-prod'
 SESSION_TTL_DAYS = int(os.environ.get('SESSION_TTL_DAYS', '30'))
+# Guest (signed-out) sessions for the native apps. App Store Guideline 5.1.1(v)
+# forbids requiring registration for features that aren't account-based, and
+# rendering a video isn't — so the app can mint a guest session from a device id
+# and render without signing in. Guests are native-only (the web app never calls
+# /auth/guest), carry no personal data, and are capped per device per day.
+GUEST_PROVIDER = 'guest'
+GUEST_SUB_PREFIX = 'guest:'
+GUEST_DAILY_RENDER_LIMIT = int(os.environ.get('GUEST_DAILY_RENDER_LIMIT', '2'))
+# Guest sessions are cheap to re-mint (the device id is stored locally and never
+# changes), so they don't need the 30-day life a real sign-in gets.
+GUEST_SESSION_TTL_DAYS = int(os.environ.get('GUEST_SESSION_TTL_DAYS', '7'))
 # Sign in with Apple. The native flow issues identity tokens whose `aud` is the
 # app's bundle id and `iss` is Apple. Accept one or more bundle ids (comma-sep).
 APPLE_ISSUER = 'https://appleid.apple.com'
@@ -986,6 +997,14 @@ class AppleLoginRequest(BaseModel):
     source: Optional[str] = None
 
 
+class GuestLoginRequest(BaseModel):
+    # A UUID the app generates once and persists on-device (never a real
+    # identifier — no IDFA/IMEI/etc). Used only to key the daily render limit;
+    # never surfaced to the web app or treated as a real account.
+    deviceId: str
+    source: Optional[str] = None
+
+
 class GoogleUser(BaseModel):
     sub: str
     email: str
@@ -1330,14 +1349,19 @@ def _is_native_client(user: GoogleUser) -> bool:
     JWT, where neither raw claim survives."""
     if user.native_client:
         return True
-    if user.provider == "apple":
+    if user.provider in ("apple", GUEST_PROVIDER):
         return True
     return bool(user.azp and user.azp in MOBILE_GOOGLE_CLIENT_IDS)
+
+
+def _is_guest(user: GoogleUser) -> bool:
+    return user.provider == GUEST_PROVIDER
 
 
 def create_session_token(user: GoogleUser) -> str:
     """Mint a first-party session JWT (HS256) the app uses as its Bearer."""
     now = datetime.now(timezone.utc)
+    ttl_days = GUEST_SESSION_TTL_DAYS if _is_guest(user) else SESSION_TTL_DAYS
     payload = {
         "sub": user.sub,
         "email": user.email,
@@ -1350,7 +1374,7 @@ def create_session_token(user: GoogleUser) -> str:
         "typ": "session",
         "iss": "invitavideos",
         "iat": int(now.timestamp()),
-        "exp": int((now + timedelta(days=SESSION_TTL_DAYS)).timestamp()),
+        "exp": int((now + timedelta(days=ttl_days)).timestamp()),
     }
     return jose_jwt.encode(payload, SESSION_SECRET, algorithm="HS256")
 
@@ -1540,6 +1564,36 @@ async def require_admin_user(user: GoogleUser = Depends(require_google_user)) ->
     if ADMIN_EMAILS and user.email.lower() not in ADMIN_EMAILS:
         raise HTTPException(status_code=403, detail="Admin access is required")
     return user
+
+
+async def require_registered_user(user: GoogleUser = Depends(require_google_user)) -> GoogleUser:
+    """Like require_google_user, but rejects guest sessions — for endpoints that
+    are genuinely account-based (My Videos, account deletion, wallet, payments).
+    Guests can render; only a real sign-in unlocks these."""
+    if _is_guest(user):
+        raise HTTPException(status_code=401, detail="Sign in to access this")
+    return user
+
+
+def _guest_sub(device_id: str) -> str:
+    return f"{GUEST_SUB_PREFIX}{device_id}"
+
+
+def create_guest_user(device_id: str) -> GoogleUser:
+    return GoogleUser(
+        sub=_guest_sub(device_id),
+        email="",
+        name="Guest",
+        picture="",
+        email_verified=False,
+        provider=GUEST_PROVIDER,
+        native_client=True,
+    )
+
+
+async def _guest_renders_today(sub: str) -> int:
+    day_start_iso = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    return await db.renders.count_documents({"userId": sub, "created_at": {"$gte": day_start_iso}})
 
 
 DEFAULT_TEMPLATE_DURATIONS = [10, 20, 30]
@@ -2123,6 +2177,19 @@ async def apple_login(req: AppleLoginRequest):
         await _log_login_failure("apple", user.sub, source, "/auth/apple", exc)
         raise
     await _record_login_success(user.sub, source)
+    return {"user": user.model_dump(), "token": create_session_token(user)}
+
+
+@api_router.post("/auth/guest")
+async def guest_login(req: GuestLoginRequest):
+    """Mints a signed-out session for the native apps (Guideline 5.1.1(v) —
+    rendering isn't account-based, so the app must not require sign-in for it).
+    Web never calls this: it has no device id to key off, and it already has a
+    working reCAPTCHA-gated anonymous flow via /verify-human."""
+    device_id = (req.deviceId or "").strip()
+    if not device_id or len(device_id) > 128:
+        raise HTTPException(status_code=400, detail="A valid deviceId is required")
+    user = create_guest_user(device_id)
     return {"user": user.model_dump(), "token": create_session_token(user)}
 
 
@@ -2898,6 +2965,17 @@ async def create_render(
     request: Request,
     user: GoogleUser = Depends(require_google_user),
 ):
+    # Guests (signed-out native users) get a small daily render allowance keyed
+    # by their on-device id — enough to try the app under Guideline 5.1.1(v)
+    # without needing an account, but not an unlimited free render farm.
+    if _is_guest(user):
+        today_count = await _guest_renders_today(user.sub)
+        if today_count >= GUEST_DAILY_RENDER_LIMIT:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Guests can create up to {GUEST_DAILY_RENDER_LIMIT} videos per day. Sign in to keep creating.",
+            )
+
     # Native app clients can't run reCAPTCHA v3 (it's a browser API), so they're
     # exempt. See _is_native_client — this must not test `azp` directly, which is
     # absent from the session JWTs the app actually sends.
@@ -3177,9 +3255,10 @@ async def list_renders():
 
 
 @api_router.get("/renders/mine")
-async def list_my_renders(user: GoogleUser = Depends(require_google_user)):
+async def list_my_renders(user: GoogleUser = Depends(require_registered_user)):
     """Backs the "My Downloads" page. Registered before /renders/{render_id}
-    so "mine" is never matched as a render id."""
+    so "mine" is never matched as a render id. Account-based (guests are
+    excluded) — signing in is what unlocks My Videos, per product decision."""
     docs = await db.renders.find({"userId": user.sub}).sort("created_at", -1).to_list(200)
     return [
         {
@@ -3201,7 +3280,7 @@ async def list_my_renders(user: GoogleUser = Depends(require_google_user)):
 
 
 @api_router.delete("/account")
-async def delete_account(user: GoogleUser = Depends(require_google_user)):
+async def delete_account(user: GoogleUser = Depends(require_registered_user)):
     """Apple Guideline 5.1.1(v): account deletion must be reachable in-app and
     must actually erase data, not just deactivate. Removes the user's render
     files, render records, wallet, and profile."""
@@ -3239,6 +3318,9 @@ async def get_render(render_id: str):
         "finished_at": d.get("finished_at"),
         "isPublic": bool(d.get("isPublic", False)),
         "isPremium": bool(d.get("isPremium", False)),
+        # Lets clients (e.g. the mobile app's on-device guest library) show the
+        # same "expired" state /renders/mine does, without needing an account.
+        "expired": bool(d.get("fileRemoved")),
         "video_url": _render_video_url(d),
     }
 

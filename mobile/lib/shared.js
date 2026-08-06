@@ -92,7 +92,7 @@ export async function json(path, options = {}) {
   return body;
 }
 
-export function decodeJwtExp(token) {
+export function decodeJwtPayload(token) {
   try {
     const part = String(token).split('.')[1];
     if (!part) return null;
@@ -100,10 +100,14 @@ export function decodeJwtExp(token) {
     const json = decodeURIComponent(
       atob(base64).split('').map((c) => '%' + c.charCodeAt(0).toString(16).padStart(2, '0')).join('')
     );
-    return JSON.parse(json).exp || null;
+    return JSON.parse(json);
   } catch {
     return null;
   }
+}
+
+export function decodeJwtExp(token) {
+  return decodeJwtPayload(token)?.exp || null;
 }
 
 // Google ID tokens expire ~1h after sign-in. Treat as expired 30s early.

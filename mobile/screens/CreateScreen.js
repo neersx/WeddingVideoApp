@@ -5,9 +5,11 @@ import * as ImagePicker from 'expo-image-picker';
 import { BrandHeader } from '../components/BrandHeader';
 import { DatePickerModal, DynamicForm, Field } from '../components/Shared';
 import { useAuth } from '../context/AuthContext';
+import { addGuestRender } from '../lib/guestLibrary';
 import {
   STEPS,
   WEDDING_SCHEDULE,
+  decodeJwtPayload,
   json,
   normalizePhotoForRender,
   palette,
@@ -179,7 +181,7 @@ export default function CreateScreen({ route, navigation }) {
       return setError('Add a message for every photo before rendering.');
     }
     let activeCredential = await ensureValidCredential();
-    if (!activeCredential) return setError('Your session expired. Please sign in with Google to render your video.');
+    if (!activeCredential) return setError('Could not start your session. Please check your connection and try again.');
     setIsWorking(true);
     try {
       setStatus('Preparing photos…');
@@ -223,6 +225,24 @@ export default function CreateScreen({ route, navigation }) {
       // Fire-and-forget: the server renders independently. We don't block the
       // user on a spinner — the finished video lands in My Downloads.
       if (!render?.jobId) throw new Error('The render could not be started. Please try again.');
+      // Decode the credential that actually made this request (not the `user`
+      // from this closure's render, which can be stale — ensureValidCredential
+      // may have just minted a guest session further up this same call). Guest
+      // renders aren't tied to any account server-side, so the only place they
+      // can show up in My Videos is this device's local library.
+      if (decodeJwtPayload(activeCredential)?.provider === 'guest') {
+        await addGuestRender({
+          id: render.jobId,
+          template: template.id,
+          category,
+          durationInSeconds: Number(details.durationInSeconds) || 10,
+          creditCost: 0,
+          status: 'queued',
+          video_url: null,
+          expired: false,
+          created_at: new Date().toISOString(),
+        });
+      }
       setJobStatus('queued'); setJobProgress(0); setJobError(''); setVideoUrl(''); setElapsed(0); setMessageIndex(0);
       setSubmitted(true); setJobId(render.jobId); setStatus('');
     } catch (e) { setError(e.message); setStatus(''); }

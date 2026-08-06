@@ -8,7 +8,7 @@ from billing import catalog, payments, pricing, wallet
 from billing import gateway_razorpay as gateway
 from billing.db import get_db
 from billing.models import AdminCreditPackRequest, AdminWalletAdjustRequest, TopupRequest, VerifyPaymentRequest
-from server import GoogleUser, log_error, require_admin_user, require_google_user, resolve_template_form
+from server import GoogleUser, log_error, require_admin_user, require_registered_user, resolve_template_form
 
 router = APIRouter(prefix="/api")
 logger = logging.getLogger(__name__)
@@ -45,7 +45,7 @@ async def get_pricing(template: str, duration: int):
 
 
 @router.get("/wallet")
-async def get_my_wallet(user: GoogleUser = Depends(require_google_user)):
+async def get_my_wallet(user: GoogleUser = Depends(require_registered_user)):
     db = get_db()
     w = await wallet.get_wallet(db, user.sub)
     return {
@@ -57,7 +57,7 @@ async def get_my_wallet(user: GoogleUser = Depends(require_google_user)):
 
 
 @router.get("/wallet/transactions")
-async def get_my_wallet_transactions(user: GoogleUser = Depends(require_google_user)):
+async def get_my_wallet_transactions(user: GoogleUser = Depends(require_registered_user)):
     db = get_db()
     txns = await wallet.list_transactions(db, user.sub)
     return [
@@ -110,7 +110,7 @@ async def list_credit_packs():
 
 
 @router.post("/payments/topup")
-async def create_topup(req: TopupRequest, user: GoogleUser = Depends(require_google_user)):
+async def create_topup(req: TopupRequest, user: GoogleUser = Depends(require_registered_user)):
     db = get_db()
     try:
         return await payments.create_topup_order(db, user.sub, req.packId, req.currency)
@@ -129,7 +129,7 @@ async def create_topup(req: TopupRequest, user: GoogleUser = Depends(require_goo
 
 
 @router.post("/payments/verify")
-async def verify_topup(req: VerifyPaymentRequest, user: GoogleUser = Depends(require_google_user)):
+async def verify_topup(req: VerifyPaymentRequest, user: GoogleUser = Depends(require_registered_user)):
     db = get_db()
     try:
         payment = await payments.verify_and_grant(
@@ -146,7 +146,7 @@ async def verify_topup(req: VerifyPaymentRequest, user: GoogleUser = Depends(req
 
 
 @router.get("/payments/mine")
-async def list_my_payments(user: GoogleUser = Depends(require_google_user)):
+async def list_my_payments(user: GoogleUser = Depends(require_registered_user)):
     """Backs the "My Orders" page — the user's own credit-pack purchase history."""
     db = get_db()
     docs = await db.payments.find({"userId": user.sub}).sort("created_at", -1).to_list(200)

@@ -3,7 +3,8 @@ import { ActivityIndicator, Pressable, RefreshControl, SafeAreaView, ScrollView,
 import { StatusBar } from 'expo-status-bar';
 import { BrandHeader } from '../components/BrandHeader';
 import { RenderedVideo } from '../components/Shared';
-import { useAuth } from '../context/AuthContext';
+import { isGuestUser, useAuth } from '../context/AuthContext';
+import { listGuestRenders, updateGuestRender } from '../lib/guestLibrary';
 import { absoluteVideoUrl, json, palette, styles } from '../lib/shared';
 import { saveVideoUrl, shareVideoUrl } from '../lib/video';
 
@@ -21,25 +22,47 @@ function formatDate(iso) {
 }
 
 export default function MyDownloadsScreen({ navigation }) {
-  const { user, ensureValidCredential, promptLogin } = useAuth();
+  const { user, ensureSignedInCredential, promptLogin } = useAuth();
+  const signedIn = user && !isGuestUser(user);
   const [renders, setRenders] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [busyId, setBusyId] = useState('');
   const [playingId, setPlayingId] = useState('');
   const [error, setError] = useState('');
 
+  // Signed-in users get the server-backed, cross-device /renders/mine list.
+  // Guests (and anyone not signed in) get the on-device library instead —
+  // populated by CreateScreen as they render — refreshed against the public,
+  // no-auth render-status endpoint so queued/rendering entries catch up to
+  // "done". Opening this screen never mints a guest session on its own.
   const load = useCallback(async () => {
     setError('');
-    const cred = await ensureValidCredential();
-    if (!cred) { setRenders([]); return; }
-    try {
-      const data = await json('/renders/mine', { headers: { Authorization: `Bearer ${cred}` } });
-      setRenders(Array.isArray(data) ? data : []);
-    } catch (e) {
-      setError(e.message || 'Could not load your videos.');
-      setRenders([]);
+    if (signedIn) {
+      const cred = await ensureSignedInCredential();
+      if (!cred) { setRenders([]); return; }
+      try {
+        const data = await json('/renders/mine', { headers: { Authorization: `Bearer ${cred}` } });
+        setRenders(Array.isArray(data) ? data : []);
+      } catch (e) {
+        setError(e.message || 'Could not load your videos.');
+        setRenders([]);
+      }
+      return;
     }
-  }, [ensureValidCredential]);
+    const local = await listGuestRenders();
+    const refreshed = await Promise.all(local.map(async (item) => {
+      if (item.status === 'done' || item.status === 'failed') return item;
+      try {
+        const fresh = await json(`/renders/${item.id}`);
+        const patch = { status: fresh.status, video_url: fresh.video_url, finished_at: fresh.finished_at, expired: !!fresh.expired };
+        await updateGuestRender(item.id, patch);
+        return { ...item, ...patch };
+      } catch (e) {
+        return item; // Offline or the lookup failed — keep the last known state.
+      }
+    }));
+    setRenders(refreshed);
+  }, [signedIn, ensureSignedInCredential]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -74,14 +97,18 @@ export default function MyDownloadsScreen({ navigation }) {
 
         {error ? <View style={styles.errorBox}><Text style={styles.error}>{error}</Text></View> : null}
 
-        {!user ? (
-          <View style={styles.card}>
-            <Text style={styles.confirmBody}>Sign in to see the videos you've created.</Text>
+        {!signedIn ? (
+          <View style={[styles.card, { marginBottom: 16 }]}>
+            <Text style={styles.confirmBody}>
+              These videos are saved on this device only. Sign in to back them up and access them on other devices.
+            </Text>
             <Pressable onPress={promptLogin} style={styles.smallBtnPrimary}>
               <Text style={styles.smallBtnPrimaryText}>Sign in</Text>
             </Pressable>
           </View>
-        ) : renders === null ? (
+        ) : null}
+
+        {renders === null ? (
           <View style={styles.status}><ActivityIndicator color={palette.gold} /><Text style={styles.statusText}>Loading your videos…</Text></View>
         ) : renders.length === 0 ? (
           <View style={styles.emptyCard}>

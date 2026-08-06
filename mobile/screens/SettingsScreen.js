@@ -2,11 +2,12 @@ import React, { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, SafeAreaView, ScrollView, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { BrandHeader } from '../components/BrandHeader';
-import { useAuth } from '../context/AuthContext';
+import { isGuestUser, useAuth } from '../context/AuthContext';
 import { palette, styles } from '../lib/shared';
 
 export default function SettingsScreen() {
   const { user, promptLogin, confirmSignOut, deleteAccount } = useAuth();
+  const signedIn = user && !isGuestUser(user);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState('');
 
@@ -45,7 +46,7 @@ export default function SettingsScreen() {
 
         {error ? <View style={styles.errorBox}><Text style={styles.error}>{error}</Text></View> : null}
 
-        {!user ? (
+        {!signedIn ? (
           <View style={styles.card}>
             <Text style={styles.confirmBody}>Sign in to manage your account.</Text>
             <Pressable onPress={promptLogin} style={styles.smallBtnPrimary}>
