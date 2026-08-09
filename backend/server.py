@@ -759,7 +759,12 @@ DEFAULT_CATEGORY_DOCUMENTS = [
     },
 ]
 
-app = FastAPI(title="DreamWedds Render API")
+app = FastAPI(
+    title="DreamWedds Render API",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
+)
 api_router = APIRouter(prefix="/api")
 
 
