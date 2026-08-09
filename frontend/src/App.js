@@ -6,8 +6,10 @@ import {
   CheckCircle2,
   Clapperboard,
   Clock,
+  Copy,
   Gift,
   Heart,
+  KeyRound,
   LogOut,
   Mail,
   Music,
@@ -1514,6 +1516,7 @@ const ADMIN_TABS = [
   ["/admin/credit-packs", "Credit packs"],
   ["/admin/categories", "Category forms"],
   ["/admin/users", "Users"],
+  ["/admin/api-clients", "API Clients"],
   ["/admin/renders", "Video renders"],
   ["/admin/error-logs", "Error Logs"],
   ["/admin/settings", "Settings"],
@@ -2098,6 +2101,143 @@ function AdminUsersPage() {
   const [users, setUsers] = useState(null);
   useEffect(() => { axios.get(`${API}/admin/users`, { headers: { Authorization: `Bearer ${credential}` } }).then((response) => setUsers(response.data)).catch(() => setUsers([])); }, [credential]);
   return <AdminPageFrame eyebrow="Users" title="User accounts" description="See registered users and how many invitation videos each account has created."><div className="mt-6 overflow-hidden rounded-3xl border border-[#ECD5E2] bg-white">{users === null ? <div className="p-8 text-sm text-neutral-500">Loading users…</div> : <div className="divide-y divide-[#F0DDE7]">{users.map((item) => <div key={item.id} className="flex flex-col gap-3 px-6 py-5 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-3">{item.picture ? <img src={item.picture} alt="" className="h-10 w-10 rounded-full object-cover" referrerPolicy="no-referrer" /> : <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#F8EAF2] font-bold text-[#A4176D]">{(item.name || item.email || "U").slice(0, 1).toUpperCase()}</div>}<div><div className="font-semibold text-[#32113A]">{item.name || "Unnamed user"}</div><div className="text-sm text-neutral-500">{item.email}</div></div></div><div className="flex items-center gap-5 text-sm"><span><strong className="text-[#32113A]">{item.renderCount}</strong> videos</span><span className="text-xs text-neutral-400">Last activity: {item.lastRender ? new Date(item.lastRender).toLocaleDateString() : "Never"}</span></div></div>)}{!users.length && <div className="p-8 text-sm text-neutral-500">No users found.</div>}</div>}</div></AdminPageFrame>;
+}
+
+function AdminApiClientsPage() {
+  const { credential } = useAuth();
+  const [clients, setClients] = useState(null);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [rpm, setRpm] = useState(30);
+  const [maxConcurrent, setMaxConcurrent] = useState(5);
+  const [creating, setCreating] = useState(false);
+  const [issuedKey, setIssuedKey] = useState(null); // { apiKey, name } — shown once, right after creation
+  const [drafts, setDrafts] = useState({});
+  const [savingId, setSavingId] = useState(null);
+  const authHeader = useMemo(() => ({ headers: { Authorization: `Bearer ${credential}` } }), [credential]);
+
+  const load = useCallback(() => {
+    axios.get(`${API}/admin/api-clients`, authHeader).then((r) => {
+      setClients(r.data);
+      const next = {};
+      r.data.forEach((c) => { next[c.id] = { requestsPerMinute: c.requestsPerMinute, maxConcurrentRenders: c.maxConcurrentRenders }; });
+      setDrafts(next);
+    }).catch(() => setClients([]));
+  }, [authHeader]);
+  useEffect(() => { load(); }, [load]);
+
+  const createClient = async () => {
+    if (!name.trim()) return toast.error("Name is required");
+    if (!email.trim()) return toast.error("Contact email is required");
+    setCreating(true);
+    try {
+      const { data } = await axios.post(`${API}/admin/api-clients`, {
+        name: name.trim(),
+        contactEmail: email.trim(),
+        requestsPerMinute: Number(rpm) || 30,
+        maxConcurrentRenders: Number(maxConcurrent) || 5,
+      }, authHeader);
+      setIssuedKey({ apiKey: data.apiKey, name: data.client.name });
+      setName(""); setEmail(""); setRpm(30); setMaxConcurrent(5);
+      load();
+    } catch (error) {
+      toast.error(error?.response?.data?.detail || "Failed to create API client");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const updateDraft = (id, patch) => setDrafts((d) => ({ ...d, [id]: { ...d[id], ...patch } }));
+
+  const saveLimits = async (id) => {
+    const d = drafts[id];
+    setSavingId(id);
+    try {
+      await axios.patch(`${API}/admin/api-clients/${id}`, {
+        requestsPerMinute: Number(d.requestsPerMinute) || 1,
+        maxConcurrentRenders: Number(d.maxConcurrentRenders) || 1,
+      }, authHeader);
+      toast.success("Limits updated");
+      load();
+    } catch (error) {
+      toast.error(error?.response?.data?.detail || "Failed to update limits");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const toggleActive = async (client) => {
+    const verb = client.isActive ? "Revoke" : "Reactivate";
+    if (!window.confirm(`${verb} the API key for "${client.name}"?`)) return;
+    try {
+      await axios.patch(`${API}/admin/api-clients/${client.id}`, { isActive: !client.isActive }, authHeader);
+      toast.success(client.isActive ? "Key revoked" : "Key reactivated");
+      load();
+    } catch {
+      toast.error(`Failed to ${verb.toLowerCase()} key`);
+    }
+  };
+
+  const copyKey = async () => {
+    try { await navigator.clipboard.writeText(issuedKey.apiKey); toast.success("Key copied"); }
+    catch { toast.error("Couldn't copy — select and copy manually"); }
+  };
+
+  const inputClass = "w-full rounded-xl border border-[#ECD5E2] bg-white px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B4405F]";
+
+  return <AdminPageFrame eyebrow="API Clients" title="Third-party API access" description="Partners rendering videos programmatically, outside the wallet — not credit-gated, but rate limited per key so no single partner can exhaust the render worker.">
+    {issuedKey && (
+      <div className="mt-6 rounded-3xl border border-amber-300 bg-amber-50 p-6">
+        <div className="flex items-center gap-2 text-sm font-semibold text-amber-900"><KeyRound className="h-4 w-4" /> API key for {issuedKey.name} — shown once</div>
+        <p className="mt-1 text-xs text-amber-800">Copy it now. It can't be retrieved again — only revoked and reissued.</p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <code className="flex-1 rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs text-[#32113A] break-all">{issuedKey.apiKey}</code>
+          <button onClick={copyKey} className="flex items-center gap-1.5 rounded-xl bg-[#32113A] px-3 py-2 text-xs font-semibold text-white"><Copy className="h-3.5 w-3.5" /> Copy</button>
+          <button onClick={() => setIssuedKey(null)} className="rounded-xl border border-amber-300 px-3 py-2 text-xs font-semibold text-amber-900">Dismiss</button>
+        </div>
+      </div>
+    )}
+
+    <div className="mt-6 rounded-3xl border border-[#ECD5E2] bg-white p-6">
+      <div className="font-heading text-lg font-extrabold text-[#32113A]">Issue a new key</div>
+      <div className="mt-4 grid gap-4 sm:grid-cols-4">
+        <label className="text-xs sm:col-span-2"><span className="mb-1 block font-semibold text-neutral-500">Partner name</span><input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} placeholder="Acme Wedding Co" /></label>
+        <label className="text-xs sm:col-span-2"><span className="mb-1 block font-semibold text-neutral-500">Contact email</span><input type="email" className={inputClass} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="dev@acme.com" /></label>
+        <label className="text-xs"><span className="mb-1 block font-semibold text-neutral-500">Requests / minute</span><input type="number" min={1} className={inputClass} value={rpm} onChange={(e) => setRpm(e.target.value)} /></label>
+        <label className="text-xs"><span className="mb-1 block font-semibold text-neutral-500">Max concurrent renders</span><input type="number" min={1} className={inputClass} value={maxConcurrent} onChange={(e) => setMaxConcurrent(e.target.value)} /></label>
+      </div>
+      <button disabled={creating} onClick={createClient} className="mt-4 rounded-xl bg-[#32113A] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{creating ? "Issuing…" : "Issue key"}</button>
+    </div>
+
+    <div className="mt-4 space-y-4">
+      {clients === null && <div className="rounded-3xl border border-[#ECD5E2] bg-white p-8 text-sm text-neutral-500">Loading API clients…</div>}
+      {clients !== null && !clients.length && <div className="rounded-3xl border border-[#ECD5E2] bg-white p-8 text-sm text-neutral-500">No API clients yet — issue one above.</div>}
+      {(clients || []).map((c) => {
+        const d = drafts[c.id] || {};
+        return (
+          <div key={c.id} className="rounded-3xl border border-[#ECD5E2] bg-white p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 font-heading text-lg font-extrabold text-[#32113A]">{c.name}
+                  <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${c.isActive ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}>{c.isActive ? "Active" : "Revoked"}</span>
+                </div>
+                <div className="text-xs text-neutral-500">{c.contactEmail} · <code>{c.keyPrefix}…</code></div>
+              </div>
+              <button onClick={() => toggleActive(c)} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${c.isActive ? "border-red-200 text-red-600 hover:bg-red-50" : "border-emerald-200 text-emerald-700 hover:bg-emerald-50"}`}>{c.isActive ? "Revoke" : "Reactivate"}</button>
+            </div>
+            <div className="mt-4 grid gap-4 sm:grid-cols-4">
+              <label className="text-xs"><span className="mb-1 block font-semibold text-neutral-500">Requests / minute</span><input type="number" min={1} className={inputClass} value={d.requestsPerMinute ?? ""} onChange={(e) => updateDraft(c.id, { requestsPerMinute: e.target.value })} /></label>
+              <label className="text-xs"><span className="mb-1 block font-semibold text-neutral-500">Max concurrent renders</span><input type="number" min={1} className={inputClass} value={d.maxConcurrentRenders ?? ""} onChange={(e) => updateDraft(c.id, { maxConcurrentRenders: e.target.value })} /></label>
+              <div className="text-xs sm:col-span-2"><span className="mb-1 block font-semibold text-neutral-500">Last used</span><div className="pt-2 text-neutral-600">{c.lastUsedAt ? new Date(c.lastUsedAt).toLocaleString() : "Never"}</div></div>
+            </div>
+            <div className="mt-4 border-t border-[#F0DDE7] pt-3">
+              <button disabled={savingId === c.id} onClick={() => saveLimits(c.id)} className="rounded-xl bg-[#32113A] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{savingId === c.id ? "Saving…" : "Save limits"}</button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  </AdminPageFrame>;
 }
 
 const RENDER_STATUS_OPTIONS = ["queued", "rendering", "done", "failed"];
@@ -2963,6 +3103,7 @@ function App() {
           <Route path="/admin/template-settings" element={<AdminGate><AdminTemplateSettingsPage /></AdminGate>} />
           <Route path="/admin/credit-packs" element={<AdminGate><AdminCreditPacksPage /></AdminGate>} />
           <Route path="/admin/users" element={<AdminGate><AdminUsersPage /></AdminGate>} />
+          <Route path="/admin/api-clients" element={<AdminGate><AdminApiClientsPage /></AdminGate>} />
           <Route path="/admin/renders" element={<AdminGate><AdminRendersPage /></AdminGate>} />
           <Route path="/admin/error-logs" element={<AdminGate><AdminErrorLogsPage /></AdminGate>} />
           <Route path="/admin/settings" element={<AdminGate><AdminSettingsPage /></AdminGate>} />

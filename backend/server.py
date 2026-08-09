@@ -18,6 +18,9 @@ import asyncio
 import re
 import ipaddress
 import socket
+import secrets
+import hashlib
+from collections import defaultdict, deque
 from urllib.parse import urlparse
 from pathlib import Path
 from pydantic import BaseModel, Field
@@ -84,6 +87,13 @@ GUEST_DAILY_RENDER_LIMIT = int(os.environ.get('GUEST_DAILY_RENDER_LIMIT', '2'))
 # Guest sessions are cheap to re-mint (the device id is stored locally and never
 # changes), so they don't need the 30-day life a real sign-in gets.
 GUEST_SESSION_TTL_DAYS = int(os.environ.get('GUEST_SESSION_TTL_DAYS', '7'))
+# Third-party partners rendering programmatically via an API key. Not
+# credit-gated or recaptcha-gated like guest/web traffic, but still rate
+# limited per key so one partner can't exhaust the render worker.
+API_CLIENT_PROVIDER = 'api_client'
+API_KEY_PREFIX = 'sk_live_'
+DEFAULT_API_CLIENT_RPM = int(os.environ.get('DEFAULT_API_CLIENT_RPM', '30'))
+DEFAULT_API_CLIENT_MAX_CONCURRENT = int(os.environ.get('DEFAULT_API_CLIENT_MAX_CONCURRENT', '5'))
 # Sign in with Apple. The native flow issues identity tokens whose `aud` is the
 # app's bundle id and `iss` is Apple. Accept one or more bundle ids (comma-sep).
 APPLE_ISSUER = 'https://appleid.apple.com'
@@ -764,6 +774,14 @@ app = FastAPI(
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
+    openapi_tags=[
+        {"name": "Renders", "description": "Create and track video render jobs."},
+        {
+            "name": "API Clients",
+            "description": "Admin-only: issue and manage partner API keys for uncapped, "
+            "rate-limited third-party render automation (see POST /renders auth).",
+        },
+    ],
 )
 api_router = APIRouter(prefix="/api")
 
@@ -925,6 +943,7 @@ class _InMemoryDB:
         self.coupon_redemptions = _InMemoryCollection(unique_fields=[("couponId", "userId")])
         self.pack_discounts = _InMemoryCollection()
         self.error_logs = _InMemoryCollection()
+        self.api_clients = _InMemoryCollection(unique_fields=[("hashedKey",)])
 
 
 client = None
@@ -1024,6 +1043,12 @@ class GoogleUser(BaseModel):
     # Apple flow, then carried in the session JWT — `azp` itself only exists on a
     # raw Google id token, not on our own session tokens.
     native_client: bool = False
+    # Set for identities authenticated via an API key (see require_api_or_google_user).
+    # Carries the client's own per-key rate limit so the render endpoint doesn't
+    # need a second DB lookup to enforce it.
+    api_client_id: Optional[str] = None
+    api_rate_limit_rpm: int = DEFAULT_API_CLIENT_RPM
+    api_max_concurrent: int = DEFAULT_API_CLIENT_MAX_CONCURRENT
 
 
 class TemplateUpdateRequest(BaseModel):
@@ -1050,6 +1075,40 @@ class CategoryFormRequest(BaseModel):
     sharedSteps: List[str] = Field(default_factory=lambda: ["photos", "music"])
     isActive: bool = True
     sortOrder: int = 100
+
+
+class ApiClientCreateRequest(BaseModel):
+    name: str
+    contactEmail: str
+    requestsPerMinute: int = DEFAULT_API_CLIENT_RPM
+    maxConcurrentRenders: int = DEFAULT_API_CLIENT_MAX_CONCURRENT
+
+
+class ApiClientUpdateRequest(BaseModel):
+    isActive: Optional[bool] = None
+    requestsPerMinute: Optional[int] = None
+    maxConcurrentRenders: Optional[int] = None
+
+
+class ApiClientResponse(BaseModel):
+    id: str
+    name: str
+    contactEmail: str
+    # First chars of the issued key (e.g. "sk_live_bb21b8…") — enough to tell
+    # keys apart in a list. The full key is never retrievable after issuance.
+    keyPrefix: str
+    requestsPerMinute: int
+    maxConcurrentRenders: int
+    isActive: bool
+    created_at: str
+    lastUsedAt: Optional[str] = None
+
+
+class ApiClientCreateResponse(BaseModel):
+    # Only ever present in the response to the create call itself — shown
+    # once, never persisted or returned by GET/PATCH.
+    apiKey: str
+    client: ApiClientResponse
 
 
 def _redact_email(email: str) -> str:
@@ -1578,6 +1637,88 @@ async def require_registered_user(user: GoogleUser = Depends(require_google_user
     if _is_guest(user):
         raise HTTPException(status_code=401, detail="Sign in to access this")
     return user
+
+
+def _api_client_sub(client_id: str) -> str:
+    return f"api:{client_id}"
+
+
+def _is_api_client(user: GoogleUser) -> bool:
+    return user.provider == API_CLIENT_PROVIDER
+
+
+def _hash_api_key(raw_key: str) -> str:
+    return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
+
+
+def _generate_api_key() -> tuple:
+    """Mint a new API key. Returns (raw_key, hashed_key, display_prefix) — only
+    the hash is ever stored; the raw key is shown to the admin exactly once."""
+    raw_key = f"{API_KEY_PREFIX}{secrets.token_hex(24)}"
+    display_prefix = raw_key[: len(API_KEY_PREFIX) + 6]
+    return raw_key, _hash_api_key(raw_key), display_prefix
+
+
+async def _verify_api_key(raw_key: str) -> GoogleUser:
+    doc = await db.api_clients.find_one({"hashedKey": _hash_api_key(raw_key)})
+    if not doc or not doc.get("isActive", True):
+        raise HTTPException(status_code=401, detail="Invalid or revoked API key")
+    await db.api_clients.update_one(
+        {"_id": doc["_id"]}, {"$set": {"lastUsedAt": datetime.now(timezone.utc).isoformat()}}
+    )
+    return GoogleUser(
+        sub=_api_client_sub(doc["_id"]),
+        email=doc.get("contactEmail", ""),
+        name=doc.get("name", ""),
+        picture="",
+        email_verified=True,
+        provider=API_CLIENT_PROVIDER,
+        native_client=True,
+        api_client_id=doc["_id"],
+        api_rate_limit_rpm=int(doc.get("requestsPerMinute") or DEFAULT_API_CLIENT_RPM),
+        api_max_concurrent=int(doc.get("maxConcurrentRenders") or DEFAULT_API_CLIENT_MAX_CONCURRENT),
+    )
+
+
+async def require_render_user(authorization: str = Header(default="")) -> GoogleUser:
+    """Identity check for /renders: accepts everything require_google_user does
+    (session JWT, raw Google credential), plus a partner API key — Authorization:
+    Bearer sk_live_... — for unattended third-party integrations."""
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() == "bearer" and token.startswith(API_KEY_PREFIX):
+        return await _verify_api_key(token)
+    return await require_google_user(authorization)
+
+
+# In-process sliding-window counter, keyed by API client id. Resets on restart
+# and isn't shared across instances — fine at single-process scale; move to
+# Redis if the backend is ever horizontally scaled.
+_api_rate_limit_windows: Dict[str, deque] = defaultdict(deque)
+
+
+def _check_api_rate_limit(client_id: str, requests_per_minute: int) -> None:
+    now = time.monotonic()
+    window = _api_rate_limit_windows[client_id]
+    cutoff = now - 60
+    while window and window[0] < cutoff:
+        window.popleft()
+    if len(window) >= requests_per_minute:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded: this API key allows {requests_per_minute} render requests/minute",
+        )
+    window.append(now)
+
+
+async def _check_api_concurrency(client_id: str, max_concurrent: int) -> None:
+    in_flight = await db.renders.count_documents(
+        {"userId": _api_client_sub(client_id), "status": {"$in": ["queued", "rendering"]}}
+    )
+    if in_flight >= max_concurrent:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many renders in flight for this API key (limit {max_concurrent}). Poll existing jobs before starting more.",
+        )
 
 
 def _guest_sub(device_id: str) -> str:
@@ -2657,6 +2798,102 @@ async def admin_users(_: GoogleUser = Depends(require_admin_user)):
     return result
 
 
+def _serialize_api_client(doc: dict) -> dict:
+    return {
+        "id": doc["_id"],
+        "name": doc.get("name"),
+        "contactEmail": doc.get("contactEmail"),
+        "keyPrefix": doc.get("keyPrefix"),
+        "requestsPerMinute": doc.get("requestsPerMinute", DEFAULT_API_CLIENT_RPM),
+        "maxConcurrentRenders": doc.get("maxConcurrentRenders", DEFAULT_API_CLIENT_MAX_CONCURRENT),
+        "isActive": bool(doc.get("isActive", True)),
+        "created_at": doc.get("created_at"),
+        "lastUsedAt": doc.get("lastUsedAt"),
+    }
+
+
+@api_router.post(
+    "/admin/api-clients",
+    tags=["API Clients"],
+    summary="Issue a new partner API key",
+    response_model=ApiClientCreateResponse,
+)
+async def admin_create_api_client(req: ApiClientCreateRequest, _: GoogleUser = Depends(require_admin_user)):
+    """Issues a new partner API key for third-party render automation.
+
+    The raw key (`apiKey`) is returned **exactly once**, in this response —
+    only its SHA-256 hash is persisted, so it can't be recovered later, only
+    revoked (`PATCH .../{id}` with `isActive: false`) and reissued.
+
+    Callers authenticate to `POST /api/renders` with
+    `Authorization: Bearer <apiKey>` in place of the usual session JWT. That
+    identity is exempt from reCAPTCHA and credit charges, but is rate limited
+    per key — see `requestsPerMinute` and `maxConcurrentRenders` below."""
+    name = req.name.strip()
+    email = req.contactEmail.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    if not email:
+        raise HTTPException(status_code=400, detail="contactEmail is required")
+    raw_key, hashed_key, display_prefix = _generate_api_key()
+    client_id = uuid.uuid4().hex
+    doc = {
+        "_id": client_id,
+        "name": name,
+        "contactEmail": email,
+        "hashedKey": hashed_key,
+        "keyPrefix": display_prefix,
+        "requestsPerMinute": max(1, int(req.requestsPerMinute or DEFAULT_API_CLIENT_RPM)),
+        "maxConcurrentRenders": max(1, int(req.maxConcurrentRenders or DEFAULT_API_CLIENT_MAX_CONCURRENT)),
+        "isActive": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "lastUsedAt": None,
+    }
+    await db.api_clients.insert_one(doc)
+    return {"apiKey": raw_key, "client": _serialize_api_client(doc)}
+
+
+@api_router.get(
+    "/admin/api-clients",
+    tags=["API Clients"],
+    summary="List partner API clients",
+    response_model=List[ApiClientResponse],
+)
+async def admin_list_api_clients(_: GoogleUser = Depends(require_admin_user)):
+    """Every issued API client, active or revoked. Never includes the raw
+    key — only `keyPrefix`, enough to tell keys apart in a list."""
+    docs = await db.api_clients.find().to_list(500)
+    return [_serialize_api_client(d) for d in docs]
+
+
+@api_router.patch(
+    "/admin/api-clients/{client_id}",
+    tags=["API Clients"],
+    summary="Update or revoke a partner API key",
+    response_model=ApiClientResponse,
+)
+async def admin_update_api_client(client_id: str, req: ApiClientUpdateRequest, _: GoogleUser = Depends(require_admin_user)):
+    """Adjusts a client's rate/concurrency limits, and/or flips `isActive`.
+
+    Setting `isActive: false` is how a key is revoked — it starts failing
+    `POST /api/renders` with 401 immediately. There's no raw-key rotation
+    endpoint; issue a new client and revoke the old one instead."""
+    current = await db.api_clients.find_one({"_id": client_id})
+    if not current:
+        raise HTTPException(status_code=404, detail="API client not found")
+    update: Dict[str, Any] = {}
+    if req.isActive is not None:
+        update["isActive"] = req.isActive
+    if req.requestsPerMinute is not None:
+        update["requestsPerMinute"] = max(1, int(req.requestsPerMinute))
+    if req.maxConcurrentRenders is not None:
+        update["maxConcurrentRenders"] = max(1, int(req.maxConcurrentRenders))
+    if update:
+        await db.api_clients.update_one({"_id": client_id}, {"$set": update})
+    updated = await db.api_clients.find_one({"_id": client_id})
+    return _serialize_api_client(updated)
+
+
 @api_router.get("/admin/renders")
 async def admin_renders(
     page: int = 1,
@@ -2963,13 +3200,22 @@ async def _expiry_cleanup_loop():
         await asyncio.sleep(RENDER_CLEANUP_INTERVAL_SECONDS)
 
 
-@api_router.post("/renders")
+@api_router.post("/renders", tags=["Renders"], summary="Queue a video render")
 async def create_render(
     req: RenderRequest,
     background: BackgroundTasks,
     request: Request,
-    user: GoogleUser = Depends(require_google_user),
+    user: GoogleUser = Depends(require_render_user),
 ):
+    """Validates the payload against the template's form rules and queues a
+    background render job; the video is not ready when this returns — poll
+    `GET /renders/{id}`.
+
+    `Authorization: Bearer <token>` accepts either a first-party session JWT
+    (from `/auth/google`, `/auth/apple`, or `/auth/guest`) or a partner API
+    key issued via `POST /admin/api-clients` (`sk_live_...`). API-key callers
+    skip reCAPTCHA and credit charges but are rate limited — see
+    `requestsPerMinute` / `maxConcurrentRenders` on the issuing client."""
     # Guests (signed-out native users) get a small daily render allowance keyed
     # by their on-device id — enough to try the app under Guideline 5.1.1(v)
     # without needing an account, but not an unlimited free render farm.
@@ -2981,10 +3227,20 @@ async def create_render(
                 detail=f"Guests can create up to {GUEST_DAILY_RENDER_LIMIT} videos per day. Sign in to keep creating.",
             )
 
-    # Native app clients can't run reCAPTCHA v3 (it's a browser API), so they're
-    # exempt. See _is_native_client — this must not test `azp` directly, which is
+    # Partner API clients aren't credit- or recaptcha-gated, but they are rate
+    # limited (requests/minute) and capped on how many jobs can be in flight at
+    # once — the two backstops that keep one partner from exhausting the render
+    # worker. Checked before anything else so a throttled call never reserves
+    # credits or starts validating a payload we're about to reject anyway.
+    if _is_api_client(user):
+        _check_api_rate_limit(user.api_client_id, user.api_rate_limit_rpm)
+        await _check_api_concurrency(user.api_client_id, user.api_max_concurrent)
+
+    # Native app clients can't run reCAPTCHA v3 (it's a browser API), and API
+    # clients are server-to-server with no browser at all — both are exempt.
+    # See _is_native_client — this must not test `azp` directly, which is
     # absent from the session JWTs the app actually sends.
-    if _is_native_client(user):
+    if _is_native_client(user) or _is_api_client(user):
         recaptcha_result = None
     else:
         # Preferred path: a pass from /verify-human, redeemed while the user was
@@ -3166,10 +3422,15 @@ async def create_render(
     # This also gives them the free-tier frame rate below, like every free render.
     if _is_native_client(user):
         credit_cost = 0
+    # API partners aren't credit-gated (see the rate/concurrency checks above
+    # instead) but still get the full-quality frame rate, unlike free web/guest
+    # renders — they're a paying integration, just billed outside the wallet.
+    if _is_api_client(user):
+        credit_cost = 0
     # Free videos render at a lower fps (fewer frames = faster/cheaper render);
     # paid videos get the full frame rate. The render service reads this and
     # recomputes durationInFrames so the real-time length is unchanged.
-    render_fps = PAID_VIDEO_FPS if credit_cost > 0 else FREE_VIDEO_FPS
+    render_fps = PAID_VIDEO_FPS if (credit_cost > 0 or _is_api_client(user)) else FREE_VIDEO_FPS
     payload["fps"] = render_fps
     if credit_cost > 0:
         try:
@@ -3488,6 +3749,7 @@ async def initialize_storage():
         await db.coupons.create_index("code", unique=True)
         await db.coupon_redemptions.create_index([("couponId", 1), ("userId", 1)], unique=True)
         await db.pack_discounts.create_index("packId")
+        await db.api_clients.create_index("hashedKey", unique=True)
         await migrate_heartfelt_rename()
         await seed_default_templates()
         await seed_default_categories()
