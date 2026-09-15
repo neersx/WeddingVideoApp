@@ -1513,6 +1513,7 @@ function AboutPage() {
 const ADMIN_TABS = [
   ["/admin", "Dashboard"],
   ["/admin/templates", "Templates"],
+  ["/admin/template-assets", "Template assets"],
   ["/admin/template-settings", "Template settings"],
   ["/admin/credit-packs", "Credit packs"],
   ["/admin/categories", "Category forms"],
@@ -2891,6 +2892,155 @@ function AdminTemplateAssetManager({ template, credential, onClose }) {
   );
 }
 
+function AdminTemplateAssetsPage() {
+  const { credential } = useAuth();
+  const [assets, setAssets] = useState(null);
+  const [templates, setTemplates] = useState([]);
+  const [drafts, setDrafts] = useState({});
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [placements, setPlacements] = useState(null);
+  const [upload, setUpload] = useState({ file: null, name: "", tags: "", status: "draft" });
+  const [assignment, setAssignment] = useState({ assetId: "", layer: "background", mode: "all", screenIds: [], animation: "none", opacity: 1, zIndex: 10, fit: "cover" });
+  const [busy, setBusy] = useState("");
+  const authHeader = useMemo(() => ({ headers: { Authorization: `Bearer ${credential}` } }), [credential]);
+
+  const applyAssets = (items) => {
+    setAssets(items);
+    setDrafts(Object.fromEntries(items.map((asset) => [asset.id, { name: asset.name, tags: (asset.tags || []).join(", "), status: asset.status }])));
+  };
+
+  const loadLibrary = useCallback(async () => {
+    try {
+      const [assetResponse, templateResponse] = await Promise.all([
+        axios.get(`${API}/admin/template-assets`, authHeader),
+        axios.get(`${API}/admin/templates`, authHeader),
+      ]);
+      applyAssets(assetResponse.data);
+      setTemplates(templateResponse.data);
+      setSelectedTemplateId((current) => current || templateResponse.data[0]?.id || "");
+    } catch (error) { setAssets([]); toast.error(error?.response?.data?.detail || "Failed to load template assets"); }
+  }, [authHeader]);
+  useEffect(() => { loadLibrary(); }, [loadLibrary]);
+
+  const loadPlacements = useCallback(async () => {
+    if (!selectedTemplateId) { setPlacements([]); return; }
+    setPlacements(null);
+    try {
+      const response = await axios.get(`${API}/admin/templates/${selectedTemplateId}/assets`, authHeader);
+      setPlacements(response.data.placements || []);
+    } catch (error) { setPlacements([]); toast.error(error?.response?.data?.detail || "Failed to load assignments"); }
+  }, [authHeader, selectedTemplateId]);
+  useEffect(() => { loadPlacements(); setAssignment((current) => ({ ...current, screenIds: [] })); }, [loadPlacements]);
+
+  const uploadAsset = async (event) => {
+    event.preventDefault();
+    if (!upload.file) return toast.error("Choose an asset file");
+    setBusy("upload");
+    try {
+      const form = new FormData();
+      form.append("file", upload.file); form.append("name", upload.name); form.append("tags", upload.tags); form.append("status", upload.status);
+      const response = await axios.post(`${API}/admin/template-assets`, form, { headers: { Authorization: `Bearer ${credential}` } });
+      toast.success(`${response.data.name} uploaded`);
+      setUpload({ file: null, name: "", tags: "", status: "draft" });
+      await loadLibrary();
+    } catch (error) { toast.error(error?.response?.data?.detail || "Failed to upload asset"); }
+    finally { setBusy(""); }
+  };
+
+  const saveAsset = async (assetId) => {
+    setBusy(`asset:${assetId}`);
+    try {
+      const draft = drafts[assetId];
+      const response = await axios.patch(`${API}/admin/template-assets/${assetId}`, { name: draft.name, tags: draft.tags.split(",").map((item) => item.trim()).filter(Boolean), status: draft.status }, authHeader);
+      applyAssets(assets.map((asset) => asset.id === assetId ? response.data : asset));
+      toast.success("Asset updated");
+      await loadPlacements();
+    } catch (error) { toast.error(error?.response?.data?.detail || "Failed to update asset"); }
+    finally { setBusy(""); }
+  };
+
+  const deleteAsset = async (asset) => {
+    if (!window.confirm(`Delete "${asset.name}" permanently? Assigned assets must be unassigned first.`)) return;
+    setBusy(`asset:${asset.id}`);
+    try {
+      await axios.delete(`${API}/admin/template-assets/${asset.id}`, authHeader);
+      applyAssets(assets.filter((item) => item.id !== asset.id));
+      toast.success("Asset deleted");
+    } catch (error) { toast.error(error?.response?.data?.detail || "Failed to delete asset"); }
+    finally { setBusy(""); }
+  };
+
+  const toggleAssignmentScreen = (screenId) => setAssignment((current) => ({ ...current, screenIds: current.screenIds.includes(screenId) ? current.screenIds.filter((id) => id !== screenId) : [...current.screenIds, screenId] }));
+  const assignAsset = async (event) => {
+    event.preventDefault();
+    if (!selectedTemplateId || !assignment.assetId) return toast.error("Choose a template and asset");
+    if (["selected", "all-except"].includes(assignment.mode) && !assignment.screenIds.length) return toast.error("Choose at least one screen");
+    setBusy("assignment");
+    try {
+      await axios.post(`${API}/admin/templates/${selectedTemplateId}/asset-placements`, {
+        assetId: assignment.assetId,
+        layer: assignment.layer,
+        screenSelector: { mode: assignment.mode, screenIds: assignment.screenIds },
+        animation: { preset: assignment.animation },
+        opacity: Number(assignment.opacity),
+        zIndex: Number(assignment.zIndex),
+        layout: { fit: assignment.fit, positionX: 50, positionY: 50, scale: 1, rotation: 0 },
+        behavior: assignment.layer === "background" ? "replace" : "stack",
+      }, authHeader);
+      toast.success("Asset assigned to template");
+      await loadPlacements();
+    } catch (error) { toast.error(error?.response?.data?.detail || "Failed to assign asset"); }
+    finally { setBusy(""); }
+  };
+
+  const removeAssignment = async (placement) => {
+    if (!window.confirm("Remove this assignment? The asset will stay in the library.")) return;
+    try { await axios.delete(`${API}/admin/template-asset-placements/${placement.id}`, authHeader); toast.success("Assignment removed"); await loadPlacements(); }
+    catch (error) { toast.error(error?.response?.data?.detail || "Failed to remove assignment"); }
+  };
+
+  const selectedTemplate = templates.find((template) => template.id === selectedTemplateId);
+  const screens = selectedTemplate?.screens || [];
+  const assetById = Object.fromEntries((assets || []).map((asset) => [asset.id, asset]));
+  const inputClass = "w-full rounded-xl border border-[#ECD5E2] bg-white px-3 py-2.5 text-sm text-[#32113A] outline-none focus:border-[#B4405F] focus:ring-2 focus:ring-[#F1D7E5]";
+
+  return <AdminPageFrame eyebrow="Template assets" title="Template asset library" description="Upload reusable images and video overlays, manage their publishing lifecycle, and assign them to template screens and visual layers.">
+    <form onSubmit={uploadAsset} className="mt-6 rounded-3xl border border-[#ECD5E2] bg-white p-6 shadow-[0_14px_46px_rgba(81,25,62,0.05)]">
+      <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-end"><div><h2 className="font-heading text-2xl font-extrabold text-[#32113A]">Upload asset</h2><p className="mt-1 text-sm text-neutral-500">JPEG, PNG, WebP, SVG, WebM or MP4 · maximum 75 MB.</p></div><span className="text-xs font-semibold text-[#8D1B63]">{assets?.length || 0} assets</span></div>
+      <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <label className="text-xs font-semibold text-neutral-500">File<input type="file" accept="image/jpeg,image/png,image/webp,image/svg+xml,video/webm,video/mp4" onChange={(event) => setUpload((current) => ({ ...current, file: event.target.files?.[0] || null }))} className={`${inputClass} mt-1 file:mr-2 file:rounded-full file:border-0 file:bg-[#F8EAF2] file:px-3 file:py-1 file:text-xs file:text-[#8D1B63]`} /></label>
+        <label className="text-xs font-semibold text-neutral-500">Name<input value={upload.name} onChange={(event) => setUpload((current) => ({ ...current, name: event.target.value }))} className={`${inputClass} mt-1`} placeholder="Gold petals" /></label>
+        <label className="text-xs font-semibold text-neutral-500">Tags<input value={upload.tags} onChange={(event) => setUpload((current) => ({ ...current, tags: event.target.value }))} className={`${inputClass} mt-1`} placeholder="wedding, gold, overlay" /></label>
+        <label className="text-xs font-semibold text-neutral-500">Status<select value={upload.status} onChange={(event) => setUpload((current) => ({ ...current, status: event.target.value }))} className={`${inputClass} mt-1`}><option value="draft">Draft</option><option value="published">Published</option><option value="archived">Archived</option></select></label>
+      </div>
+      <button type="submit" disabled={busy === "upload"} className="mt-4 rounded-full bg-[#32113A] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{busy === "upload" ? "Uploading…" : "Upload asset"}</button>
+    </form>
+
+    <section className="mt-6 overflow-hidden rounded-3xl border border-[#ECD5E2] bg-white shadow-[0_14px_46px_rgba(81,25,62,0.05)]">
+      <div className="border-b border-[#F0DDE7] bg-[#FFF8FB] px-6 py-4"><h2 className="font-heading text-xl font-extrabold text-[#32113A]">Reusable asset library</h2></div>
+      {assets === null ? <div className="p-8 text-sm text-neutral-500">Loading assets…</div> : assets.length ? <div className="overflow-x-auto"><table className="w-full min-w-[1000px] text-left text-sm"><thead className="text-[10px] uppercase tracking-[0.13em] text-neutral-400"><tr><th className="px-5 py-3">Preview</th><th className="px-5 py-3">Name</th><th className="px-5 py-3">Type</th><th className="px-5 py-3">Tags</th><th className="px-5 py-3">Status</th><th className="px-5 py-3">Size</th><th className="px-5 py-3 text-right">Actions</th></tr></thead><tbody className="divide-y divide-[#F0DDE7]">{assets.map((asset) => <tr key={asset.id}><td className="px-5 py-4">{asset.type === "video" ? <video muted src={`${BACKEND_URL}${asset.url}`} className="h-14 w-14 rounded-xl bg-neutral-900 object-cover" /> : <img src={`${BACKEND_URL}${asset.url}`} alt="" className="h-14 w-14 rounded-xl border border-black/10 bg-[#FFF8FB] object-cover" />}</td><td className="px-5 py-4"><input value={drafts[asset.id]?.name || ""} onChange={(event) => setDrafts((current) => ({ ...current, [asset.id]: { ...current[asset.id], name: event.target.value } }))} className={inputClass} /><div className="mt-1 font-mono text-[9px] text-neutral-400">{asset.id}</div></td><td className="px-5 py-4 capitalize text-neutral-600">{asset.type}<div className="text-[10px] text-neutral-400">{asset.mimeType}</div></td><td className="px-5 py-4"><input value={drafts[asset.id]?.tags || ""} onChange={(event) => setDrafts((current) => ({ ...current, [asset.id]: { ...current[asset.id], tags: event.target.value } }))} className={inputClass} /></td><td className="px-5 py-4"><select value={drafts[asset.id]?.status || "draft"} onChange={(event) => setDrafts((current) => ({ ...current, [asset.id]: { ...current[asset.id], status: event.target.value } }))} className={inputClass}><option value="draft">Draft</option><option value="published">Published</option><option value="archived">Archived</option></select></td><td className="px-5 py-4 text-xs text-neutral-500">{asset.fileSize ? `${(asset.fileSize / 1024 / 1024).toFixed(2)} MB` : "—"}</td><td className="px-5 py-4"><div className="flex justify-end gap-2"><button type="button" onClick={() => saveAsset(asset.id)} disabled={busy === `asset:${asset.id}`} className="rounded-full bg-[#32113A] px-4 py-2 text-xs font-semibold text-white disabled:opacity-60">Save</button><button type="button" onClick={() => deleteAsset(asset)} disabled={busy === `asset:${asset.id}`} className="rounded-full border border-red-200 px-4 py-2 text-xs font-semibold text-red-600 hover:bg-red-50">Delete</button></div></td></tr>)}</tbody></table></div> : <div className="p-8 text-sm text-neutral-500">No assets yet. Upload the first reusable theme asset above.</div>}
+    </section>
+
+    <section className="mt-6 rounded-3xl border border-[#ECD5E2] bg-white p-6 shadow-[0_14px_46px_rgba(81,25,62,0.05)]">
+      <h2 className="font-heading text-2xl font-extrabold text-[#32113A]">Assign asset to template</h2>
+      <form onSubmit={assignAsset} className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <label className="text-xs font-semibold text-neutral-500">Template<select value={selectedTemplateId} onChange={(event) => setSelectedTemplateId(event.target.value)} className={`${inputClass} mt-1`}>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label>
+        <label className="text-xs font-semibold text-neutral-500">Asset<select value={assignment.assetId} onChange={(event) => setAssignment((current) => ({ ...current, assetId: event.target.value }))} className={`${inputClass} mt-1`}><option value="">Choose asset</option>{(assets || []).map((asset) => <option key={asset.id} value={asset.id}>{asset.name} · {asset.status}</option>)}</select></label>
+        <label className="text-xs font-semibold text-neutral-500">Layer<select value={assignment.layer} onChange={(event) => setAssignment((current) => ({ ...current, layer: event.target.value }))} className={`${inputClass} mt-1`}>{["base", "background", "midground", "foreground", "overlay", "watermark"].map((value) => <option key={value}>{value}</option>)}</select></label>
+        <label className="text-xs font-semibold text-neutral-500">Screens<select value={assignment.mode} onChange={(event) => setAssignment((current) => ({ ...current, mode: event.target.value, screenIds: [] }))} className={`${inputClass} mt-1`}>{[["all", "All screens"], ["first", "First screen"], ["center", "Center screens"], ["last", "Last screen"], ["selected", "Selected screens"], ["all-except", "All except"]].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        <label className="text-xs font-semibold text-neutral-500">Animation<select value={assignment.animation} onChange={(event) => setAssignment((current) => ({ ...current, animation: event.target.value }))} className={`${inputClass} mt-1`}>{["none", "fade-in", "slow-zoom", "float-up", "slow-drift", "petal-fall", "rotate-slow"].map((value) => <option key={value}>{value}</option>)}</select></label>
+        <label className="text-xs font-semibold text-neutral-500">Fit<select value={assignment.fit} onChange={(event) => setAssignment((current) => ({ ...current, fit: event.target.value }))} className={`${inputClass} mt-1`}><option value="cover">Cover</option><option value="contain">Contain</option><option value="fill">Fill</option><option value="none">Original</option></select></label>
+        <label className="text-xs font-semibold text-neutral-500">Opacity<input type="number" min="0" max="1" step="0.05" value={assignment.opacity} onChange={(event) => setAssignment((current) => ({ ...current, opacity: event.target.value }))} className={`${inputClass} mt-1`} /></label>
+        <label className="text-xs font-semibold text-neutral-500">Z-index<input type="number" min="0" max="100" value={assignment.zIndex} onChange={(event) => setAssignment((current) => ({ ...current, zIndex: event.target.value }))} className={`${inputClass} mt-1`} /></label>
+        {["selected", "all-except"].includes(assignment.mode) && <fieldset className="rounded-2xl border border-[#EADCE3] bg-[#FFF9FC] p-4 sm:col-span-2 lg:col-span-4"><legend className="px-2 text-xs font-semibold text-[#8D1B63]">Choose screens</legend><div className="flex flex-wrap gap-2">{screens.map((screen) => <label key={screen.id} className="rounded-full bg-white px-3 py-2 text-xs font-semibold"><input type="checkbox" checked={assignment.screenIds.includes(screen.id)} onChange={() => toggleAssignmentScreen(screen.id)} className="mr-2 accent-[#B31571]" />{screen.label}</label>)}</div></fieldset>}
+        <div className="sm:col-span-2 lg:col-span-4"><button type="submit" disabled={busy === "assignment"} className="rounded-full bg-[#B31571] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{busy === "assignment" ? "Assigning…" : "Create assignment"}</button></div>
+      </form>
+
+      <div className="mt-6 overflow-x-auto rounded-2xl border border-[#F0DDE7]">{placements === null ? <div className="p-5 text-sm text-neutral-500">Loading assignments…</div> : <table className="w-full min-w-[760px] text-left text-xs"><thead className="bg-[#FFF8FB] uppercase tracking-[0.12em] text-neutral-400"><tr><th className="px-4 py-3">Asset</th><th className="px-4 py-3">Layer</th><th className="px-4 py-3">Screen rule</th><th className="px-4 py-3">Animation</th><th className="px-4 py-3">Version</th><th className="px-4 py-3 text-right">Action</th></tr></thead><tbody className="divide-y divide-[#F0DDE7]">{placements.map((placement) => <tr key={placement.id}><td className="px-4 py-3 font-semibold text-[#32113A]">{assetById[placement.assetId]?.name || placement.assetId}</td><td className="px-4 py-3 capitalize">{placement.layer}</td><td className="px-4 py-3 capitalize">{placement.screenSelector?.mode}{placement.screenSelector?.screenIds?.length ? ` · ${placement.screenSelector.screenIds.join(", ")}` : ""}</td><td className="px-4 py-3">{placement.animation?.preset || "none"}</td><td className="px-4 py-3">v{placement.templateVersion}</td><td className="px-4 py-3 text-right"><button type="button" onClick={() => removeAssignment(placement)} className="rounded-full border border-red-200 px-3 py-1.5 font-semibold text-red-600 hover:bg-red-50">Remove</button></td></tr>)}{!placements.length && <tr><td colSpan={6} className="px-4 py-6 text-center text-neutral-400">No assets assigned to this template.</td></tr>}</tbody></table>}</div>
+    </section>
+  </AdminPageFrame>;
+}
+
 function AdminTemplatesPage() {
   const { user, credential } = useAuth();
   const [templates, setTemplates] = useState([]);
@@ -3402,6 +3552,7 @@ function App() {
           <Route path="/my-orders" element={<RequireUserGate><MyOrdersPage /></RequireUserGate>} />
           <Route path="/admin" element={<AdminGate><AdminDashboardPage /></AdminGate>} />
           <Route path="/admin/templates" element={<AdminGate><AdminTemplatesPage /></AdminGate>} />
+          <Route path="/admin/template-assets" element={<AdminGate><AdminTemplateAssetsPage /></AdminGate>} />
           <Route path="/admin/categories" element={<AdminGate><AdminCategoryFormsPage /></AdminGate>} />
           <Route path="/admin/template-settings" element={<AdminGate><AdminTemplateSettingsPage /></AdminGate>} />
           <Route path="/admin/credit-packs" element={<AdminGate><AdminCreditPacksPage /></AdminGate>} />

@@ -11,6 +11,7 @@ render-service/src/templates/dreamwedds/
 ├── christian/
 ├── buddhist/
 └── muslim/
+    └── EmeraldNikah.tsx
 ```
 
 Only implemented culture/template pairs are exposed. The backend allow-list is
@@ -68,6 +69,11 @@ Royal Blush automatically uses, in order:
 
 Supplying `images` in the wrapper overrides the automatic photo ordering while
 the couple, event, date, venue and culture still come from the wedding payload.
+
+Emerald Nikah uses the same normalized wedding data and photo ordering as Royal
+Blush. Select it with `weddingCulture: "Muslim"` and
+`template: "emerald-nikah"`. The original `Emrald Nikash` spelling is accepted
+as a compatibility alias.
 
 ## Add another culture or design
 

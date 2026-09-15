@@ -82,6 +82,14 @@ memory/test_credentials.md
 backend/uploads/*
 backend/renders/*
 backend/template-assets/*
+!backend/template-assets/ivory-chapel-background.png
+!backend/template-assets/garden-vows-background.png
+!backend/template-assets/emerald-nikah-background.png
+!backend/template-assets/moonlit-noor-background.png
+!backend/template-assets/ivory-chapel-mobile-long.png
+!backend/template-assets/garden-vows-mobile-long.png
+!backend/template-assets/emerald-nikah-mobile-long.png
+!backend/template-assets/moonlit-noor-mobile-long.png
 
 # Mobile development
 android-sdk/render-service/node_modules/.remotion/chrome-headless-shell/linux-arm64/chrome-headless-shell-linux-arm64/headless_shell

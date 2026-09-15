@@ -87,6 +87,10 @@ const buildInputProps = (body: any) => {
     fps: Number(body.fps) > 0 ? Number(body.fps) : undefined,
     category: body.category || '',
     fields: body.fields || {},
+    // DreamWedds compositions also have top-level defaults for Studio previews.
+    // Pass the normalized nested payload explicitly so those defaults cannot
+    // override the real partner wedding data at render time.
+    dreamwedds: body.dreamwedds || body.fields?.dreamwedds,
     resolved: body.resolved || {},
     settings: body.settings || {},
     theme: body.theme || {version: 1, screens: {}},

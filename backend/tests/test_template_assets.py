@@ -28,6 +28,61 @@ class TemplateClassificationTests(unittest.TestCase):
 
 
 class TemplateThemeResolutionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_bundled_backgrounds_are_seeded_as_published_assets(self):
+        memory_db = server._InMemoryDB()
+        await memory_db.media_assets.insert_one({
+            "_id": "asset-ivory-chapel-mobile-long",
+            "id": "asset-ivory-chapel-mobile-long",
+            "name": "Admin renamed asset",
+            "filename": "stale.png",
+            "checksum": "sha256:stale",
+            "tags": ["custom"],
+            "status": "archived",
+            "version": 3,
+        })
+        with patch.object(server, "db", memory_db):
+            await server.seed_bundled_template_assets()
+            await server.seed_bundled_template_assets()
+
+        assets = await memory_db.media_assets.find().to_list(10)
+        refreshed = await memory_db.media_assets.find_one({"_id": "asset-ivory-chapel-mobile-long"})
+        self.assertEqual(len(assets), 8)
+        self.assertTrue(all(asset["type"] == "image" for asset in assets))
+        self.assertEqual(refreshed["name"], "Admin renamed asset")
+        self.assertEqual(refreshed["tags"], ["custom"])
+        self.assertEqual(refreshed["status"], "archived")
+        self.assertEqual(refreshed["filename"], "ivory-chapel-mobile-long.png")
+        self.assertEqual(refreshed["version"], 4)
+        self.assertNotEqual(refreshed["checksum"], "sha256:stale")
+
+    async def test_asset_delete_is_guarded_until_assignments_are_removed(self):
+        memory_db = server._InMemoryDB()
+        await memory_db.media_assets.insert_one({
+            "_id": "asset-used",
+            "id": "asset-used",
+            "name": "Used asset",
+            "filename": "does-not-exist.webp",
+            "status": "draft",
+        })
+        await memory_db.template_asset_placements.insert_one({
+            "_id": "placement-used",
+            "id": "placement-used",
+            "templateId": "template-one",
+            "assetId": "asset-used",
+        })
+        admin = server.GoogleUser(sub="admin", email="admin@example.com")
+
+        with patch.object(server, "db", memory_db):
+            with self.assertRaises(server.HTTPException) as blocked:
+                await server.admin_delete_template_asset("asset-used", admin)
+            self.assertEqual(blocked.exception.status_code, 409)
+
+            await memory_db.template_asset_placements.delete_one({"_id": "placement-used"})
+            result = await server.admin_delete_template_asset("asset-used", admin)
+
+        self.assertTrue(result["deleted"])
+        self.assertIsNone(await memory_db.media_assets.find_one({"_id": "asset-used"}))
+
     async def test_admin_template_update_saves_editable_fields_atomically(self):
         memory_db = server._InMemoryDB()
         await memory_db.templates.insert_one({"_id": "editable", "id": "editable", "name": "Old", "category": "Wedding", "settings": {"maxImages": 4, "maxSlides": 4, "durations": [10]}})

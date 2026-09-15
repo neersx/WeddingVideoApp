@@ -19,6 +19,7 @@ import {Cascade} from '../templates/Cascade';
 import {BrandOutro} from '../templates/BrandOutro';
 import {defaultProps, FPS, WeddingProps} from '../templates/types';
 import {RoyalBlushWedding} from '../templates/dreamwedds/indian/RoyalBlushWedding';
+import {EmeraldNikah} from '../templates/dreamwedds/muslim/EmeraldNikah';
 import {defaultDreamWeddsProps} from '../templates/dreamwedds/types';
 
 const meta = ({props}: {props: WeddingProps}) => {
@@ -67,6 +68,16 @@ export const Root: React.FC = () => (
     <Composition
       id="DreamWeddsRoyalBlush"
       component={RoyalBlushWedding}
+      width={1080}
+      height={1920}
+      fps={FPS}
+      durationInFrames={30 * FPS}
+      defaultProps={defaultDreamWeddsProps}
+      calculateMetadata={meta}
+    />
+    <Composition
+      id="DreamWeddsEmeraldNikah"
+      component={EmeraldNikah}
       width={1080}
       height={1920}
       fps={FPS}

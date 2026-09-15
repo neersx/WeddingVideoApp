@@ -34,6 +34,23 @@ def test_wrapped_request_can_select_images_and_alias_culture():
     assert result["fields"]["dreamwedds"]["culture"] == "indian"
 
 
+def test_muslim_wedding_uses_emerald_nikah_with_royal_blush_data_contract():
+    result = normalize_dreamwedds_request({
+        "wedding": sample_wedding(),
+        "template": "Emrald Nikash",
+        "weddingCulture": "Islamic",
+    })
+    assert result["template"] == "dreamwedds-emerald-nikah"
+    assert result["category"] == "DreamWedds"
+    assert result["couple"] == {"partnerOne": "Anjali Shukla", "partnerTwo": "Siddhartha Pancholi"}
+    assert result["fields"]["dreamwedds"]["culture"] == "muslim"
+    assert result["fields"]["dreamwedds"]["event"]["venue"] == "Hotel Landmark"
+
+    raw_wedding = sample_wedding()
+    raw_wedding["weddingCulture"] = "Muslim"
+    assert normalize_dreamwedds_request(raw_wedding)["template"] == "dreamwedds-emerald-nikah"
+
+
 def test_rejects_unregistered_culture_template_pair():
     wedding = sample_wedding()
     wedding["weddingCulture"] = "Christian"
@@ -42,4 +59,7 @@ def test_rejects_unregistered_culture_template_pair():
 
 
 def test_registry_only_advertises_implemented_templates():
-    assert available_dreamwedds_templates() == [{"culture": "indian", "template": "royal-blush", "templateId": "dreamwedds-royal-blush"}]
+    assert available_dreamwedds_templates() == [
+        {"culture": "indian", "template": "royal-blush", "templateId": "dreamwedds-royal-blush"},
+        {"culture": "muslim", "template": "emerald-nikah", "templateId": "dreamwedds-emerald-nikah"},
+    ]

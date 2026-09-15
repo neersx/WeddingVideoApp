@@ -25,6 +25,18 @@ JPEG, PNG, WebP, SVG, WebM, and MP4 assets; choosing screens and layers; and
 setting opacity, z-index, and a safe animation preset. Engagement Glow is the
 first composition wired to the shared dynamic layer renderer.
 
+The dedicated `/admin/template-assets` workspace provides full library CRUD and
+template assignment management. Admins can edit asset names, tags, and status,
+preview images and videos, and assign them with animation, fit, opacity, and
+z-index controls. Deletion is blocked while an asset has assignments, preventing
+an existing template from silently losing a visual layer.
+
+Four project-owned portrait backgrounds are seeded into the library as published
+assets: Ivory Chapel, Garden Vows, Emerald Nikah, and Moonlit Noor. They remain
+unassigned until an administrator chooses the template, layer, and screen rule.
+Each theme also includes a separate **Mobile Long** variant with expanded
+vertical text-safe zones for the 1080×1920 renderer.
+
 Template classification uses `primaryCategoryId` plus facet arrays for
 `contentTypes`, `occasions`, `ceremonies`, `cultures`, `styles`, and `themes`.
 For example, a single template can be discoverable as a Hindu wedding

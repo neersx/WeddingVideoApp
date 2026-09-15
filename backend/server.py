@@ -139,6 +139,56 @@ ALLOWED_IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.webp'}
 ALLOWED_TEMPLATE_ASSET_EXTS = {'.jpg', '.jpeg', '.png', '.webp', '.svg', '.webm', '.mp4'}
 TEMPLATE_ASSET_LAYERS = {'base', 'background', 'midground', 'foreground', 'overlay', 'watermark'}
 TEMPLATE_SCREEN_SELECTOR_MODES = {'all', 'first', 'center', 'last', 'selected', 'all-except'}
+BUNDLED_TEMPLATE_ASSETS = [
+    {
+        "id": "asset-ivory-chapel-background",
+        "name": "Ivory Chapel Background",
+        "filename": "ivory-chapel-background.png",
+        "tags": ["christian", "wedding", "ivory-chapel", "sacred", "timeless", "background"],
+    },
+    {
+        "id": "asset-garden-vows-background",
+        "name": "Garden Vows Background",
+        "filename": "garden-vows-background.png",
+        "tags": ["christian", "wedding", "garden-vows", "outdoor", "contemporary", "background"],
+    },
+    {
+        "id": "asset-emerald-nikah-background",
+        "name": "Emerald Nikah Background",
+        "filename": "emerald-nikah-background.png",
+        "tags": ["muslim", "nikah", "emerald", "traditional", "lantern", "background"],
+    },
+    {
+        "id": "asset-moonlit-noor-background",
+        "name": "Moonlit Noor Background",
+        "filename": "moonlit-noor-background.png",
+        "tags": ["muslim", "wedding", "moonlit-noor", "cinematic", "evening", "background"],
+    },
+    {
+        "id": "asset-ivory-chapel-mobile-long",
+        "name": "Ivory Chapel Mobile Long",
+        "filename": "ivory-chapel-mobile-long.png",
+        "tags": ["christian", "wedding", "ivory-chapel", "mobile", "long-view", "background"],
+    },
+    {
+        "id": "asset-garden-vows-mobile-long",
+        "name": "Garden Vows Mobile Long",
+        "filename": "garden-vows-mobile-long.png",
+        "tags": ["christian", "wedding", "garden-vows", "mobile", "long-view", "background"],
+    },
+    {
+        "id": "asset-emerald-nikah-mobile-long",
+        "name": "Emerald Nikah Mobile Long",
+        "filename": "emerald-nikah-mobile-long.png",
+        "tags": ["muslim", "nikah", "emerald", "mobile", "long-view", "background"],
+    },
+    {
+        "id": "asset-moonlit-noor-mobile-long",
+        "name": "Moonlit Noor Mobile Long",
+        "filename": "moonlit-noor-mobile-long.png",
+        "tags": ["muslim", "wedding", "moonlit-noor", "mobile", "long-view", "background"],
+    },
+]
 DEFAULT_TEMPLATE_SCREENS = [
     {'id': 'opening', 'role': 'first', 'label': 'Opening'},
     {'id': 'message', 'role': 'center', 'label': 'Message'},
@@ -356,6 +406,26 @@ DEFAULT_TEMPLATE_DOCUMENTS = [
         },
         "isActive": True,
         "sortOrder": 10,
+    },
+    {
+        "_id": "dreamwedds-emerald-nikah",
+        "id": "dreamwedds-emerald-nikah",
+        "name": "Emerald Nikah",
+        "desc": "DreamWedds Muslim Nikah invitation with emerald arches, ivory florals, antique-gold lanterns, couple portraits, ceremony date and venue.",
+        "category": "DreamWedds",
+        "style": "Muslim Emerald Elegance",
+        "swatch": ["#063F32", "#01271F", "#D7B56D", "#FFF7E5"],
+        "bg": "#01271F",
+        "text": "#FFF7E5",
+        "font": "'Cormorant Garamond', serif",
+        "settings": {
+            "minImages": 1,
+            "maxImages": 8,
+            "durations": [30],
+            "pricing": {"default": 0, "byDuration": {}},
+        },
+        "isActive": True,
+        "sortOrder": 20,
     },
     {
         "_id": "ring-reveal",
@@ -2123,6 +2193,55 @@ async def seed_default_templates():
         await db.templates.insert_one(doc)
 
 
+async def seed_bundled_template_assets():
+    """Register project-owned artwork without overwriting later admin edits."""
+    now = datetime.now(timezone.utc).isoformat()
+    for definition in BUNDLED_TEMPLATE_ASSETS:
+        asset_id = definition["id"]
+        path = TEMPLATE_ASSETS_DIR / definition["filename"]
+        if not path.is_file():
+            logger.warning("Bundled template asset is missing: %s", path)
+            continue
+        data = path.read_bytes()
+        checksum = f"sha256:{hashlib.sha256(data).hexdigest()}"
+        existing = await db.media_assets.find_one({"_id": asset_id})
+        if existing:
+            if existing.get("checksum") != checksum:
+                await db.media_assets.update_one(
+                    {"_id": asset_id},
+                    {
+                        "$set": {
+                            "type": "image",
+                            "mimeType": "image/png",
+                            "filename": definition["filename"],
+                            "fileSize": len(data),
+                            "checksum": checksum,
+                            "updated_at": now,
+                        },
+                        "$inc": {"version": 1},
+                    },
+                )
+                affected = await db.template_asset_placements.find({"assetId": asset_id}).to_list(500)
+                for template_id in {item.get("templateId") for item in affected if item.get("templateId")}:
+                    await _bump_template_asset_version(template_id)
+            continue
+        await db.media_assets.insert_one({
+            "_id": asset_id,
+            "id": asset_id,
+            "name": definition["name"],
+            "type": "image",
+            "mimeType": "image/png",
+            "filename": definition["filename"],
+            "fileSize": len(data),
+            "checksum": checksum,
+            "tags": definition["tags"],
+            "status": "published",
+            "version": 1,
+            "created_at": now,
+            "updated_at": now,
+        })
+
+
 async def seed_default_categories():
     now = datetime.now(timezone.utc).isoformat()
     for category in DEFAULT_CATEGORY_DOCUMENTS:
@@ -3066,6 +3185,24 @@ async def admin_update_template_asset(asset_id: str, req: MediaAssetUpdateReques
         for template_id in {placement.get("templateId") for placement in affected if placement.get("templateId")}:
             await _bump_template_asset_version(template_id)
     return _serialize_media_asset(await db.media_assets.find_one({"_id": asset_id}))
+
+
+@api_router.delete("/admin/template-assets/{asset_id}")
+async def admin_delete_template_asset(asset_id: str, _: GoogleUser = Depends(require_admin_user)):
+    asset = await db.media_assets.find_one({"_id": asset_id})
+    if not asset:
+        raise HTTPException(status_code=404, detail="Template asset not found")
+    assignment_count = await db.template_asset_placements.count_documents({"assetId": asset_id})
+    if assignment_count:
+        raise HTTPException(status_code=409, detail=f"Remove this asset's {assignment_count} template assignment(s) before deleting it")
+    path = TEMPLATE_ASSETS_DIR / Path(asset.get("filename", "")).name
+    await db.media_assets.delete_one({"_id": asset_id})
+    try:
+        if path.is_file():
+            path.unlink()
+    except OSError as exc:
+        logger.warning("Deleted template asset metadata but could not remove %s: %s", path, exc)
+    return {"deleted": True, "id": asset_id}
 
 
 @api_router.post("/admin/templates/{template_id}/asset-placements")
@@ -4256,6 +4393,7 @@ async def initialize_storage():
         billing_db.set_db(db)
         await migrate_heartfelt_rename()
         await seed_default_templates()
+        await seed_bundled_template_assets()
         await seed_default_categories()
         await migrate_category_types()
         await migrate_message_maxlength_120()
@@ -4299,6 +4437,7 @@ async def initialize_storage():
         await db.api_clients.create_index("hashedKey", unique=True)
         await migrate_heartfelt_rename()
         await seed_default_templates()
+        await seed_bundled_template_assets()
         await seed_default_categories()
         await migrate_category_types()
         await migrate_message_maxlength_120()

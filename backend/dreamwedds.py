@@ -17,6 +17,18 @@ _CULTURE_ALIASES = {
 # composition has been implemented and registered.
 _TEMPLATE_REGISTRY = {
     ("indian", "royal-blush"): "dreamwedds-royal-blush",
+    ("muslim", "emerald-nikah"): "dreamwedds-emerald-nikah",
+}
+
+_TEMPLATE_ALIASES = {
+    ("muslim", "emrald-nikash"): "emerald-nikah",
+    ("muslim", "emerald-nikash"): "emerald-nikah",
+    ("muslim", "emrald-nikah"): "emerald-nikah",
+}
+
+_DEFAULT_TEMPLATE_BY_CULTURE = {
+    "indian": "royal-blush",
+    "muslim": "emerald-nikah",
 }
 
 
@@ -72,8 +84,9 @@ def _culture(value: Any) -> str:
 
 
 def _template_id(culture: str, value: Any) -> str:
-    requested = _clean(value).lower().replace("_", "-") or "royal-blush"
+    requested = _clean(value).lower().replace("_", "-").replace(" ", "-") or "royal-blush"
     requested = requested.removeprefix("dreamwedds-")
+    requested = _TEMPLATE_ALIASES.get((culture, requested), requested)
     composition = _TEMPLATE_REGISTRY.get((culture, requested))
     if not composition:
         available = sorted(key for item_culture, key in _TEMPLATE_REGISTRY if item_culture == culture)
@@ -97,7 +110,7 @@ def normalize_dreamwedds_request(payload: Mapping[str, Any]) -> Dict[str, Any]:
     # wrapper's string `template`, or an explicit `videoTemplate`, may select a
     # Remotion design.
     requested_template = payload.get("template") if isinstance(wrapped_wedding, Mapping) else payload.get("videoTemplate")
-    template = _template_id(culture, requested_template or "royal-blush")
+    template = _template_id(culture, requested_template or _DEFAULT_TEMPLATE_BY_CULTURE.get(culture, "royal-blush"))
 
     bride = _first_person(wedding.get("brideAndMaids"), "isBride")
     groom = _first_person(wedding.get("groomAndMen"), "isGroom")

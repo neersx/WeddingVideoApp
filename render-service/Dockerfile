@@ -14,6 +14,7 @@ RUN yarn install --frozen-lockfile --production=false
 
 COPY tsconfig.json ./
 COPY src ./src
+COPY public ./public
 
 RUN npx remotion browser ensure
 
