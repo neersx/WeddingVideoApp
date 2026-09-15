@@ -1,5 +1,8 @@
 # InvitaVideos run guide
 
+DreamWedds partner compositions and the culture/template extension process are
+documented in [`DREAMWEDDS_TEMPLATES.md`](DREAMWEDDS_TEMPLATES.md).
+
 The application has four services:
 
 - `backend`: FastAPI API on port `8001`

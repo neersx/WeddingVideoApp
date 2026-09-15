@@ -18,6 +18,8 @@ import {Journey} from '../templates/Journey';
 import {Cascade} from '../templates/Cascade';
 import {BrandOutro} from '../templates/BrandOutro';
 import {defaultProps, FPS, WeddingProps} from '../templates/types';
+import {RoyalBlushWedding} from '../templates/dreamwedds/indian/RoyalBlushWedding';
+import {defaultDreamWeddsProps} from '../templates/dreamwedds/types';
 
 const meta = ({props}: {props: WeddingProps}) => {
   // Free videos render at a lower fps to cut cost; paid keep the default FPS.
@@ -62,6 +64,16 @@ export const Root: React.FC = () => (
         calculateMetadata={meta}
       />
     ))}
+    <Composition
+      id="DreamWeddsRoyalBlush"
+      component={RoyalBlushWedding}
+      width={1080}
+      height={1920}
+      fps={FPS}
+      durationInFrames={30 * FPS}
+      defaultProps={defaultDreamWeddsProps}
+      calculateMetadata={meta}
+    />
     {/* Standalone preview of the shared closing branding screen — 4.5s reference cut. */}
     <Composition id="BrandOutro" component={BrandOutro} width={1080} height={1920} fps={FPS} durationInFrames={135} />
   </>

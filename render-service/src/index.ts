@@ -5,6 +5,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import {bundle} from '@remotion/bundler';
 import {renderMedia, selectComposition} from '@remotion/renderer';
+import {DREAMWEDDS_COMPOSITION_BY_TEMPLATE} from './templates/dreamwedds/catalog';
 
 const PORT = Number(process.env.PORT || 4001);
 const BROWSER = process.env.BROWSER_EXECUTABLE || null;
@@ -47,6 +48,7 @@ const jobs = new Map<string, Job>();
 const buildInputProps = (body: any) => {
   const template = String(body.template || 'marigold').toLowerCase();
   const compMap: Record<string, string> = {
+    ...DREAMWEDDS_COMPOSITION_BY_TEMPLATE,
     marigold: 'Marigold',
     midnight: 'Midnight',
     heartbeat: 'Heartbeat',

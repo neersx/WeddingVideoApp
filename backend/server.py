@@ -5,6 +5,7 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import DuplicateKeyError
 from billing import catalog, pricing, wallet
+from dreamwedds import available_dreamwedds_templates, normalize_dreamwedds_request
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from jose import jwt as jose_jwt
@@ -321,6 +322,26 @@ DEFAULT_TEMPLATE_DOCUMENTS = [
         "font": "'Cormorant Garamond', serif",
         "isActive": True,
         "sortOrder": 70,
+    },
+    {
+        "_id": "dreamwedds-royal-blush",
+        "id": "dreamwedds-royal-blush",
+        "name": "Royal Blush Wedding",
+        "desc": "DreamWedds Indian invitation with blush florals, champagne-gold details, couple portraits, ceremony date and venue.",
+        "category": "DreamWedds",
+        "style": "Indian Royal Romance",
+        "swatch": ["#6F2946", "#D8A0AD", "#D5AF67", "#FFF8F1"],
+        "bg": "#FFF8F1",
+        "text": "#4A2034",
+        "font": "'Cormorant Garamond', serif",
+        "settings": {
+            "minImages": 1,
+            "maxImages": 8,
+            "durations": [30],
+            "pricing": {"default": 0, "byDuration": {}},
+        },
+        "isActive": True,
+        "sortOrder": 10,
     },
     {
         "_id": "ring-reveal",
@@ -3488,6 +3509,38 @@ async def create_render(
         "video_url": f"/api/renders/{render_id}/video.mp4",
         "creditCost": credit_cost,
     }
+
+
+@api_router.get(
+    "/integrations/dreamwedds/templates",
+    tags=["Renders"],
+    summary="List DreamWedds culture-specific video templates",
+)
+async def list_dreamwedds_templates(user: GoogleUser = Depends(require_render_user)):
+    if not _is_api_client(user):
+        raise HTTPException(status_code=403, detail="A partner API key is required")
+    return available_dreamwedds_templates()
+
+
+@api_router.post(
+    "/integrations/dreamwedds/renders",
+    tags=["Renders"],
+    summary="Queue a video from a DreamWedds wedding-details payload",
+)
+async def create_dreamwedds_render(
+    payload: Dict[str, Any],
+    background: BackgroundTasks,
+    request: Request,
+    user: GoogleUser = Depends(require_render_user),
+):
+    """Normalize DreamWedds data, then use the established render lifecycle."""
+    if not _is_api_client(user):
+        raise HTTPException(status_code=403, detail="A partner API key is required")
+    try:
+        render_request = RenderRequest(**normalize_dreamwedds_request(payload))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return await create_render(render_request, background, request, user)
 
 
 def _render_video_url(d: dict) -> str:
