@@ -7,8 +7,10 @@ import {
   Clapperboard,
   Clock,
   Copy,
+  FileText,
   Gift,
   Heart,
+  Images,
   KeyRound,
   LogOut,
   Mail,
@@ -1242,36 +1244,54 @@ function CreateVideoPage() {
           requiredCredits={selectedDurationCost}
           onSuccess={handleTopUpSuccess}
         />
-        <section className="relative overflow-hidden border-b border-[#EBDDE5] bg-[#FFF7FB] px-5 py-5 lg:px-10">
-          <div className="absolute -left-24 -top-28 h-56 w-56 rounded-full bg-[#F6B6D4]/35 blur-3xl" aria-hidden="true" />
-          <div className="absolute -right-20 top-0 h-60 w-60 rounded-full bg-[#F7CE7A]/25 blur-3xl" aria-hidden="true" />
-          <div className="relative mx-auto flex max-w-7xl flex-col justify-between gap-5 lg:flex-row lg:items-center">
-            <div className="max-w-2xl">
-              <div className="section-label text-[#9B256D]">Create Video</div>
-              <h1 className="mt-1 font-heading text-3xl font-extrabold tracking-tight text-[#32113A] sm:text-4xl">
-                Build, preview and render your invitation.
-              </h1>
-              <p className="mt-2 max-w-xl text-sm leading-6 text-neutral-600">
-                Fill the essentials, choose a style, add memories and render a vertical {category.toLowerCase()} invitation video ready to share.
-              </p>
+        <section className="create-video-shell px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+          <div className="mx-auto mb-6 flex max-w-[1540px] flex-col justify-between gap-4 sm:flex-row sm:items-end">
+            <div>
+              <div className="section-label text-left text-[#9B256D]">Create video</div>
+              <h1 className="mt-2 font-editorial text-4xl font-semibold tracking-[-0.035em] text-[#4A1635] sm:text-5xl">Create your video</h1>
+              <p className="mt-2 max-w-xl text-sm leading-6 text-[#74656E]">Choose a style, add your story and preview every detail before you render.</p>
             </div>
-            <div className="grid grid-cols-3 gap-2 rounded-2xl border border-[#EBD3E0] bg-white/80 p-2 text-center shadow-[0_12px_40px_rgba(81,25,62,0.06)] backdrop-blur sm:min-w-[390px]">
-              {[
-                ["Template", template],
-                ["Photos", `${photos.length}/${maxImages}`],
-                ["Events", category === "Engagement" ? 1 : category === "Birthday" ? 0 : schedule.length],
-              ].map(([label, value]) => (
-                <div key={label} className="rounded-xl bg-[#FFF8FB] px-3 py-2">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-400">{label}</div>
-                  <div className="mt-1 truncate font-heading text-lg font-extrabold text-[#32113A]">{value}</div>
-                </div>
-              ))}
+            <div className="flex items-center gap-3 text-xs font-medium text-[#74656E]">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+              Changes update your preview as you create
             </div>
           </div>
-        </section>
-        <section className="mx-auto grid max-w-7xl grid-cols-1 gap-5 px-5 py-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-6 lg:px-10 lg:py-7 xl:grid-cols-[minmax(0,1fr)_390px]">
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-[#ECD5E2] bg-white p-4 shadow-[0_14px_46px_rgba(81,25,62,0.05)] sm:p-5">
+
+          <div className="editorial-workspace mx-auto grid max-w-[1540px] grid-cols-1 overflow-hidden rounded-[2rem] border border-[#E8DDD8] bg-white shadow-[0_28px_90px_rgba(74,22,53,0.10)] lg:grid-cols-[176px_minmax(0,1fr)_370px] xl:grid-cols-[190px_minmax(0,1fr)_400px]">
+            <aside className="editorial-step-rail border-b border-[#E8DDD8] bg-[#FBF7F1] p-4 lg:border-b-0 lg:border-r lg:p-5" aria-label="Video creation steps">
+              <div className="grid grid-cols-4 gap-2 lg:sticky lg:top-24 lg:grid-cols-1 lg:gap-3">
+                {wizardSteps.map((step, index) => {
+                  const complete = index < wizardStep;
+                  const current = index === wizardStep;
+                  const StepIcon = { category: Palette, details: FileText, images: Images, music: Music }[step.key] || Sparkles;
+                  return (
+                    <button
+                      key={step.label}
+                      type="button"
+                      onClick={() => index <= wizardStep && setWizardStep(index)}
+                      className={`group relative flex min-w-0 flex-col items-center gap-2 rounded-2xl px-2 py-3 text-center transition-[background-color,color,transform] duration-200 lg:flex-row lg:px-3 lg:py-3.5 lg:text-left ${current ? "bg-[#4A1635] text-white shadow-[0_10px_24px_rgba(74,22,53,0.18)]" : complete ? "text-[#8C315F] hover:bg-white" : "text-[#A99BA2]"}`}
+                      aria-current={current ? "step" : undefined}
+                      data-testid={`creator-step-${step.key}`}
+                    >
+                      <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${current ? "border-white/20 bg-white/10" : complete ? "border-[#DDB5C9] bg-white" : "border-[#DDD3CE] bg-[#F7F1EC]"}`}>
+                        {complete ? <CheckCircle2 className="h-4 w-4" /> : <StepIcon className="h-4 w-4" />}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="hidden text-[10px] font-bold uppercase tracking-[0.14em] opacity-55 lg:block">0{index + 1}</span>
+                        <span className="block truncate text-[11px] font-semibold sm:text-xs lg:text-sm">{step.label === "Category" ? "Style" : step.label}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+                <div className="mt-4 hidden border-t border-[#E2D6D1] pt-5 lg:block">
+                  <p className="font-editorial text-lg italic leading-6 text-[#9B6B7F]">Beautiful stories in every frame.</p>
+                  <div className="mt-4 h-px w-10 bg-[#D4A34B]" />
+                </div>
+              </div>
+            </aside>
+
+            <div className="min-w-0 space-y-4 bg-[#FFFDFC] p-4 sm:p-6 lg:p-8">
+              <div className="rounded-2xl border border-[#EADFD9] bg-white px-4 py-3 shadow-[0_8px_24px_rgba(74,22,53,0.04)]">
               {user ? (
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-center gap-3">
@@ -1284,7 +1304,7 @@ function CreateVideoPage() {
                     )}
                     <div>
                       <div className="section-label text-left text-[#9B256D]">Signed in</div>
-                      <div className="font-heading text-xl font-extrabold text-[#32113A]">{user.name || "Google account"}</div>
+                      <div className="font-heading text-lg font-extrabold text-[#32113A]">{user.name || "Google account"}</div>
                       <div className="text-sm text-neutral-500">{user.email}</div>
                     </div>
                   </div>
@@ -1296,7 +1316,7 @@ function CreateVideoPage() {
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <div className="section-label text-left text-[#9B256D]">Google Login</div>
-                    <h2 className="mt-1 font-heading text-2xl font-extrabold text-[#32113A]">Sign in to keep your invitation workspace ready.</h2>
+                    <h2 className="mt-1 font-heading text-lg font-extrabold text-[#32113A]">Sign in to keep this workspace ready.</h2>
                     <p className="mt-1 text-sm leading-6 text-neutral-500">
                       You can still test the creator, but signing in lets us connect future saves, downloads and account history to you.
                     </p>
@@ -1305,37 +1325,14 @@ function CreateVideoPage() {
                 </div>
               )}
             </div>
-            <div className="rounded-2xl border border-[#ECD5E2] bg-white p-4 shadow-[0_14px_46px_rgba(81,25,62,0.05)] sm:p-5">
-              <div className="mb-6 rounded-2xl bg-[#FFF8FB] p-3 sm:p-4">
-                <div className="flex items-start justify-between gap-2">
-                  {wizardSteps.map((step, index) => {
-                    const complete = index < wizardStep;
-                    const current = index === wizardStep;
-                    return (
-                      <button
-                        key={step.label}
-                        type="button"
-                        onClick={() => index <= wizardStep && setWizardStep(index)}
-                        className="group flex min-w-0 flex-1 flex-col items-center gap-2 text-center"
-                        aria-current={current ? "step" : undefined}
-                      >
-                        <span className={`flex h-9 w-9 items-center justify-center rounded-full border text-sm font-extrabold transition ${
-                          current ? "border-[#C80A76] bg-[#C80A76] text-white shadow-md" : complete ? "border-[#A4176D] bg-[#F8EAF2] text-[#A4176D]" : "border-[#E8C9DB] bg-white text-neutral-400"
-                        }`}>{complete ? "✓" : index + 1}</span>
-                        <span className={`text-[10px] font-bold uppercase tracking-[0.12em] sm:text-xs ${current ? "text-[#A4176D]" : "text-neutral-400"}`}>{step.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="mt-3 h-1 overflow-hidden rounded-full bg-[#EBD3E0]">
-                  <div className="h-full rounded-full bg-gradient-to-r from-[#6012A8] via-[#C80A76] to-[#E66B24] transition-all duration-300" style={{ width: `${(wizardStep / (wizardSteps.length - 1)) * 100}%` }} />
-                </div>
-              </div>
-
-              <div className="mb-5">
+            <div className="rounded-[1.6rem] border border-[#EADFD9] bg-white p-5 shadow-[0_12px_40px_rgba(74,22,53,0.055)] sm:p-7">
+              <div className="mb-7 flex items-start justify-between gap-4 border-b border-[#EEE4DF] pb-6">
+                <div>
                 <div className="section-label text-left text-[#9B256D]">Step {wizardStep + 1} of {wizardSteps.length}</div>
-                <h2 className="mt-1 font-heading text-2xl font-extrabold text-[#32113A]">{wizardSteps[wizardStep].title}</h2>
+                <h2 className="mt-2 font-editorial text-3xl font-semibold tracking-[-0.025em] text-[#4A1635]">{wizardSteps[wizardStep].title}</h2>
                 <p className="mt-1 text-sm text-neutral-500">{wizardSteps[wizardStep].hint}</p>
+                </div>
+                <span className="mt-1 hidden rounded-full border border-[#E8D8DF] bg-[#FFF8FB] px-3 py-1.5 text-xs font-semibold text-[#8C315F] sm:inline-flex">{Math.round(((wizardStep + 1) / wizardSteps.length) * 100)}% complete</span>
               </div>
 
               {currentStepKey === "category" && <>
@@ -1427,7 +1424,7 @@ function CreateVideoPage() {
               </div>
             </div>
           </div>
-          <div>
+            <div className="border-t border-[#E8DDD8] bg-[#FBF7F1] p-5 lg:border-l lg:border-t-0 lg:p-6">
             <PreviewPane
               rendering={rendering}
               status={jobStatus}
@@ -1438,7 +1435,11 @@ function CreateVideoPage() {
               onReset={handleReset}
               canRender={usesPhotoStep ? photos.length >= minImages : timelineItems.length >= Number(timelineCfg.minItems || 1)}
               renderHint={usesPhotoStep ? `Add at least ${minImages} photo${minImages > 1 ? "s" : ""} to render` : `Add at least ${Number(timelineCfg.minItems || 1)} timeline moments to render`}
+              template={selectedTemplate}
+              details={details}
+              category={category}
             />
+          </div>
           </div>
         </section>
       </main>

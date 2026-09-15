@@ -206,21 +206,24 @@ export const TemplatePicker = ({ value, onChange, templates = DEFAULT_TEMPLATES,
 
   return (
     <section>
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="section-label text-left">01 — Template</h2>
+      <div className="mb-5 flex items-center justify-between gap-3">
+        <div>
+          <h3 className="font-editorial text-xl font-semibold text-[#4A1635]">Choose a look that feels like you</h3>
+          <p className="mt-1 text-xs text-[#83747C]">Each style is designed for a vertical reel.</p>
+        </div>
         {selectedTemplate && (
-          <span className="text-xs font-medium text-neutral-500">
-            Selected: <span className="font-semibold text-[#A4176D]">{selectedTemplate.name}</span>
+          <span className="hidden rounded-full bg-[#F8EDF2] px-3 py-1.5 text-xs font-medium text-[#7E294F] sm:inline-flex">
+            Selected · <span className="ml-1 font-semibold">{selectedTemplate.name}</span>
           </span>
         )}
       </div>
       {categories.length > 1 && (
-        <div className="mb-4 space-y-3">
-          <p className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-neutral-500">What are you creating?</p>
+        <div className="mb-6 space-y-3 rounded-2xl border border-[#EEE3DE] bg-[#FCF9F5] p-3.5">
+          <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.17em] text-[#9A8991]">What are you creating?</p>
           {["invitation", "personal"].map((type) => (
             categoriesByType[type].length > 0 && (
-              <div key={type}>
-                <p className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-400">{CATEGORY_TYPE_LABELS[type]}</p>
+              <div key={type} className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <p className="w-20 shrink-0 text-[10px] font-bold uppercase tracking-[0.14em] text-[#B09FA6]">{CATEGORY_TYPE_LABELS[type]}</p>
                 <div className="flex flex-wrap gap-2" role="tablist" aria-label={`${CATEGORY_TYPE_LABELS[type]} categories`}>
                 {categoriesByType[type].map((category) => (
                   <button
@@ -229,10 +232,10 @@ export const TemplatePicker = ({ value, onChange, templates = DEFAULT_TEMPLATES,
                     role="tab"
                     aria-selected={activeCategory === category}
                     onClick={() => selectCategory(category)}
-                    className={`rounded-full border px-4 py-2 text-sm font-bold transition-all ${
+                    className={`rounded-full border px-4 py-2 text-sm font-semibold transition-[background-color,border-color,color,box-shadow] duration-200 ${
                       activeCategory === category
-                        ? "border-[#C80A76] bg-[#C80A76] text-white shadow-sm"
-                        : "border-[#E8C9DB] bg-[#FFF8FB] text-[#8D1B63] hover:border-[#C80A76] hover:bg-[#FFF0F7]"
+                        ? "border-[#8E2758] bg-[#8E2758] text-white shadow-[0_6px_16px_rgba(142,39,88,0.18)]"
+                        : "border-[#E4D6D0] bg-white text-[#674453] hover:border-[#BE829F] hover:bg-[#FFF8FB]"
                     }`}
                   >
                     {category}
@@ -244,10 +247,11 @@ export const TemplatePicker = ({ value, onChange, templates = DEFAULT_TEMPLATES,
           ))}
         </div>
       )}
-      <p className="mb-2 text-xs font-semibold text-neutral-500">
-        Choose a {activeCategory.toLowerCase()} template
-      </p>
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="mb-3 flex items-center justify-between">
+        <p className="text-xs font-semibold text-[#674F5A]">{activeCategory} styles</p>
+        <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#B09FA6]">Tap to preview</span>
+      </div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {categoryTemplates.map((t) => {
           const isSelected = value === t.id;
           return (
@@ -258,35 +262,38 @@ export const TemplatePicker = ({ value, onChange, templates = DEFAULT_TEMPLATES,
               aria-pressed={isSelected}
               title={t.desc}
               onClick={() => onChange(t.id)}
-              className={`group relative overflow-hidden rounded-2xl border bg-white text-left shadow-[0_10px_30px_rgba(81,25,62,0.06)] transition-all duration-300 hover:-translate-y-1.5 hover:shadow-[0_18px_42px_rgba(81,25,62,0.14)] ${
+              className={`group relative overflow-hidden rounded-[1.2rem] border bg-white text-left shadow-[0_10px_30px_rgba(74,22,53,0.055)] transition-[transform,box-shadow,border-color] duration-300 hover:-translate-y-1 hover:shadow-[0_18px_40px_rgba(74,22,53,0.13)] ${
                 isSelected
-                  ? "border-[#C80A76] ring-2 ring-[#C80A76] ring-offset-2"
-                  : "border-[#ECD5E2] hover:border-[#D9A9C6]"
+                  ? "border-[#96275D] ring-2 ring-[#96275D] ring-offset-2"
+                  : "border-[#E8DDD8] hover:border-[#C99AB0]"
               }`}
             >
-              <span className="absolute left-3 top-3 z-10 rounded-full bg-black/55 px-2.5 py-1 text-[10px] font-semibold text-white backdrop-blur-sm">
+              <span className="absolute left-3 top-3 z-10 rounded-full border border-white/15 bg-black/45 px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.1em] text-white backdrop-blur-md">
                 {Number(t.renderCount || 0)} {Number(t.renderCount || 0) === 1 ? "video" : "videos"}
               </span>
               <div
-                className="relative flex h-28 items-center justify-center overflow-hidden sm:h-32"
-                style={{ background: `linear-gradient(135deg, ${t.bg || "#32113A"}, ${t.swatch?.[1] || t.bg || "#32113A"})` }}
+                className="template-art relative flex h-44 items-center justify-center overflow-hidden sm:h-48"
+                style={{ "--template-bg": t.bg || "#32113A", "--template-accent": t.swatch?.[1] || t.bg || "#32113A", backgroundColor: t.bg || "#32113A" }}
               >
-                <div className="absolute inset-0 opacity-20" style={{ background: "radial-gradient(circle at 20% 10%, white, transparent 34%), radial-gradient(circle at 80% 90%, white, transparent 25%)" }} />
+                <div className="template-art-glow absolute inset-0 opacity-60" />
+                <div className="absolute inset-x-7 top-6 h-px bg-white/25" />
+                <div className="absolute left-1/2 top-6 h-8 w-px -translate-x-1/2 bg-white/20" />
+                <div className="absolute bottom-5 left-1/2 h-10 w-20 -translate-x-1/2 rounded-t-full border border-white/20 border-b-0" />
                 <span
-                  className="relative truncate px-5 text-center text-2xl italic drop-shadow-sm"
+                  className="relative max-w-[85%] truncate px-5 text-center text-2xl italic drop-shadow-md"
                   style={{ color: t.text, fontFamily: t.font }}
                 >
                   {t.name}
                 </span>
               </div>
               {isSelected && (
-                <span className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-full bg-[#C80A76] text-white shadow-md">
+                <span className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-[#96275D] text-white shadow-md ring-2 ring-white/70">
                   <Check className="h-4 w-4" strokeWidth={3} />
                 </span>
               )}
               <div className="space-y-2.5 px-4 py-4">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="font-heading text-lg font-extrabold tracking-tight text-[#32113A]">{t.name}</span>
+                  <span className="font-editorial text-lg font-semibold tracking-tight text-[#4A1635]">{t.name}</span>
                   <span className="flex shrink-0 gap-1">
                   {t.swatch.slice(0, 4).map((c) => (
                     <span
@@ -298,7 +305,7 @@ export const TemplatePicker = ({ value, onChange, templates = DEFAULT_TEMPLATES,
                   </span>
                 </div>
                 <p className="line-clamp-2 min-h-[2.5rem] text-xs leading-5 text-neutral-500">{t.desc}</p>
-                <div className="flex items-center justify-between border-t border-[#F0DDE7] pt-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[#A4176D]">
+                <div className="flex items-center justify-between border-t border-[#F0E5E0] pt-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[#8C315F]">
                   <span>{t.category || "Wedding"}</span>
                   <span>{isSelected ? "Selected" : "Choose style"}</span>
                 </div>
