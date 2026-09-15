@@ -81,6 +81,7 @@ memory/test_credentials.md
 # Backend runtime data (created by server.py at startup; never source)
 backend/uploads/*
 backend/renders/*
+backend/template-assets/*
 
 # Mobile development
 android-sdk/render-service/node_modules/.remotion/chrome-headless-shell/linux-arm64/chrome-headless-shell-linux-arm64/headless_shell

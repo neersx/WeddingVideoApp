@@ -21,6 +21,8 @@ import ipaddress
 import socket
 import secrets
 import hashlib
+import json
+import mimetypes
 from collections import defaultdict, deque
 from urllib.parse import urlparse
 from pathlib import Path
@@ -123,8 +125,10 @@ except ValueError:
 UPLOADS_DIR = ROOT_DIR / 'uploads'
 RENDERS_DIR = ROOT_DIR / 'renders'
 MUSIC_DIR = ROOT_DIR / 'music'
+TEMPLATE_ASSETS_DIR = ROOT_DIR / 'template-assets'
 UPLOADS_DIR.mkdir(exist_ok=True)
 RENDERS_DIR.mkdir(exist_ok=True)
+TEMPLATE_ASSETS_DIR.mkdir(exist_ok=True)
 
 # How long a rendered .mp4 stays downloadable before the background cleanup
 # loop deletes it (the render's database record and history are kept).
@@ -132,6 +136,16 @@ RENDER_FILE_RETENTION_DAYS = 10
 RENDER_CLEANUP_INTERVAL_SECONDS = 3600
 
 ALLOWED_IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.webp'}
+ALLOWED_TEMPLATE_ASSET_EXTS = {'.jpg', '.jpeg', '.png', '.webp', '.svg', '.webm', '.mp4'}
+TEMPLATE_ASSET_LAYERS = {'base', 'background', 'midground', 'foreground', 'overlay', 'watermark'}
+TEMPLATE_SCREEN_SELECTOR_MODES = {'all', 'first', 'center', 'last', 'selected', 'all-except'}
+DEFAULT_TEMPLATE_SCREENS = [
+    {'id': 'opening', 'role': 'first', 'label': 'Opening'},
+    {'id': 'message', 'role': 'center', 'label': 'Message'},
+    {'id': 'photos', 'role': 'center', 'label': 'Photos'},
+    {'id': 'schedule', 'role': 'center', 'label': 'Event details'},
+    {'id': 'closing', 'role': 'last', 'label': 'Closing'},
+]
 
 # Bundled royalty-free music library. Files live in /app/backend/music/.
 MUSIC_LIBRARY = [
@@ -953,6 +967,8 @@ class _InMemoryDB:
         self.renders = _InMemoryCollection()
         self.users = _InMemoryCollection()
         self.templates = _InMemoryCollection()
+        self.media_assets = _InMemoryCollection()
+        self.template_asset_placements = _InMemoryCollection()
         self.music = _InMemoryCollection()
         self.categories = _InMemoryCollection()
         # --- billing ---
@@ -1077,6 +1093,53 @@ class TemplateUpdateRequest(BaseModel):
     isActive: bool = True
     sortOrder: int = 100
     defaultMusicId: Optional[str] = None
+    name: Optional[str] = None
+    desc: Optional[str] = None
+    style: Optional[str] = None
+    bg: Optional[str] = None
+    text: Optional[str] = None
+    font: Optional[str] = None
+    swatch: Optional[List[str]] = None
+    screens: Optional[List[Dict[str, Any]]] = None
+    settings: Optional[Dict[str, Any]] = None
+    primaryCategoryId: Optional[str] = None
+    facets: Optional[Dict[str, List[str]]] = None
+    qualityProfile: Optional[Dict[str, Any]] = None
+
+
+class TemplatePlacementCreateRequest(BaseModel):
+    assetId: str
+    layer: str = "background"
+    screenSelector: Dict[str, Any] = Field(default_factory=lambda: {"mode": "all", "screenIds": []})
+    zIndex: int = 10
+    opacity: float = 1.0
+    blendMode: str = "normal"
+    layout: Dict[str, Any] = Field(default_factory=lambda: {"fit": "cover", "positionX": 50, "positionY": 50, "scale": 1, "rotation": 0})
+    timing: Dict[str, Any] = Field(default_factory=lambda: {"startOffsetSeconds": 0, "endOffsetSeconds": None, "loop": True})
+    animation: Dict[str, Any] = Field(default_factory=lambda: {"preset": "none"})
+    behavior: str = "stack"
+    isActive: bool = True
+    sortOrder: int = 100
+
+
+class TemplatePlacementUpdateRequest(BaseModel):
+    layer: Optional[str] = None
+    screenSelector: Optional[Dict[str, Any]] = None
+    zIndex: Optional[int] = None
+    opacity: Optional[float] = None
+    blendMode: Optional[str] = None
+    layout: Optional[Dict[str, Any]] = None
+    timing: Optional[Dict[str, Any]] = None
+    animation: Optional[Dict[str, Any]] = None
+    behavior: Optional[str] = None
+    isActive: Optional[bool] = None
+    sortOrder: Optional[int] = None
+
+
+class MediaAssetUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    tags: Optional[List[str]] = None
+    status: Optional[str] = None
 
 
 class MusicUpdateRequest(BaseModel):
@@ -1820,11 +1883,26 @@ def _max_images_for_duration(settings, duration):
 
 
 def _serialize_template(document):
+    category = document.get("category", "Wedding")
+    primary_category_id = document.get("primaryCategoryId") or re.sub(r"[^a-z0-9]+", "-", category.lower()).strip("-")
+    facets = document.get("facets") or {
+        "contentTypes": ["invitation"],
+        "occasions": [primary_category_id],
+        "ceremonies": [],
+        "cultures": [],
+        "styles": [re.sub(r"[^a-z0-9]+", "-", str(document.get("style") or "").lower()).strip("-")] if document.get("style") else [],
+        "themes": [],
+    }
     return {
         "id": document.get("id") or document.get("_id"),
         "name": document.get("name", ""),
         "desc": document.get("desc", ""),
-        "category": document.get("category", "Wedding"),
+        "category": category,
+        "primaryCategoryId": primary_category_id,
+        "facets": facets,
+        "screens": document.get("screens") or DEFAULT_TEMPLATE_SCREENS,
+        "assetSetVersion": int(document.get("assetSetVersion", 1)),
+        "qualityProfile": document.get("qualityProfile") or {},
         "swatch": document.get("swatch", []),
         "bg": document.get("bg", "#FFFFFF"),
         "text": document.get("text", "#111111"),
@@ -1844,6 +1922,170 @@ def _serialize_template(document):
     }
 
 
+def _serialize_media_asset(document):
+    asset_id = document.get("id") or document.get("_id")
+    return {
+        "id": asset_id,
+        "name": document.get("name", ""),
+        "type": document.get("type", "image"),
+        "mimeType": document.get("mimeType", "application/octet-stream"),
+        "url": f"/api/template-assets/{asset_id}/file",
+        "filename": document.get("filename", ""),
+        "fileSize": int(document.get("fileSize", 0)),
+        "checksum": document.get("checksum", ""),
+        "tags": document.get("tags", []),
+        "status": document.get("status", "draft"),
+        "version": int(document.get("version", 1)),
+        "created_at": document.get("created_at"),
+        "updated_at": document.get("updated_at"),
+    }
+
+
+def _serialize_template_placement(document):
+    return {
+        "id": document.get("id") or document.get("_id"),
+        "templateId": document.get("templateId"),
+        "templateVersion": int(document.get("templateVersion", 1)),
+        "assetId": document.get("assetId"),
+        "layer": document.get("layer", "background"),
+        "screenSelector": document.get("screenSelector") or {"mode": "all", "screenIds": []},
+        "zIndex": int(document.get("zIndex", 10)),
+        "opacity": float(document.get("opacity", 1)),
+        "blendMode": document.get("blendMode", "normal"),
+        "layout": document.get("layout") or {},
+        "timing": document.get("timing") or {},
+        "animation": document.get("animation") or {"preset": "none"},
+        "behavior": document.get("behavior", "stack"),
+        "isActive": bool(document.get("isActive", True)),
+        "sortOrder": int(document.get("sortOrder", 100)),
+    }
+
+
+def _validate_placement(values, template_doc):
+    layer = values.get("layer", "background")
+    if layer not in TEMPLATE_ASSET_LAYERS:
+        raise HTTPException(status_code=400, detail=f"Unknown asset layer: {layer}")
+    selector = values.get("screenSelector") or {}
+    mode = selector.get("mode", "all")
+    if mode not in TEMPLATE_SCREEN_SELECTOR_MODES:
+        raise HTTPException(status_code=400, detail=f"Unknown screen selector mode: {mode}")
+    known_ids = {screen["id"] for screen in (template_doc.get("screens") or DEFAULT_TEMPLATE_SCREENS)}
+    selected_ids = list(dict.fromkeys(str(value) for value in selector.get("screenIds", []) if str(value)))
+    unknown_ids = [screen_id for screen_id in selected_ids if screen_id not in known_ids]
+    if unknown_ids:
+        raise HTTPException(status_code=400, detail=f"Unknown template screen(s): {', '.join(unknown_ids)}")
+    if mode in {"selected", "all-except"} and not selected_ids:
+        raise HTTPException(status_code=400, detail=f"screenSelector.screenIds is required for mode '{mode}'")
+    try:
+        opacity = float(values.get("opacity", 1))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="opacity must be numeric") from exc
+    if opacity < 0 or opacity > 1:
+        raise HTTPException(status_code=400, detail="opacity must be between 0 and 1")
+    layout = dict(values.get("layout") or {})
+    if layout.get("fit", "cover") not in {"cover", "contain", "fill", "none"}:
+        raise HTTPException(status_code=400, detail="Unknown asset fit mode")
+    try:
+        position_x = float(layout.get("positionX", 50))
+        position_y = float(layout.get("positionY", 50))
+        scale = float(layout.get("scale", 1))
+        rotation = float(layout.get("rotation", 0))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Asset layout values must be numeric") from exc
+    if not 0 <= position_x <= 100 or not 0 <= position_y <= 100:
+        raise HTTPException(status_code=400, detail="Asset position must be between 0 and 100 percent")
+    if not 0.1 <= scale <= 5:
+        raise HTTPException(status_code=400, detail="Asset scale must be between 0.1 and 5")
+    if not -360 <= rotation <= 360:
+        raise HTTPException(status_code=400, detail="Asset rotation must be between -360 and 360 degrees")
+    blend_mode = values.get("blendMode", "normal")
+    if blend_mode not in {"normal", "multiply", "screen", "overlay", "soft-light", "lighten"}:
+        raise HTTPException(status_code=400, detail="Unknown asset blend mode")
+    animation = dict(values.get("animation") or {})
+    if animation.get("preset", "none") not in {"none", "fade-in", "slow-zoom", "float-up", "slow-drift", "petal-fall", "rotate-slow"}:
+        raise HTTPException(status_code=400, detail="Unknown asset animation preset")
+    return {
+        **values,
+        "layer": layer,
+        "screenSelector": {"mode": mode, "screenIds": selected_ids},
+        "opacity": opacity,
+        "blendMode": blend_mode,
+        "layout": {**layout, "positionX": position_x, "positionY": position_y, "scale": scale, "rotation": rotation},
+        "animation": animation,
+    }
+
+
+def _selector_matches_screen(selector, screen):
+    mode = (selector or {}).get("mode", "all")
+    ids = set((selector or {}).get("screenIds") or [])
+    if mode == "all":
+        return True
+    if mode in {"first", "center", "last"}:
+        return screen.get("role") == mode
+    if mode == "selected":
+        return screen.get("id") in ids
+    if mode == "all-except":
+        return screen.get("id") not in ids
+    return False
+
+
+async def resolve_template_theme(template_doc):
+    """Compile published asset placements into a render-only per-screen manifest.
+
+    The renderer receives immutable URLs and never reads MongoDB while rendering
+    frames. Templates with no published placements receive an empty manifest and
+    continue using their existing hardcoded visuals.
+    """
+    if not template_doc:
+        return {"version": 1, "screens": {}}
+    template_id = template_doc.get("id") or template_doc.get("_id")
+    screens = template_doc.get("screens") or DEFAULT_TEMPLATE_SCREENS
+    placement_docs = await db.template_asset_placements.find({"templateId": template_id}).to_list(500)
+    placements = [doc for doc in placement_docs if doc.get("isActive", True)]
+    asset_ids = {doc.get("assetId") for doc in placements if doc.get("assetId")}
+    assets = {}
+    for asset_id in asset_ids:
+        asset = await db.media_assets.find_one({"_id": asset_id})
+        if asset and asset.get("status") == "published":
+            assets[asset_id] = asset
+
+    resolved_screens = {}
+    used_asset_ids = set()
+    for screen in screens:
+        layers = defaultdict(list)
+        matching = sorted(
+            (doc for doc in placements if doc.get("assetId") in assets and _selector_matches_screen(doc.get("screenSelector"), screen)),
+            key=lambda doc: (int(doc.get("zIndex", 10)), int(doc.get("sortOrder", 100))),
+        )
+        for placement in matching:
+            asset = assets[placement["assetId"]]
+            serialized = _serialize_template_placement(placement)
+            serialized.update({
+                "assetType": asset.get("type", "image"),
+                "mimeType": asset.get("mimeType", "application/octet-stream"),
+                "url": f"{INTERNAL_BASE_URL}/api/template-assets/{asset['_id']}/file",
+            })
+            if serialized.get("behavior") == "replace":
+                layers[serialized["layer"]].clear()
+            layers[serialized["layer"]].append(serialized)
+            used_asset_ids.add(asset["_id"])
+        resolved_screens[screen["id"]] = {"role": screen.get("role", "center"), "layers": dict(layers)}
+    return {
+        "version": int(template_doc.get("assetSetVersion", 1)),
+        "assetIds": sorted(used_asset_ids),
+        "screens": resolved_screens,
+    }
+
+
+async def _bump_template_asset_version(template_id):
+    await db.templates.update_one(
+        {"_id": template_id},
+        {"$inc": {"assetSetVersion": 1}, "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    updated = await db.templates.find_one({"_id": template_id})
+    return int((updated or {}).get("assetSetVersion", 1))
+
+
 async def _attach_template_render_counts(templates):
     for template in templates:
         template["renderCount"] = await db.renders.count_documents({"template": template["id"]})
@@ -1855,15 +2097,27 @@ async def seed_default_templates():
     for template in DEFAULT_TEMPLATE_DOCUMENTS:
         existing = await db.templates.find_one({"_id": template["_id"]})
         if existing:
-            # Backfill the merged settings object onto templates seeded before it
-            # existed (migrating any legacy capabilities into it).
+            # Backfill additive template metadata. The legacy category remains
+            # authoritative for form selection until every client has migrated.
+            updates = {}
             if not existing.get("settings"):
-                await db.templates.update_one(
-                    {"_id": template["_id"]},
-                    {"$set": {"settings": _normalized_template_settings({**existing, **({"settings": template.get("settings")} if template.get("settings") else {})}), "updated_at": now}},
-                )
+                updates["settings"] = _normalized_template_settings({**existing, **({"settings": template.get("settings")} if template.get("settings") else {})})
+            if not existing.get("primaryCategoryId"):
+                updates["primaryCategoryId"] = re.sub(r"[^a-z0-9]+", "-", str(existing.get("category") or "Wedding").lower()).strip("-")
+            if not existing.get("facets"):
+                updates["facets"] = _serialize_template(existing)["facets"]
+            if not existing.get("screens"):
+                updates["screens"] = DEFAULT_TEMPLATE_SCREENS
+            if updates:
+                updates["updated_at"] = now
+                await db.templates.update_one({"_id": template["_id"]}, {"$set": updates})
             continue
         doc = dict(template)
+        serialized = _serialize_template(doc)
+        doc["primaryCategoryId"] = serialized["primaryCategoryId"]
+        doc["facets"] = serialized["facets"]
+        doc["screens"] = DEFAULT_TEMPLATE_SCREENS
+        doc["assetSetVersion"] = 1
         doc["created_at"] = now
         doc["updated_at"] = now
         await db.templates.insert_one(doc)
@@ -2522,12 +2776,33 @@ async def admin_update_music(
 
 
 @api_router.get("/templates")
-async def list_templates(category: Optional[str] = None):
+async def list_templates(
+    category: Optional[str] = None,
+    contentType: Optional[str] = None,
+    occasion: Optional[str] = None,
+    ceremony: Optional[str] = None,
+    culture: Optional[str] = None,
+    style: Optional[str] = None,
+    theme: Optional[str] = None,
+):
     filter_query = {"isActive": True}
     if category:
         filter_query["category"] = category
     docs = await db.templates.find(filter_query).to_list(200)
-    templates = await _attach_template_render_counts([_serialize_template(d) for d in docs])
+    templates = [_serialize_template(d) for d in docs]
+    requested_facets = {
+        "contentTypes": contentType,
+        "occasions": occasion,
+        "ceremonies": ceremony,
+        "cultures": culture,
+        "styles": style,
+        "themes": theme,
+    }
+    for facet_key, requested in requested_facets.items():
+        if requested:
+            normalized = re.sub(r"[^a-z0-9]+", "-", requested.strip().lower()).strip("-")
+            templates = [template for template in templates if normalized in template.get("facets", {}).get(facet_key, [])]
+    templates = await _attach_template_render_counts(templates)
     templates.sort(key=lambda t: (t["category"].lower(), t["sortOrder"], t["name"].lower()))
     return templates
 
@@ -2616,6 +2891,66 @@ async def admin_update_template(
         "defaultMusicId": req.defaultMusicId.strip() if req.defaultMusicId else None,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
+    for field in ("name", "desc", "style", "bg", "text", "font"):
+        value = getattr(req, field)
+        if value is not None:
+            updates[field] = value.strip()
+    if req.name is not None and not req.name.strip():
+        raise HTTPException(status_code=400, detail="Template name is required")
+    if req.swatch is not None:
+        updates["swatch"] = [str(color).strip() for color in req.swatch if str(color).strip()][:8]
+    if req.screens is not None:
+        screens = []
+        seen_screen_ids = set()
+        for raw_screen in req.screens:
+            screen_id = re.sub(r"[^a-z0-9]+", "-", str(raw_screen.get("id") or "").lower()).strip("-")
+            role = str(raw_screen.get("role") or "center").lower()
+            if not screen_id or screen_id in seen_screen_ids:
+                raise HTTPException(status_code=400, detail="Every template screen needs a unique id")
+            if role not in {"first", "center", "last"}:
+                raise HTTPException(status_code=400, detail=f"Unknown screen role: {role}")
+            seen_screen_ids.add(screen_id)
+            screens.append({"id": screen_id, "role": role, "label": str(raw_screen.get("label") or screen_id).strip()})
+        if not screens:
+            raise HTTPException(status_code=400, detail="A template needs at least one screen")
+        updates["screens"] = screens
+    if req.settings is not None:
+        settings = dict(req.settings)
+        try:
+            max_images = int(settings.get("maxImages") or 0)
+            max_slides = int(settings.get("maxSlides") or 0)
+            durations = [int(value) for value in (settings.get("durations") or [])]
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Template render settings contain invalid numbers") from exc
+        if max_images < 1 or max_images > 12:
+            raise HTTPException(status_code=400, detail="maxImages must be between 1 and 12")
+        if max_slides < 1 or max_slides > 24:
+            raise HTTPException(status_code=400, detail="maxSlides must be between 1 and 24")
+        if not durations or any(value < 5 or value > 60 for value in durations):
+            raise HTTPException(status_code=400, detail="durations must contain values between 5 and 60 seconds")
+        updates["settings"] = settings
+    if req.primaryCategoryId is not None:
+        updates["primaryCategoryId"] = re.sub(r"[^a-z0-9]+", "-", req.primaryCategoryId.lower()).strip("-")
+    if req.facets is not None:
+        updates["facets"] = {
+            str(key): list(dict.fromkeys(re.sub(r"[^a-z0-9]+", "-", str(value).lower()).strip("-") for value in values if str(value).strip()))
+            for key, values in req.facets.items()
+        }
+    if req.qualityProfile is not None:
+        quality = dict(req.qualityProfile)
+        try:
+            if "fps" in quality and not 12 <= int(quality["fps"]) <= 60:
+                raise HTTPException(status_code=400, detail="qualityProfile.fps must be between 12 and 60")
+            if "crf" in quality and not 0 <= int(quality["crf"]) <= 51:
+                raise HTTPException(status_code=400, detail="qualityProfile.crf must be between 0 and 51")
+            if "jpegQuality" in quality and not 0 <= int(quality["jpegQuality"]) <= 100:
+                raise HTTPException(status_code=400, detail="qualityProfile.jpegQuality must be between 0 and 100")
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Template quality values must be numeric") from exc
+        allowed_presets = {"ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"}
+        if quality.get("x264Preset") and quality["x264Preset"] not in allowed_presets:
+            raise HTTPException(status_code=400, detail="Unknown qualityProfile.x264Preset")
+        updates["qualityProfile"] = quality
     if updates["defaultMusicId"]:
         music_track = await find_music_track(updates["defaultMusicId"])
         if not music_track:
@@ -2626,6 +2961,150 @@ async def admin_update_template(
     await db.templates.update_one({"_id": template_id}, {"$set": updates})
     updated = await db.templates.find_one({"_id": template_id})
     return (await _attach_template_render_counts([_serialize_template(updated)]))[0]
+
+
+@api_router.get("/admin/templates/{template_id}/assets")
+async def admin_list_template_assets(template_id: str, _: GoogleUser = Depends(require_admin_user)):
+    template_doc = await db.templates.find_one({"_id": template_id})
+    if not template_doc:
+        raise HTTPException(status_code=404, detail="Template not found")
+    placements = await db.template_asset_placements.find({"templateId": template_id}).to_list(500)
+    asset_ids = {placement.get("assetId") for placement in placements if placement.get("assetId")}
+    assets = []
+    for asset_id in asset_ids:
+        asset = await db.media_assets.find_one({"_id": asset_id})
+        if asset:
+            assets.append(_serialize_media_asset(asset))
+    return {
+        "template": _serialize_template(template_doc),
+        "assets": sorted(assets, key=lambda asset: asset["name"].lower()),
+        "placements": sorted((_serialize_template_placement(item) for item in placements), key=lambda item: (item["layer"], item["zIndex"], item["sortOrder"])),
+        "resolvedTheme": await resolve_template_theme(template_doc),
+    }
+
+
+@api_router.post("/admin/template-assets")
+async def admin_upload_template_asset(
+    file: UploadFile = File(...),
+    name: str = Form(""),
+    tags: str = Form(""),
+    status: str = Form("draft"),
+    _: GoogleUser = Depends(require_admin_user),
+):
+    original_name = file.filename or ""
+    ext = Path(original_name).suffix.lower()
+    if ext not in ALLOWED_TEMPLATE_ASSET_EXTS:
+        raise HTTPException(status_code=400, detail=f"Unsupported template asset type: {ext}")
+    if status not in {"draft", "published", "archived"}:
+        raise HTTPException(status_code=400, detail="status must be draft, published, or archived")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Asset file is empty")
+    if len(data) > 75 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Template asset is too large (max 75MB)")
+    asset_id = f"asset-{uuid.uuid4().hex}"
+    stored_filename = f"{asset_id}{ext}"
+    try:
+        (TEMPLATE_ASSETS_DIR / stored_filename).write_bytes(data)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail="Could not save template asset") from exc
+    mime_type = file.content_type or mimetypes.guess_type(original_name)[0] or "application/octet-stream"
+    now = datetime.now(timezone.utc).isoformat()
+    document = {
+        "_id": asset_id,
+        "id": asset_id,
+        "name": name.strip() or Path(original_name).stem,
+        "type": "video" if ext in {".webm", ".mp4"} else "image",
+        "mimeType": mime_type,
+        "filename": stored_filename,
+        "fileSize": len(data),
+        "checksum": f"sha256:{hashlib.sha256(data).hexdigest()}",
+        "tags": list(dict.fromkeys(re.sub(r"[^a-z0-9]+", "-", item.lower()).strip("-") for item in tags.split(",") if item.strip())),
+        "status": status,
+        "version": 1,
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.media_assets.insert_one(document)
+    return _serialize_media_asset(document)
+
+
+@api_router.get("/admin/template-assets")
+async def admin_list_media_assets(_: GoogleUser = Depends(require_admin_user)):
+    assets = await db.media_assets.find().to_list(1000)
+    return sorted((_serialize_media_asset(asset) for asset in assets), key=lambda asset: (asset["status"], asset["name"].lower()))
+
+
+@api_router.get("/template-assets/{asset_id}/file")
+async def get_template_asset_file(asset_id: str):
+    asset = await db.media_assets.find_one({"_id": asset_id})
+    if not asset:
+        raise HTTPException(status_code=404, detail="Template asset not found")
+    path = TEMPLATE_ASSETS_DIR / Path(asset.get("filename", "")).name
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Template asset file missing")
+    return FileResponse(path, media_type=asset.get("mimeType") or "application/octet-stream")
+
+
+@api_router.patch("/admin/template-assets/{asset_id}")
+async def admin_update_template_asset(asset_id: str, req: MediaAssetUpdateRequest, _: GoogleUser = Depends(require_admin_user)):
+    asset = await db.media_assets.find_one({"_id": asset_id})
+    if not asset:
+        raise HTTPException(status_code=404, detail="Template asset not found")
+    updates = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    if req.name is not None:
+        updates["name"] = req.name.strip() or asset.get("name", "")
+    if req.tags is not None:
+        updates["tags"] = list(dict.fromkeys(re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-") for value in req.tags if value.strip()))
+    if req.status is not None:
+        if req.status not in {"draft", "published", "archived"}:
+            raise HTTPException(status_code=400, detail="status must be draft, published, or archived")
+        updates["status"] = req.status
+    await db.media_assets.update_one({"_id": asset_id}, {"$set": updates})
+    if req.status is not None and req.status != asset.get("status"):
+        affected = await db.template_asset_placements.find({"assetId": asset_id}).to_list(500)
+        for template_id in {placement.get("templateId") for placement in affected if placement.get("templateId")}:
+            await _bump_template_asset_version(template_id)
+    return _serialize_media_asset(await db.media_assets.find_one({"_id": asset_id}))
+
+
+@api_router.post("/admin/templates/{template_id}/asset-placements")
+async def admin_create_template_placement(template_id: str, req: TemplatePlacementCreateRequest, _: GoogleUser = Depends(require_admin_user)):
+    template_doc = await db.templates.find_one({"_id": template_id})
+    if not template_doc:
+        raise HTTPException(status_code=404, detail="Template not found")
+    if not await db.media_assets.find_one({"_id": req.assetId}):
+        raise HTTPException(status_code=404, detail="Template asset not found")
+    values = _validate_placement(req.model_dump(), template_doc)
+    asset_version = await _bump_template_asset_version(template_id)
+    placement_id = f"placement-{uuid.uuid4().hex}"
+    document = {"_id": placement_id, "id": placement_id, "templateId": template_id, "templateVersion": asset_version, **values}
+    await db.template_asset_placements.insert_one(document)
+    return _serialize_template_placement(document)
+
+
+@api_router.patch("/admin/template-asset-placements/{placement_id}")
+async def admin_update_template_placement(placement_id: str, req: TemplatePlacementUpdateRequest, _: GoogleUser = Depends(require_admin_user)):
+    placement = await db.template_asset_placements.find_one({"_id": placement_id})
+    if not placement:
+        raise HTTPException(status_code=404, detail="Template asset placement not found")
+    template_doc = await db.templates.find_one({"_id": placement.get("templateId")})
+    updates = {key: value for key, value in req.model_dump().items() if value is not None}
+    updates = _validate_placement({**placement, **updates}, template_doc)
+    updates.pop("_id", None)
+    updates["templateVersion"] = await _bump_template_asset_version(placement.get("templateId"))
+    await db.template_asset_placements.update_one({"_id": placement_id}, {"$set": updates})
+    return _serialize_template_placement(await db.template_asset_placements.find_one({"_id": placement_id}))
+
+
+@api_router.delete("/admin/template-asset-placements/{placement_id}")
+async def admin_delete_template_placement(placement_id: str, _: GoogleUser = Depends(require_admin_user)):
+    placement = await db.template_asset_placements.find_one({"_id": placement_id})
+    if not placement:
+        raise HTTPException(status_code=404, detail="Template asset placement not found")
+    await db.template_asset_placements.delete_one({"_id": placement_id})
+    await _bump_template_asset_version(placement.get("templateId"))
+    return {"deleted": True, "id": placement_id}
 
 
 @api_router.patch("/admin/templates/{template_id}/settings")
@@ -3399,6 +3878,9 @@ async def create_render(
     payload["tags"] = list(dict.fromkeys(tag.strip() for tag in req.tags if tag.strip()))[:12]
     payload["resolved"] = resolve_render_copy(req.template, req.category, req.fields)
     payload["settings"] = template_settings
+    payload["theme"] = await resolve_template_theme(template_doc)
+    payload["templateVersion"] = int((template_doc or {}).get("assetSetVersion", 1))
+    payload["qualityProfile"] = dict((template_doc or {}).get("qualityProfile") or {})
 
     effective_music_id = req.musicId
     if not effective_music_id:
@@ -3479,6 +3961,8 @@ async def create_render(
         "displayMessage": req.displayMessage,
         "durationInSeconds": req.durationInSeconds,
         "fps": render_fps,
+        "templateVersion": payload["templateVersion"],
+        "themeAssetIds": payload["theme"].get("assetIds", []),
         "tags": payload["tags"],
         "musicId": effective_music_id,
         "musicSource": music_source,
@@ -3793,6 +4277,16 @@ async def initialize_storage():
         await db.renders.create_index("created_at")
         await db.templates.create_index("category")
         await db.templates.create_index("sortOrder")
+        await db.templates.create_index("primaryCategoryId")
+        await db.templates.create_index("facets.occasions")
+        await db.templates.create_index("facets.ceremonies")
+        await db.templates.create_index("facets.cultures")
+        await db.templates.create_index("facets.styles")
+        await db.templates.create_index("facets.themes")
+        await db.media_assets.create_index("status")
+        await db.media_assets.create_index("tags")
+        await db.template_asset_placements.create_index("templateId")
+        await db.template_asset_placements.create_index("assetId")
         await db.music.create_index("id", unique=True)
         # --- billing --- (_id is already unique by default; no index needed for it)
         await db.wallet_transactions.create_index("idempotencyKey", unique=True)

@@ -31,6 +31,45 @@ export type ResolvedCopy = {
   timeline?: TimelineData;
 };
 
+export type ThemeAssetPlacement = {
+  id: string;
+  assetId: string;
+  assetType: 'image' | 'video';
+  mimeType?: string;
+  url: string;
+  layer: 'base' | 'background' | 'midground' | 'foreground' | 'overlay' | 'watermark';
+  zIndex?: number;
+  opacity?: number;
+  blendMode?: React.CSSProperties['mixBlendMode'];
+  behavior?: 'stack' | 'replace';
+  layout?: {
+    fit?: React.CSSProperties['objectFit'];
+    positionX?: number;
+    positionY?: number;
+    scale?: number;
+    rotation?: number;
+  };
+  timing?: {
+    startOffsetSeconds?: number;
+    endOffsetSeconds?: number | null;
+    loop?: boolean;
+  };
+  animation?: {
+    preset?: 'none' | 'fade-in' | 'slow-zoom' | 'float-up' | 'slow-drift' | 'petal-fall' | 'rotate-slow';
+    speed?: number;
+    intensity?: number;
+  };
+};
+
+export type ResolvedTheme = {
+  version?: number;
+  assetIds?: string[];
+  screens?: Record<string, {
+    role: 'first' | 'center' | 'last';
+    layers: Partial<Record<ThemeAssetPlacement['layer'], ThemeAssetPlacement[]>>;
+  }>;
+};
+
 export type WeddingProps = {
   couple: {partnerOne: string; partnerTwo: string};
   eventDate: string;
@@ -62,6 +101,11 @@ export type WeddingProps = {
     captionPerImage?: boolean;
     [key: string]: unknown;
   };
+  // Published theme assets resolved by the backend into stable per-screen
+  // layers. Optional so every existing render payload remains valid.
+  theme?: ResolvedTheme;
+  templateVersion?: number;
+  qualityProfile?: Record<string, unknown>;
 };
 
 export const defaultProps: WeddingProps = {

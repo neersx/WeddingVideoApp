@@ -2595,6 +2595,302 @@ function AdminSettingsPage() {
   return <AdminPageFrame eyebrow="Settings" title="Platform settings" description="Review the environment-backed settings used by the Invita Videos platform."><div className="mt-6 grid gap-4 sm:grid-cols-2"><div className="rounded-3xl border border-[#ECD5E2] bg-white p-6"><div className="section-label text-left text-[#9B256D]">Access</div><h2 className="mt-2 font-heading text-2xl font-extrabold text-[#32113A]">Admin protection</h2><p className="mt-3 text-sm leading-6 text-neutral-600">Admin access is protected by the configured administrator email list. Backend API checks remain active even when the navigation is hidden.</p></div><div className="rounded-3xl border border-[#ECD5E2] bg-white p-6"><div className="section-label text-left text-[#9B256D]">Rendering</div><h2 className="mt-2 font-heading text-2xl font-extrabold text-[#32113A]">Video pipeline</h2><p className="mt-3 text-sm leading-6 text-neutral-600">Templates, music, uploads, MongoDB storage, reCAPTCHA, and the render worker are configured through deployment environment files.</p></div></div></AdminPageFrame>;
 }
 
+function AdminEditTemplateModal({ template, credential, musicTracks, onClose, onSaved }) {
+  const [draft, setDraft] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!template) { setDraft(null); return; }
+    setDraft({
+      name: template.name || "",
+      desc: template.desc || "",
+      style: template.style || "",
+      category: template.category || "Wedding",
+      primaryCategoryId: template.primaryCategoryId || "",
+      defaultMusicId: template.defaultMusicId || "",
+      sortOrder: template.sortOrder ?? 100,
+      isActive: template.isActive !== false,
+      bg: template.bg || "#FFFFFF",
+      text: template.text || "#111111",
+      font: template.font || "'Playfair Display', serif",
+      swatch: (template.swatch || []).join(", "),
+      facets: Object.fromEntries(["contentTypes", "occasions", "ceremonies", "cultures", "styles", "themes"].map((key) => [key, (template.facets?.[key] || []).join(", ")])),
+      screensJson: JSON.stringify(template.screens || [], null, 2),
+      settingsJson: JSON.stringify(template.settings || {}, null, 2),
+      qualityPreset: template.qualityProfile?.x264Preset || "",
+      qualityCrf: template.qualityProfile?.crf ?? "",
+      jpegQuality: template.qualityProfile?.jpegQuality ?? "",
+    });
+  }, [template]);
+
+  if (!template || !draft) return null;
+  const update = (field, value) => setDraft((current) => ({ ...current, [field]: value }));
+  const inputClass = "w-full rounded-xl border border-[#E2D4DB] bg-white px-3 py-2.5 text-sm font-normal text-[#32113A] outline-none focus:border-[#B22176] focus:ring-2 focus:ring-[#EFCBDD]";
+
+  const save = async (event) => {
+    event.preventDefault();
+    let screens;
+    let settings;
+    try {
+      screens = JSON.parse(draft.screensJson);
+      settings = JSON.parse(draft.settingsJson);
+    } catch { toast.error("Screens and render settings must contain valid JSON"); return; }
+    if (!Array.isArray(screens)) return toast.error("Screens JSON must be an array");
+    if (!draft.name.trim() || !draft.category.trim()) return toast.error("Name and category are required");
+    setSaving(true);
+    try {
+      const facets = Object.fromEntries(Object.entries(draft.facets).map(([key, value]) => [key, String(value).split(",").map((item) => item.trim()).filter(Boolean)]));
+      const qualityProfile = {
+        ...(template.qualityProfile || {}),
+        ...(draft.qualityPreset ? { x264Preset: draft.qualityPreset } : {}),
+        ...(draft.qualityCrf !== "" ? { crf: Number(draft.qualityCrf) } : {}),
+        ...(draft.jpegQuality !== "" ? { jpegQuality: Number(draft.jpegQuality) } : {}),
+      };
+      const response = await axios.patch(`${API}/admin/templates/${template.id}`, {
+        name: draft.name,
+        desc: draft.desc,
+        style: draft.style,
+        category: draft.category,
+        primaryCategoryId: draft.primaryCategoryId,
+        defaultMusicId: draft.defaultMusicId || null,
+        sortOrder: Number(draft.sortOrder) || 100,
+        isActive: draft.isActive,
+        bg: draft.bg,
+        text: draft.text,
+        font: draft.font,
+        swatch: draft.swatch.split(",").map((item) => item.trim()).filter(Boolean),
+        facets,
+        screens,
+        settings,
+        qualityProfile,
+      }, { headers: { Authorization: `Bearer ${credential}` } });
+      toast.success(`${response.data.name} updated`);
+      onSaved(response.data);
+      onClose();
+    } catch (error) { toast.error(error?.response?.data?.detail || "Failed to update template"); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <Dialog open={Boolean(template)} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-h-[92vh] max-w-5xl overflow-y-auto rounded-3xl border-[#E2CFD8] bg-[#FFFDFC] p-0 shadow-[0_28px_90px_rgba(50,17,58,0.24)]">
+        <DialogHeader className="sticky top-0 z-20 border-b border-[#EADCE3] bg-[#FFF7FB]/95 px-6 py-5 text-left backdrop-blur">
+          <DialogTitle className="font-heading text-2xl font-extrabold text-[#32113A]">Edit template fields</DialogTitle>
+          <DialogDescription>Update all configurable metadata for <span className="font-semibold text-[#8D1B63]">{template.id}</span>. Render count, asset version and template ID remain system-managed.</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={save} className="space-y-7 p-6">
+          <section>
+            <h3 className="font-heading text-lg font-extrabold text-[#32113A]">Identity and availability</h3>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <label className="text-xs font-semibold text-neutral-500 sm:col-span-2">Name<input className={`${inputClass} mt-1`} value={draft.name} onChange={(event) => update("name", event.target.value)} /></label>
+              <label className="text-xs font-semibold text-neutral-500">Style<input className={`${inputClass} mt-1`} value={draft.style} onChange={(event) => update("style", event.target.value)} placeholder="Cinematic Editorial" /></label>
+              <label className="text-xs font-semibold text-neutral-500">Sort order<input type="number" className={`${inputClass} mt-1`} value={draft.sortOrder} onChange={(event) => update("sortOrder", event.target.value)} /></label>
+              <label className="text-xs font-semibold text-neutral-500">Category<input className={`${inputClass} mt-1`} value={draft.category} onChange={(event) => update("category", event.target.value)} list="template-category-options" /></label>
+              <label className="text-xs font-semibold text-neutral-500">Primary category ID<input className={`${inputClass} mt-1`} value={draft.primaryCategoryId} onChange={(event) => update("primaryCategoryId", event.target.value)} /></label>
+              <label className="text-xs font-semibold text-neutral-500 lg:col-span-2">Default music<select className={`${inputClass} mt-1`} value={draft.defaultMusicId} onChange={(event) => update("defaultMusicId", event.target.value)}><option value="">No default music</option>{musicTracks.map((track) => <option key={track.id} value={track.id}>{track.title}</option>)}</select></label>
+              <label className="text-xs font-semibold text-neutral-500 sm:col-span-2 lg:col-span-4">Description<textarea rows={3} className={`${inputClass} mt-1 resize-y`} value={draft.desc} onChange={(event) => update("desc", event.target.value)} /></label>
+              <label className="inline-flex items-center gap-2 text-sm font-semibold text-[#32113A]"><input type="checkbox" checked={draft.isActive} onChange={(event) => update("isActive", event.target.checked)} className="h-4 w-4 accent-[#B31571]" />Active in creator</label>
+            </div>
+          </section>
+
+          <section className="border-t border-[#EADCE3] pt-6">
+            <h3 className="font-heading text-lg font-extrabold text-[#32113A]">Classification tags</h3>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{[["contentTypes", "Content types"], ["occasions", "Occasions"], ["ceremonies", "Ceremonies"], ["cultures", "Cultures"], ["styles", "Styles"], ["themes", "Themes"]].map(([key, label]) => <label key={key} className="text-xs font-semibold text-neutral-500">{label}<input className={`${inputClass} mt-1`} value={draft.facets[key] || ""} onChange={(event) => setDraft((current) => ({ ...current, facets: { ...current.facets, [key]: event.target.value } }))} placeholder="Comma separated" /></label>)}</div>
+          </section>
+
+          <section className="border-t border-[#EADCE3] pt-6">
+            <h3 className="font-heading text-lg font-extrabold text-[#32113A]">Visual identity</h3>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <label className="text-xs font-semibold text-neutral-500">Background color<div className="mt-1 flex gap-2"><input type="color" value={draft.bg} onChange={(event) => update("bg", event.target.value)} className="h-10 w-12 rounded-lg border border-[#E2D4DB] bg-white p-1" /><input className={inputClass} value={draft.bg} onChange={(event) => update("bg", event.target.value)} /></div></label>
+              <label className="text-xs font-semibold text-neutral-500">Text color<div className="mt-1 flex gap-2"><input type="color" value={draft.text} onChange={(event) => update("text", event.target.value)} className="h-10 w-12 rounded-lg border border-[#E2D4DB] bg-white p-1" /><input className={inputClass} value={draft.text} onChange={(event) => update("text", event.target.value)} /></div></label>
+              <label className="text-xs font-semibold text-neutral-500 lg:col-span-2">Font family<input className={`${inputClass} mt-1`} value={draft.font} onChange={(event) => update("font", event.target.value)} /></label>
+              <label className="text-xs font-semibold text-neutral-500 sm:col-span-2 lg:col-span-4">Color swatches<input className={`${inputClass} mt-1`} value={draft.swatch} onChange={(event) => update("swatch", event.target.value)} placeholder="#741E35, #D6B56D, #FFF4D6" /></label>
+            </div>
+          </section>
+
+          <section className="border-t border-[#EADCE3] pt-6">
+            <h3 className="font-heading text-lg font-extrabold text-[#32113A]">Encoding quality</h3>
+            <div className="mt-4 grid gap-4 sm:grid-cols-3">
+              <label className="text-xs font-semibold text-neutral-500">x264 preset<select className={`${inputClass} mt-1`} value={draft.qualityPreset} onChange={(event) => update("qualityPreset", event.target.value)}><option value="">Server default</option>{["veryfast", "faster", "fast", "medium", "slow", "slower"].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+              <label className="text-xs font-semibold text-neutral-500">Video CRF<input type="number" min="0" max="51" className={`${inputClass} mt-1`} value={draft.qualityCrf} onChange={(event) => update("qualityCrf", event.target.value)} placeholder="18" /></label>
+              <label className="text-xs font-semibold text-neutral-500">Frame JPEG quality<input type="number" min="0" max="100" className={`${inputClass} mt-1`} value={draft.jpegQuality} onChange={(event) => update("jpegQuality", event.target.value)} placeholder="90" /></label>
+            </div>
+          </section>
+
+          <section className="grid gap-5 border-t border-[#EADCE3] pt-6 lg:grid-cols-2">
+            <label className="text-xs font-semibold text-neutral-500">Screen definitions <span className="font-normal">(advanced JSON)</span><textarea rows={14} spellCheck={false} className={`${inputClass} mt-1 resize-y font-mono text-xs`} value={draft.screensJson} onChange={(event) => update("screensJson", event.target.value)} /></label>
+            <label className="text-xs font-semibold text-neutral-500">Render settings <span className="font-normal">(advanced JSON)</span><textarea rows={14} spellCheck={false} className={`${inputClass} mt-1 resize-y font-mono text-xs`} value={draft.settingsJson} onChange={(event) => update("settingsJson", event.target.value)} /></label>
+          </section>
+
+          <div className="sticky bottom-0 flex justify-end gap-3 border-t border-[#EADCE3] bg-[#FFFDFC]/95 py-4 backdrop-blur"><button type="button" onClick={onClose} className="rounded-full border border-[#DDBFCC] px-5 py-2.5 text-sm font-semibold text-[#8D1B63]">Cancel</button><button type="submit" disabled={saving} className="rounded-full bg-[#32113A] px-6 py-2.5 text-sm font-semibold text-white hover:bg-[#52184D] disabled:opacity-60">{saving ? "Saving all fields…" : "Save template"}</button></div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AdminTemplateAssetManager({ template, credential, onClose }) {
+  const [data, setData] = useState(null);
+  const [file, setFile] = useState(null);
+  const [name, setName] = useState("");
+  const [tags, setTags] = useState("");
+  const [layer, setLayer] = useState("background");
+  const [selectorMode, setSelectorMode] = useState("all");
+  const [screenIds, setScreenIds] = useState([]);
+  const [animationPreset, setAnimationPreset] = useState("none");
+  const [opacity, setOpacity] = useState(1);
+  const [zIndex, setZIndex] = useState(10);
+  const [fit, setFit] = useState("cover");
+  const [positionX, setPositionX] = useState(50);
+  const [positionY, setPositionY] = useState(50);
+  const [scale, setScale] = useState(1);
+  const [rotation, setRotation] = useState(0);
+  const [blendMode, setBlendMode] = useState("normal");
+  const [uploading, setUploading] = useState(false);
+  const [savingClassification, setSavingClassification] = useState(false);
+  const [primaryCategoryId, setPrimaryCategoryId] = useState(template.primaryCategoryId || "");
+  const [facetDraft, setFacetDraft] = useState(() => Object.fromEntries(["contentTypes", "occasions", "ceremonies", "cultures", "styles", "themes"].map((key) => [key, (template.facets?.[key] || []).join(", ")])));
+  const [qualityPreset, setQualityPreset] = useState(template.qualityProfile?.x264Preset || "");
+  const [qualityCrf, setQualityCrf] = useState(template.qualityProfile?.crf ?? "");
+  const [jpegQuality, setJpegQuality] = useState(template.qualityProfile?.jpegQuality ?? "");
+  const authHeader = useMemo(() => ({ headers: { Authorization: `Bearer ${credential}` } }), [credential]);
+
+  const load = useCallback(() => {
+    setData(null);
+    axios.get(`${API}/admin/templates/${template.id}/assets`, authHeader)
+      .then((response) => setData(response.data))
+      .catch((error) => { setData({ template, assets: [], placements: [] }); toast.error(error?.response?.data?.detail || "Failed to load template assets"); });
+  }, [authHeader, template]);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    setPrimaryCategoryId(template.primaryCategoryId || "");
+    setFacetDraft(Object.fromEntries(["contentTypes", "occasions", "ceremonies", "cultures", "styles", "themes"].map((key) => [key, (template.facets?.[key] || []).join(", ")])));
+    setQualityPreset(template.qualityProfile?.x264Preset || "");
+    setQualityCrf(template.qualityProfile?.crf ?? "");
+    setJpegQuality(template.qualityProfile?.jpegQuality ?? "");
+  }, [template]);
+
+  const toggleScreen = (screenId) => setScreenIds((current) => current.includes(screenId) ? current.filter((id) => id !== screenId) : [...current, screenId]);
+
+  const uploadAndAssign = async (event) => {
+    event.preventDefault();
+    if (!file) return toast.error("Choose an image or video asset");
+    if (["selected", "all-except"].includes(selectorMode) && !screenIds.length) return toast.error("Choose at least one screen");
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("name", name.trim() || file.name);
+      form.append("tags", tags);
+      form.append("status", "published");
+      const uploaded = await axios.post(`${API}/admin/template-assets`, form, { headers: { Authorization: `Bearer ${credential}` } });
+      await axios.post(`${API}/admin/templates/${template.id}/asset-placements`, {
+        assetId: uploaded.data.id,
+        layer,
+        screenSelector: { mode: selectorMode, screenIds: ["selected", "all-except"].includes(selectorMode) ? screenIds : [] },
+        zIndex: Number(zIndex) || 10,
+        opacity: Number(opacity),
+        blendMode,
+        layout: { fit, positionX: Number(positionX), positionY: Number(positionY), scale: Number(scale), rotation: Number(rotation) },
+        animation: { preset: animationPreset },
+        behavior: layer === "background" ? "replace" : "stack",
+      }, authHeader);
+      toast.success(`${uploaded.data.name} published and assigned`);
+      setFile(null); setName(""); setTags(""); setScreenIds([]);
+      load();
+    } catch (error) {
+      toast.error(error?.response?.data?.detail || "Failed to assign template asset");
+    } finally { setUploading(false); }
+  };
+
+  const removePlacement = async (placement) => {
+    if (!window.confirm("Remove this asset placement? The uploaded asset remains in the library.")) return;
+    try {
+      await axios.delete(`${API}/admin/template-asset-placements/${placement.id}`, authHeader);
+      toast.success("Asset placement removed");
+      load();
+    } catch (error) { toast.error(error?.response?.data?.detail || "Failed to remove placement"); }
+  };
+
+  const saveClassification = async () => {
+    setSavingClassification(true);
+    try {
+      const facets = Object.fromEntries(Object.entries(facetDraft).map(([key, value]) => [key, String(value).split(",").map((item) => item.trim()).filter(Boolean)]));
+      await axios.patch(`${API}/admin/templates/${template.id}`, {
+        category: template.category,
+        isActive: template.isActive !== false,
+        sortOrder: Number(template.sortOrder) || 100,
+        defaultMusicId: template.defaultMusicId || null,
+        primaryCategoryId,
+        facets,
+        qualityProfile: {
+          ...(template.qualityProfile || {}),
+          ...(qualityPreset ? { x264Preset: qualityPreset } : {}),
+          ...(qualityCrf !== "" ? { crf: Number(qualityCrf) } : {}),
+          ...(jpegQuality !== "" ? { jpegQuality: Number(jpegQuality) } : {}),
+        },
+      }, authHeader);
+      toast.success("Template classification and quality saved");
+      load();
+    } catch (error) { toast.error(error?.response?.data?.detail || "Failed to save template classification"); }
+    finally { setSavingClassification(false); }
+  };
+
+  const assetById = Object.fromEntries((data?.assets || []).map((asset) => [asset.id, asset]));
+  const inputClass = "w-full rounded-xl border border-[#E2D4DB] bg-white px-3 py-2.5 text-sm text-[#32113A] outline-none focus:border-[#B22176] focus:ring-2 focus:ring-[#EFCBDD]";
+  const screens = data?.template?.screens || template.screens || [];
+
+  return (
+    <section className="mt-6 overflow-hidden rounded-3xl border border-[#DDBFCE] bg-white shadow-[0_18px_55px_rgba(81,25,62,0.09)]" data-testid="template-asset-manager">
+      <div className="flex items-start justify-between gap-4 border-b border-[#F0DDE7] bg-[#FFF7FB] px-6 py-5">
+        <div>
+          <div className="section-label text-left text-[#9B256D]">Dynamic theme assets</div>
+          <h2 className="mt-1 font-heading text-2xl font-extrabold text-[#32113A]">{template.name}</h2>
+          <p className="mt-1 text-sm text-neutral-500">Assign backgrounds, foreground elements and overlays to all, grouped or selected screens.</p>
+        </div>
+        <button type="button" onClick={onClose} className="rounded-full border border-[#E2CFD8] bg-white px-4 py-2 text-xs font-semibold text-[#8D1B63] hover:bg-[#FFF0F7]">Close</button>
+      </div>
+
+      <div className="border-b border-[#F0DDE7] p-6">
+        <div className="mb-4 flex items-center justify-between"><div><h3 className="font-heading text-lg font-extrabold text-[#32113A]">Classification & render quality</h3><p className="mt-1 text-xs text-neutral-500">Comma-separated facets make one template discoverable across occasions, ceremonies, cultures, styles and themes.</p></div><button type="button" disabled={savingClassification} onClick={saveClassification} className="rounded-xl bg-[#32113A] px-4 py-2 text-xs font-semibold text-white disabled:opacity-60">{savingClassification ? "Saving…" : "Save classification"}</button></div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="text-xs font-semibold text-neutral-500">Primary category ID<input value={primaryCategoryId} onChange={(event) => setPrimaryCategoryId(event.target.value)} className={`${inputClass} mt-1`} placeholder="wedding" /></label>
+          {[["contentTypes", "Content types"], ["occasions", "Occasions"], ["ceremonies", "Ceremonies"], ["cultures", "Cultures"], ["styles", "Styles"], ["themes", "Themes"]].map(([key, label]) => <label key={key} className="text-xs font-semibold text-neutral-500">{label}<input value={facetDraft[key] || ""} onChange={(event) => setFacetDraft((current) => ({ ...current, [key]: event.target.value }))} className={`${inputClass} mt-1`} placeholder={key === "themes" ? "palace, floral" : key === "cultures" ? "hindu" : "invitation"} /></label>)}
+          <label className="text-xs font-semibold text-neutral-500">Encoding preset<select value={qualityPreset} onChange={(event) => setQualityPreset(event.target.value)} className={`${inputClass} mt-1`}><option value="">Server default</option>{["veryfast", "faster", "fast", "medium", "slow", "slower"].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+          <label className="text-xs font-semibold text-neutral-500">Video CRF <span className="font-normal text-neutral-400">(lower = higher quality)</span><input type="number" min="0" max="51" value={qualityCrf} onChange={(event) => setQualityCrf(event.target.value)} className={`${inputClass} mt-1`} placeholder="18" /></label>
+          <label className="text-xs font-semibold text-neutral-500">Frame JPEG quality<input type="number" min="0" max="100" value={jpegQuality} onChange={(event) => setJpegQuality(event.target.value)} className={`${inputClass} mt-1`} placeholder="90" /></label>
+        </div>
+      </div>
+
+      <form onSubmit={uploadAndAssign} className="grid gap-4 border-b border-[#F0DDE7] p-6 lg:grid-cols-6">
+        <label className="text-xs font-semibold text-neutral-500 lg:col-span-2">Asset file<input type="file" accept="image/jpeg,image/png,image/webp,image/svg+xml,video/webm,video/mp4" onChange={(event) => setFile(event.target.files?.[0] || null)} className={`${inputClass} mt-1 file:mr-3 file:rounded-full file:border-0 file:bg-[#F8EAF2] file:px-3 file:py-1 file:text-xs file:font-semibold file:text-[#8D1B63]`} /></label>
+        <label className="text-xs font-semibold text-neutral-500 lg:col-span-2">Asset name<input value={name} onChange={(event) => setName(event.target.value)} className={`${inputClass} mt-1`} placeholder="Gold petals" /></label>
+        <label className="text-xs font-semibold text-neutral-500 lg:col-span-2">Search tags<input value={tags} onChange={(event) => setTags(event.target.value)} className={`${inputClass} mt-1`} placeholder="petals, gold, wedding" /></label>
+        <label className="text-xs font-semibold text-neutral-500">Layer<select value={layer} onChange={(event) => setLayer(event.target.value)} className={`${inputClass} mt-1`}>{["base", "background", "midground", "foreground", "overlay", "watermark"].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+        <label className="text-xs font-semibold text-neutral-500">Apply to<select value={selectorMode} onChange={(event) => { setSelectorMode(event.target.value); setScreenIds([]); }} className={`${inputClass} mt-1`}>{[["all", "All screens"], ["first", "First screen"], ["center", "Center screens"], ["last", "Last screen"], ["selected", "Selected screens"], ["all-except", "All except"]].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        <label className="text-xs font-semibold text-neutral-500">Animation<select value={animationPreset} onChange={(event) => setAnimationPreset(event.target.value)} className={`${inputClass} mt-1`}>{["none", "fade-in", "slow-zoom", "float-up", "slow-drift", "petal-fall", "rotate-slow"].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+        <label className="text-xs font-semibold text-neutral-500">Opacity<input type="number" min="0" max="1" step="0.05" value={opacity} onChange={(event) => setOpacity(event.target.value)} className={`${inputClass} mt-1`} /></label>
+        <label className="text-xs font-semibold text-neutral-500">Z-index<input type="number" min="0" max="100" value={zIndex} onChange={(event) => setZIndex(event.target.value)} className={`${inputClass} mt-1`} /></label>
+        <div className="flex items-end"><button type="submit" disabled={uploading} className="w-full rounded-xl bg-[#32113A] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#52184D] disabled:opacity-60">{uploading ? "Publishing…" : "Upload & assign"}</button></div>
+        <label className="text-xs font-semibold text-neutral-500">Fit<select value={fit} onChange={(event) => setFit(event.target.value)} className={`${inputClass} mt-1`}><option value="cover">Cover</option><option value="contain">Contain</option><option value="fill">Fill</option><option value="none">Original size</option></select></label>
+        <label className="text-xs font-semibold text-neutral-500">Position X (%)<input type="number" min="0" max="100" value={positionX} onChange={(event) => setPositionX(event.target.value)} className={`${inputClass} mt-1`} /></label>
+        <label className="text-xs font-semibold text-neutral-500">Position Y (%)<input type="number" min="0" max="100" value={positionY} onChange={(event) => setPositionY(event.target.value)} className={`${inputClass} mt-1`} /></label>
+        <label className="text-xs font-semibold text-neutral-500">Scale<input type="number" min="0.1" max="5" step="0.05" value={scale} onChange={(event) => setScale(event.target.value)} className={`${inputClass} mt-1`} /></label>
+        <label className="text-xs font-semibold text-neutral-500">Rotation (°)<input type="number" min="-360" max="360" value={rotation} onChange={(event) => setRotation(event.target.value)} className={`${inputClass} mt-1`} /></label>
+        <label className="text-xs font-semibold text-neutral-500">Blend mode<select value={blendMode} onChange={(event) => setBlendMode(event.target.value)} className={`${inputClass} mt-1`}>{["normal", "multiply", "screen", "overlay", "soft-light", "lighten"].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+        {["selected", "all-except"].includes(selectorMode) && <fieldset className="rounded-2xl border border-[#EADCE3] bg-[#FFF9FC] p-4 lg:col-span-6"><legend className="px-2 text-xs font-semibold text-[#8D1B63]">Choose screens</legend><div className="flex flex-wrap gap-3">{screens.map((screen) => <label key={screen.id} className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-2 text-xs font-semibold text-[#4E3541]"><input type="checkbox" checked={screenIds.includes(screen.id)} onChange={() => toggleScreen(screen.id)} className="accent-[#B31571]" />{screen.label} <span className="text-neutral-400">({screen.role})</span></label>)}</div></fieldset>}
+      </form>
+
+      <div className="p-6">
+        <div className="mb-3 flex items-center justify-between"><h3 className="font-heading text-lg font-extrabold text-[#32113A]">Published placements</h3><span className="text-xs text-neutral-400">{data?.placements?.length || 0} assigned</span></div>
+        {data === null ? <div className="rounded-2xl bg-[#FFF8FB] p-5 text-sm text-neutral-500">Loading asset placements…</div> : data.placements.length ? (
+          <div className="overflow-x-auto rounded-2xl border border-[#F0DDE7]"><table className="w-full min-w-[850px] text-left text-xs"><thead className="bg-[#FFF8FB] uppercase tracking-[0.12em] text-neutral-400"><tr><th className="px-4 py-3">Asset</th><th className="px-4 py-3">Layer</th><th className="px-4 py-3">Screens</th><th className="px-4 py-3">Animation</th><th className="px-4 py-3">Opacity</th><th className="px-4 py-3">Order</th><th className="px-4 py-3 text-right">Action</th></tr></thead><tbody className="divide-y divide-[#F0DDE7]">{data.placements.map((placement) => { const asset = assetById[placement.assetId]; const selector = placement.screenSelector || {}; return <tr key={placement.id}><td className="px-4 py-3"><div className="font-semibold text-[#32113A]">{asset?.name || placement.assetId}</div><div className="text-[10px] text-neutral-400">{asset?.type} · {asset?.status}</div></td><td className="px-4 py-3 capitalize">{placement.layer}</td><td className="px-4 py-3"><span className="font-semibold capitalize text-[#8D1B63]">{selector.mode}</span>{selector.screenIds?.length ? <span className="ml-1 text-neutral-400">· {selector.screenIds.join(", ")}</span> : null}</td><td className="px-4 py-3">{placement.animation?.preset || "none"}</td><td className="px-4 py-3">{Math.round((placement.opacity ?? 1) * 100)}%</td><td className="px-4 py-3">z{placement.zIndex}</td><td className="px-4 py-3 text-right"><button type="button" onClick={() => removePlacement(placement)} className="rounded-lg border border-red-200 px-3 py-1.5 font-semibold text-red-600 hover:bg-red-50">Remove</button></td></tr>; })}</tbody></table></div>
+        ) : <div className="rounded-2xl border border-dashed border-[#DFC8D3] bg-[#FFF9FC] p-6 text-center text-sm text-neutral-500">No dynamic assets yet. Existing hardcoded template visuals continue to render normally.</div>}
+      </div>
+    </section>
+  );
+}
+
 function AdminTemplatesPage() {
   const { user, credential } = useAuth();
   const [templates, setTemplates] = useState([]);
@@ -2604,6 +2900,8 @@ function AdminTemplatesPage() {
   const [musicUpload, setMusicUpload] = useState({ file: null, title: "", mood: "", credit: "", duration: 30, categories: "", templateId: "" });
   const [uploadingMusic, setUploadingMusic] = useState(false);
   const [savingMusicId, setSavingMusicId] = useState("");
+  const [assetTemplateId, setAssetTemplateId] = useState("");
+  const [editingTemplate, setEditingTemplate] = useState(null);
 
   const loadTemplates = useCallback(async () => {
     if (!credential || !isAdminUser(user)) return;
@@ -2712,20 +3010,23 @@ function AdminTemplatesPage() {
   };
 
   const categories = [...new Set(templates.map((template) => template.category || "Wedding"))].sort();
+  const activeTemplateCount = templates.filter((template) => template.isActive !== false).length;
+  const totalTemplateRenders = templates.reduce((sum, template) => sum + Number(template.renderCount || 0), 0);
+  const templatesWithMusic = templates.filter((template) => Boolean(template.defaultMusicId)).length;
 
   return (
     <MarketingLayout>
       <main className="px-6 py-12 lg:px-10 lg:py-16">
-        <section className="mx-auto max-w-7xl">
+        <section className="mx-auto max-w-[1600px]">
           <AdminTabs />
           <div className="flex flex-col justify-between gap-5 rounded-[2rem] border border-[#ECD5E2] bg-[#FFF7FB] p-7 sm:p-9 lg:flex-row lg:items-end">
             <div>
               <div className="section-label text-left text-[#9B256D]">Admin · Templates</div>
               <h1 className="mt-2 font-heading text-4xl font-extrabold tracking-tight text-[#32113A] sm:text-5xl">
-                Manage template categories.
+                Manage template library.
               </h1>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-neutral-600">
-                Map each render template to a category such as Wedding, Engagement, Birthday, Anniversary or any future celebration type.
+              <p className="mt-3 max-w-3xl text-sm leading-6 text-neutral-600">
+                Review each template’s visual identity, usage, duration and image limits, then manage its category, soundtrack, ordering and availability.
               </p>
             </div>
             <button
@@ -2749,12 +3050,24 @@ function AdminTemplatesPage() {
             </div>
           ) : (
             <>
-              <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
                 <div className="rounded-2xl border border-[#ECD5E2] bg-white p-5">
                   <div className="text-xs font-semibold uppercase tracking-[0.16em] text-neutral-400">Templates</div>
                   <div className="mt-2 font-heading text-3xl font-extrabold text-[#32113A]">{templates.length}</div>
                 </div>
-                <div className="rounded-2xl border border-[#ECD5E2] bg-white p-5 sm:col-span-1 lg:col-span-3">
+                <div className="rounded-2xl border border-[#ECD5E2] bg-white p-5">
+                  <div className="text-xs font-semibold uppercase tracking-[0.16em] text-neutral-400">Active</div>
+                  <div className="mt-2 font-heading text-3xl font-extrabold text-[#32113A]">{activeTemplateCount}</div>
+                </div>
+                <div className="rounded-2xl border border-[#ECD5E2] bg-white p-5">
+                  <div className="text-xs font-semibold uppercase tracking-[0.16em] text-neutral-400">Total renders</div>
+                  <div className="mt-2 font-heading text-3xl font-extrabold text-[#32113A]">{totalTemplateRenders}</div>
+                </div>
+                <div className="rounded-2xl border border-[#ECD5E2] bg-white p-5">
+                  <div className="text-xs font-semibold uppercase tracking-[0.16em] text-neutral-400">Music assigned</div>
+                  <div className="mt-2 font-heading text-3xl font-extrabold text-[#32113A]">{templatesWithMusic}<span className="ml-1 text-base text-neutral-400">/{templates.length}</span></div>
+                </div>
+                <div className="rounded-2xl border border-[#ECD5E2] bg-white p-5 sm:col-span-2 xl:col-span-1">
                   <div className="text-xs font-semibold uppercase tracking-[0.16em] text-neutral-400">Categories</div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {(categories.length ? categories : ["Wedding"]).map((category) => (
@@ -2799,88 +3112,77 @@ function AdminTemplatesPage() {
               </div>
 
               <div className="mt-6 overflow-hidden rounded-3xl border border-[#ECD5E2] bg-white shadow-[0_14px_46px_rgba(81,25,62,0.05)]">
-                <div className="grid grid-cols-[1.2fr_1fr_1fr_0.55fr_0.55fr_0.55fr] gap-3 border-b border-[#F0DDE7] bg-[#FFF8FB] px-5 py-3 text-xs font-bold uppercase tracking-[0.14em] text-neutral-500">
-                  <div>Template</div>
-                  <div>Category</div>
-                  <div>Default music</div>
-                  <div>Sort</div>
-                  <div>Active</div>
-                  <div className="text-right">Action</div>
+                <div className="flex flex-col justify-between gap-2 border-b border-[#F0DDE7] bg-[#FFF8FB] px-5 py-4 sm:flex-row sm:items-center">
+                  <div>
+                    <div className="section-label text-left text-[#9B256D]">Template inventory</div>
+                    <p className="mt-1 text-xs text-neutral-500">Scroll horizontally to review all configuration and performance columns.</p>
+                  </div>
+                  <span className="text-xs font-semibold text-[#8D1B63]">{templates.length} records</span>
                 </div>
-                <div className="divide-y divide-[#F0DDE7]">
-                  {templates.map((templateItem) => (
-                    <div key={templateItem.id} className="grid grid-cols-1 gap-4 px-5 py-5 lg:grid-cols-[1.2fr_1fr_1fr_0.55fr_0.55fr_0.55fr] lg:items-center">
-                      <div>
-                        <div className="flex items-center gap-3">
-                          <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-black/10 text-lg italic" style={{ backgroundColor: templateItem.bg, color: templateItem.text, fontFamily: templateItem.font }}>
-                            {templateItem.name.slice(0, 1)}
-                          </span>
-                          <div>
-                            <div className="font-heading text-lg font-extrabold text-[#32113A]">{templateItem.name}</div>
-                            <div className="text-xs text-neutral-500">{templateItem.id}</div>
-                            <div className="mt-1 text-xs font-semibold text-[#A4176D]">{Number(templateItem.renderCount || 0)} {Number(templateItem.renderCount || 0) === 1 ? "video" : "videos"} created</div>
-                          </div>
-                        </div>
-                        <p className="mt-2 max-w-xl text-sm leading-6 text-neutral-500">{templateItem.desc}</p>
-                      </div>
-                      <label className="grid gap-1 text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400 lg:block">
-                        <span className="lg:hidden">Category</span>
-                        <input
-                          value={templateItem.category || ""}
-                          onChange={(event) => updateLocalTemplate(templateItem.id, "category", event.target.value)}
-                          list="template-category-options"
-                          className="w-full rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm font-normal normal-case tracking-normal text-[#32113A] outline-none transition focus:border-[#B22176] focus:ring-2 focus:ring-[#EFCBDD]"
-                          placeholder="Wedding"
-                        />
-                      </label>
-                      <label className="grid gap-1 text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400 lg:block">
-                        <span className="lg:hidden">Default music</span>
-                        <select
-                          value={templateItem.defaultMusicId || ""}
-                          onChange={(event) => updateLocalTemplate(templateItem.id, "defaultMusicId", event.target.value || null)}
-                          className="w-full rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm font-normal normal-case tracking-normal text-[#32113A] outline-none transition focus:border-[#B22176] focus:ring-2 focus:ring-[#EFCBDD]"
-                        >
-                          <option value="">No default music</option>
-                          {musicTracks.filter((track) => { const trackCategories = musicCategoryList(track.categories); return !trackCategories.length || trackCategories.includes(templateItem.category || "Wedding"); }).map((track) => <option key={track.id} value={track.id}>{track.title} · {musicCategoryList(track.categories).join(", ")}</option>)}
-                        </select>
-                      </label>
-                      <label className="grid gap-1 text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400 lg:block">
-                        <span className="lg:hidden">Sort order</span>
-                        <input
-                          type="number"
-                          value={templateItem.sortOrder}
-                          onChange={(event) => updateLocalTemplate(templateItem.id, "sortOrder", event.target.value)}
-                          className="w-full rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm font-normal normal-case tracking-normal text-[#32113A] outline-none transition focus:border-[#B22176] focus:ring-2 focus:ring-[#EFCBDD]"
-                        />
-                      </label>
-                      <label className="flex items-center gap-2 text-sm font-semibold text-[#32113A]">
-                        <input
-                          type="checkbox"
-                          checked={templateItem.isActive !== false}
-                          onChange={(event) => updateLocalTemplate(templateItem.id, "isActive", event.target.checked)}
-                          className="h-4 w-4 accent-[#B31571]"
-                        />
-                        Active
-                      </label>
-                      <div className="flex justify-start lg:justify-end">
-                        <button
-                          type="button"
-                          onClick={() => saveTemplate(templateItem)}
-                          disabled={savingId === templateItem.id}
-                          className="inline-flex items-center justify-center rounded-full bg-[#32113A] px-5 py-2.5 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-[#52184D] disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {savingId === templateItem.id ? "Saving..." : "Save"}
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                  {!loading && templates.length === 0 && (
-                    <div className="px-5 py-10 text-center text-sm text-neutral-500">
-                      No templates found. Restart the backend once to seed the default Wedding templates.
-                    </div>
-                  )}
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[1580px] table-fixed text-left text-sm">
+                    <thead className="sticky top-0 z-10 bg-[#FFF8FB] text-[10px] font-bold uppercase tracking-[0.13em] text-neutral-500">
+                      <tr className="border-b border-[#F0DDE7]">
+                        <th className="w-[230px] px-4 py-3">Template</th>
+                        <th className="w-[130px] px-4 py-3">Style</th>
+                        <th className="w-[200px] px-4 py-3">Tags</th>
+                        <th className="w-[150px] px-4 py-3">Category</th>
+                        <th className="w-[210px] px-4 py-3">Default music</th>
+                        <th className="w-[125px] px-4 py-3">Durations</th>
+                        <th className="w-[105px] px-4 py-3">Image limit</th>
+                        <th className="w-[95px] px-4 py-3">Captions</th>
+                        <th className="w-[90px] px-4 py-3">Renders</th>
+                        <th className="w-[85px] px-4 py-3">Sort</th>
+                        <th className="w-[100px] px-4 py-3">Status</th>
+                        <th className="w-[225px] px-4 py-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#F0DDE7]">
+                      {templates.map((templateItem) => {
+                        const settings = templateItem.settings || {};
+                        const durations = settings.durations || (templateItem.duration ? [templateItem.duration] : []);
+                        const maxImages = settings.maxImages || templateItem.maxImages || "—";
+                        const facetTags = [...new Set(Object.values(templateItem.facets || {}).flat().filter(Boolean))];
+                        return (
+                          <tr key={templateItem.id} className="align-middle transition-colors hover:bg-[#FFFBFD]">
+                            <td className="px-4 py-4">
+                              <div className="flex items-center gap-3">
+                                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-black/10 text-lg italic shadow-sm" style={{ backgroundColor: templateItem.bg, color: templateItem.text, fontFamily: templateItem.font }}>{templateItem.name.slice(0, 1)}</span>
+                                <div className="min-w-0">
+                                  <div className="truncate font-heading text-base font-extrabold text-[#32113A]">{templateItem.name}</div>
+                                  <div className="mt-0.5 truncate font-mono text-[10px] text-neutral-400">{templateItem.id}</div>
+                                  <div className="mt-2 flex gap-1">{(templateItem.swatch || []).slice(0, 4).map((color) => <span key={color} className="h-2.5 w-2.5 rounded-full border border-black/10" style={{ backgroundColor: color }} />)}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-4"><span className="text-xs font-medium text-[#5E4651]">{templateItem.style || "Standard"}</span></td>
+                            <td className="px-4 py-4"><div className="flex max-h-[4.5rem] flex-wrap gap-1 overflow-hidden">{facetTags.length ? facetTags.map((tag) => <span key={tag} className="rounded-full border border-[#E7D3DD] bg-[#FFF7FB] px-2 py-1 text-[9px] font-semibold capitalize text-[#7E294F]">{String(tag).replace(/-/g, " ")}</span>) : <span className="text-xs text-neutral-400">—</span>}</div></td>
+                            <td className="px-4 py-4">
+                              <input value={templateItem.category || ""} onChange={(event) => updateLocalTemplate(templateItem.id, "category", event.target.value)} list="template-category-options" className="w-full rounded-lg border border-black/10 bg-[#FFFCFD] px-2.5 py-2 text-xs text-[#32113A] outline-none focus:border-[#B22176] focus:ring-2 focus:ring-[#EFCBDD]" placeholder="Wedding" />
+                            </td>
+                            <td className="px-4 py-4">
+                              <select value={templateItem.defaultMusicId || ""} onChange={(event) => updateLocalTemplate(templateItem.id, "defaultMusicId", event.target.value || null)} className="w-full rounded-lg border border-black/10 bg-[#FFFCFD] px-2.5 py-2 text-xs text-[#32113A] outline-none focus:border-[#B22176] focus:ring-2 focus:ring-[#EFCBDD]">
+                                <option value="">No default music</option>
+                                {musicTracks.filter((track) => { const trackCategories = musicCategoryList(track.categories); return !trackCategories.length || trackCategories.includes(templateItem.category || "Wedding"); }).map((track) => <option key={track.id} value={track.id}>{track.title}</option>)}
+                              </select>
+                            </td>
+                            <td className="px-4 py-4"><div className="flex flex-wrap gap-1">{durations.length ? durations.map((seconds) => <span key={seconds} className="rounded-md bg-[#F6EEF2] px-2 py-1 text-[10px] font-semibold text-[#7E294F]">{seconds}s</span>) : <span className="text-neutral-400">—</span>}</div></td>
+                            <td className="px-4 py-4"><strong className="text-[#32113A]">{maxImages}</strong><span className="ml-1 text-xs text-neutral-400">photos</span></td>
+                            <td className="px-4 py-4"><span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${settings.captionPerImage ? "bg-emerald-50 text-emerald-700" : "bg-neutral-100 text-neutral-500"}`}>{settings.captionPerImage ? "Per image" : "No"}</span></td>
+                            <td className="px-4 py-4"><div className="font-heading text-lg font-extrabold text-[#32113A]">{Number(templateItem.renderCount || 0)}</div><div className="text-[10px] text-neutral-400">created</div></td>
+                            <td className="px-4 py-4"><input type="number" value={templateItem.sortOrder} onChange={(event) => updateLocalTemplate(templateItem.id, "sortOrder", event.target.value)} className="w-full rounded-lg border border-black/10 bg-[#FFFCFD] px-2 py-2 text-xs text-[#32113A] outline-none focus:border-[#B22176] focus:ring-2 focus:ring-[#EFCBDD]" /></td>
+                            <td className="px-4 py-4"><label className="inline-flex items-center gap-2 text-xs font-semibold text-[#32113A]"><input type="checkbox" checked={templateItem.isActive !== false} onChange={(event) => updateLocalTemplate(templateItem.id, "isActive", event.target.checked)} className="h-4 w-4 accent-[#B31571]" /><span className={templateItem.isActive !== false ? "text-emerald-700" : "text-neutral-400"}>{templateItem.isActive !== false ? "Active" : "Hidden"}</span></label></td>
+                            <td className="px-4 py-4"><div className="flex justify-end gap-2"><button type="button" onClick={() => setEditingTemplate(templateItem)} className="rounded-full border border-[#DDBFCC] bg-white px-3 py-2 text-xs font-semibold text-[#8D1B63] hover:bg-[#FFF0F7]">Edit</button><button type="button" onClick={() => setAssetTemplateId(templateItem.id)} className="rounded-full border border-[#DDBFCC] bg-white px-3 py-2 text-xs font-semibold text-[#8D1B63] hover:bg-[#FFF0F7]">Assets</button><button type="button" onClick={() => saveTemplate(templateItem)} disabled={savingId === templateItem.id} className="inline-flex items-center justify-center rounded-full bg-[#32113A] px-4 py-2 text-xs font-semibold text-white transition hover:-translate-y-0.5 hover:bg-[#52184D] disabled:cursor-not-allowed disabled:opacity-60">{savingId === templateItem.id ? "Saving..." : "Save"}</button></div></td>
+                          </tr>
+                        );
+                      })}
+                      {!loading && templates.length === 0 && <tr><td colSpan={12} className="px-5 py-10 text-center text-sm text-neutral-500">No templates found. Restart the backend once to seed the default templates.</td></tr>}
+                    </tbody>
+                  </table>
                 </div>
               </div>
+              {assetTemplateId && templates.find((item) => item.id === assetTemplateId) && <AdminTemplateAssetManager template={templates.find((item) => item.id === assetTemplateId)} credential={credential} onClose={() => setAssetTemplateId("")} />}
+              <AdminEditTemplateModal template={editingTemplate} credential={credential} musicTracks={musicTracks} onClose={() => setEditingTemplate(null)} onSaved={(updated) => setTemplates((current) => current.map((item) => item.id === updated.id ? updated : item))} />
               <datalist id="template-category-options">
                 {[...new Set(["Wedding", "Engagement", "Birthday", "Anniversary", "Reception", ...categories])].map((category) => (
                   <option key={category} value={category} />

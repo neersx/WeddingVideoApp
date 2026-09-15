@@ -17,6 +17,7 @@ const BROWSER = process.env.BROWSER_EXECUTABLE || null;
 // default.
 const RENDER_CONCURRENCY = process.env.RENDER_CONCURRENCY ? Number(process.env.RENDER_CONCURRENCY) : null;
 const X264_PRESET = (process.env.RENDER_X264_PRESET || 'veryfast') as any;
+const X264_PRESETS = new Set(['ultrafast', 'superfast', 'veryfast', 'faster', 'fast', 'medium', 'slow', 'slower', 'veryslow']);
 
 const app = express();
 app.use(express.json({limit: '10mb'}));
@@ -88,6 +89,9 @@ const buildInputProps = (body: any) => {
     fields: body.fields || {},
     resolved: body.resolved || {},
     settings: body.settings || {},
+    theme: body.theme || {version: 1, screens: {}},
+    templateVersion: Number(body.templateVersion) || 1,
+    qualityProfile: body.qualityProfile || {},
   };
   return {compositionId, inputProps};
 };
@@ -103,7 +107,11 @@ const runRender = async (job: Job, body: any) => {
   try {
     const url = await bundling;
     const {compositionId, inputProps} = buildInputProps(body);
-    console.log(`[job ${job.id}] ${compositionId} for ${inputProps.couple.partnerOne} & ${inputProps.couple.partnerTwo} (concurrency=${RENDER_CONCURRENCY ?? 'auto'}, preset=${X264_PRESET})`);
+    const requestedPreset = String(inputProps.qualityProfile?.x264Preset || '');
+    const renderPreset = (X264_PRESETS.has(requestedPreset) ? requestedPreset : X264_PRESET) as any;
+    const requestedCrf = Number(inputProps.qualityProfile?.crf);
+    const requestedJpegQuality = Number(inputProps.qualityProfile?.jpegQuality);
+    console.log(`[job ${job.id}] ${compositionId} for ${inputProps.couple.partnerOne} & ${inputProps.couple.partnerTwo} (concurrency=${RENDER_CONCURRENCY ?? 'auto'}, preset=${renderPreset}, theme=v${inputProps.templateVersion})`);
     job.status = 'rendering';
     const composition = await selectComposition({serveUrl: url, id: compositionId, inputProps});
     await renderMedia({
@@ -113,7 +121,9 @@ const runRender = async (job: Job, body: any) => {
       outputLocation: outPath,
       inputProps,
       browserExecutable: BROWSER,
-      x264Preset: X264_PRESET,
+      x264Preset: renderPreset,
+      ...(Number.isFinite(requestedCrf) && requestedCrf >= 0 && requestedCrf <= 51 ? {crf: requestedCrf} : {}),
+      ...(Number.isFinite(requestedJpegQuality) && requestedJpegQuality >= 0 && requestedJpegQuality <= 100 ? {jpegQuality: requestedJpegQuality} : {}),
       ...(RENDER_CONCURRENCY ? {concurrency: RENDER_CONCURRENCY} : {}),
       timeoutInMilliseconds: 120000,
       onProgress: ({progress}) => {

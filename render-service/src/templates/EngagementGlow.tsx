@@ -14,6 +14,7 @@ import {
 import {loadFont as loadCormorant} from '@remotion/google-fonts/CormorantGaramond';
 import {loadFont as loadOutfit} from '@remotion/google-fonts/Outfit';
 import {WeddingProps, sectionPlan} from './types';
+import {ThemeScreen} from './ThemeLayers';
 
 const {fontFamily: cormorant} = loadCormorant();
 const {fontFamily: outfit} = loadOutfit();
@@ -312,31 +313,41 @@ export const EngagementGlow: React.FC<WeddingProps> = (props) => {
 
       <Sequence durationInFrames={plan.intro}>
         <SectionFade duration={plan.intro}>
-          <HeroNames {...props} />
+          <ThemeScreen theme={props.theme} screenId="opening" durationInFrames={plan.intro}>
+            <HeroNames {...props} />
+          </ThemeScreen>
         </SectionFade>
       </Sequence>
 
       <Sequence from={plan.intro} durationInFrames={plan.message}>
         <SectionFade duration={plan.message}>
-          <MessageCard {...props} />
+          <ThemeScreen theme={props.theme} screenId="message" durationInFrames={plan.message}>
+            <MessageCard {...props} />
+          </ThemeScreen>
         </SectionFade>
       </Sequence>
 
       <Sequence from={plan.intro + plan.message} durationInFrames={plan.photos}>
         <SectionFade duration={plan.photos}>
-          <PhotoMoment photos={props.photos ?? []} duration={plan.photos} couple={props.couple} />
+          <ThemeScreen theme={props.theme} screenId="photos" durationInFrames={plan.photos}>
+            <PhotoMoment photos={props.photos ?? []} duration={plan.photos} couple={props.couple} />
+          </ThemeScreen>
         </SectionFade>
       </Sequence>
 
       <Sequence from={plan.intro + plan.message + plan.photos} durationInFrames={plan.schedule}>
         <SectionFade duration={plan.schedule}>
-          <ScheduleMoment {...props} duration={plan.schedule} />
+          <ThemeScreen theme={props.theme} screenId="schedule" durationInFrames={plan.schedule}>
+            <ScheduleMoment {...props} duration={plan.schedule} />
+          </ThemeScreen>
         </SectionFade>
       </Sequence>
 
       <Sequence from={durationInFrames - plan.finale} durationInFrames={plan.finale}>
         <SectionFade duration={plan.finale}>
-          <HeroNames {...props} />
+          <ThemeScreen theme={props.theme} screenId="closing" durationInFrames={plan.finale}>
+            <HeroNames {...props} />
+          </ThemeScreen>
         </SectionFade>
       </Sequence>
     </AbsoluteFill>

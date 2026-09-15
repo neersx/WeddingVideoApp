@@ -2,6 +2,34 @@
 
 Invita Videos stores template-to-category mappings in MongoDB in the `templates` collection.
 
+Templates now also support multi-dimensional classification and dynamic,
+screen-aware theme assets. The legacy `category` field remains supported and
+continues to choose the creator form, so existing clients and templates are not
+broken.
+
+## Dynamic theme assets
+
+Uploaded theme files are stored under `backend/template-assets/`; MongoDB keeps
+their metadata in `media_assets`. Assignments live in
+`template_asset_placements` and target stable template screen IDs with one of
+these selectors: `all`, `first`, `center`, `last`, `selected`, or `all-except`.
+
+Supported layers are `base`, `background`, `midground`, `foreground`, `overlay`,
+and `watermark`. Published placements are resolved once by the backend into a
+per-screen theme manifest before the render job is sent to Remotion. Draft or
+archived assets are never included. A template with no published placements
+continues to use its existing hardcoded visual assets.
+
+The Admin Templates table has an **Assets** action. Its editor supports uploading
+JPEG, PNG, WebP, SVG, WebM, and MP4 assets; choosing screens and layers; and
+setting opacity, z-index, and a safe animation preset. Engagement Glow is the
+first composition wired to the shared dynamic layer renderer.
+
+Template classification uses `primaryCategoryId` plus facet arrays for
+`contentTypes`, `occasions`, `ceremonies`, `cultures`, `styles`, and `themes`.
+For example, a single template can be discoverable as a Hindu wedding
+invitation with a Mehendi ceremony, traditional style, and palace theme.
+
 On backend startup, the current built-in templates are seeded automatically if they do not already exist. All current templates are mapped to the `Wedding` category by default.
 
 The built-in catalog now also includes category-specific templates:
