@@ -45,10 +45,22 @@ def test_muslim_wedding_uses_emerald_nikah_with_royal_blush_data_contract():
     assert result["couple"] == {"partnerOne": "Anjali Shukla", "partnerTwo": "Siddhartha Pancholi"}
     assert result["fields"]["dreamwedds"]["culture"] == "muslim"
     assert result["fields"]["dreamwedds"]["event"]["venue"] == "Hotel Landmark"
+    assert result["durationInSeconds"] == 50
 
     raw_wedding = sample_wedding()
     raw_wedding["weddingCulture"] = "Muslim"
     assert normalize_dreamwedds_request(raw_wedding)["template"] == "dreamwedds-emerald-nikah"
+
+
+def test_emerald_nikah_duration_grows_with_selected_images():
+    result = normalize_dreamwedds_request({
+        "wedding": sample_wedding(),
+        "template": "emerald-nikah",
+        "weddingCulture": "Muslim",
+        "images": [f"https://images.test/couple-{index}.webp" for index in range(8)],
+    })
+    assert result["durationInSeconds"] == 58
+    assert len(result["photos"]) == 8
 
 
 def test_rejects_unregistered_culture_template_pair():

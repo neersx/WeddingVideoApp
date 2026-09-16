@@ -173,6 +173,10 @@ def normalize_dreamwedds_request(payload: Mapping[str, Any]) -> Dict[str, Any]:
     schedule = [{"name": _clean(row.get("title")) or "Wedding Event", "time": _format_date(row.get("eventDate"))} for row in active_events[:4]]
     music = wedding.get("music") if isinstance(wedding.get("music"), Mapping) else {}
     music_url = _clean(music.get("sourcePath")) if music.get("enabled", True) else ""
+    # Emerald Nikah gives every image after the primary couple portrait its own
+    # four-second screen. One image keeps the core 30-second cut; eight images
+    # produce the longest 58-second cut supported by this template.
+    duration = 30 + (min(max(len(photos), 1), 8) - 1) * 4 if template == "dreamwedds-emerald-nikah" else 30
 
     result: Dict[str, Any] = {
         "template": template, "category": "DreamWedds",
@@ -183,7 +187,7 @@ def normalize_dreamwedds_request(payload: Mapping[str, Any]) -> Dict[str, Any]:
         },
         "eventDate": wedding_date, "venue": {"name": venue_name, "city": venue_city},
         "message": "Together with their families, they invite you to celebrate their wedding.",
-        "photos": photos, "schedule": schedule, "durationInSeconds": 30,
+        "photos": photos, "schedule": schedule, "durationInSeconds": duration,
         "tags": ["dreamwedds", culture, f"wedding-{wedding.get('id')}"] if wedding.get("id") else ["dreamwedds", culture],
     }
     if music_url:

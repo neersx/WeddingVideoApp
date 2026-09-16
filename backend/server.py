@@ -421,7 +421,7 @@ DEFAULT_TEMPLATE_DOCUMENTS = [
         "settings": {
             "minImages": 1,
             "maxImages": 8,
-            "durations": [30],
+            "durations": [30, 34, 38, 42, 46, 50, 54, 58],
             "pricing": {"default": 0, "byDuration": {}},
         },
         "isActive": True,
@@ -2178,6 +2178,11 @@ async def seed_default_templates():
                 updates["facets"] = _serialize_template(existing)["facets"]
             if not existing.get("screens"):
                 updates["screens"] = DEFAULT_TEMPLATE_SCREENS
+            if template["_id"] == "dreamwedds-emerald-nikah":
+                existing_settings = dict(existing.get("settings") or {})
+                if existing_settings.get("durations") in (None, [], [30]):
+                    existing_settings["durations"] = [30, 34, 38, 42, 46, 50, 54, 58]
+                    updates["settings"] = _normalized_template_settings({"settings": existing_settings})
             if updates:
                 updates["updated_at"] = now
                 await db.templates.update_one({"_id": template["_id"]}, {"$set": updates})

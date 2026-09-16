@@ -73,7 +73,9 @@ the couple, event, date, venue and culture still come from the wedding payload.
 Emerald Nikah uses the same normalized wedding data and photo ordering as Royal
 Blush. Select it with `weddingCulture: "Muslim"` and
 `template: "emerald-nikah"`. The original `Emrald Nikash` spelling is accepted
-as a compatibility alias.
+as a compatibility alias. Its core cut is 30 seconds for one image; each
+additional uploaded image receives a dedicated four-second portrait screen, up
+to 58 seconds for eight images.
 
 ## Add another culture or design
 
