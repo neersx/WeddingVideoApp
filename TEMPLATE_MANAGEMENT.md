@@ -37,6 +37,12 @@ unassigned until an administrator chooses the template, layer, and screen rule.
 Each theme also includes a separate **Mobile Long** variant with expanded
 vertical text-safe zones for the 1080×1920 renderer.
 
+Royal Blush also ships with three production-migrated Hindu wedding assets: a
+sunrise palace arch background, an evening palace background, and a transparent
+blush-floral gold overlay. On every deployment the idempotent migration verifies
+their checksums and inserts any missing published database records without
+overwriting later admin changes to names, tags, or status.
+
 Template classification uses `primaryCategoryId` plus facet arrays for
 `contentTypes`, `occasions`, `ceremonies`, `cultures`, `styles`, and `themes`.
 For example, a single template can be discoverable as a Hindu wedding

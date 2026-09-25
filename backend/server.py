@@ -189,6 +189,26 @@ BUNDLED_TEMPLATE_ASSETS = [
         "tags": ["muslim", "wedding", "moonlit-noor", "mobile", "long-view", "background"],
     },
 ]
+ROYAL_BLUSH_MIGRATION_ASSETS = [
+    {
+        "id": "asset-royal-blush-palace-arch",
+        "name": "Royal Blush Palace Arch",
+        "filename": "royal-blush-palace-arch.png",
+        "tags": ["hindu", "indian", "wedding", "dreamwedds-royal-blush", "palace", "blush", "background"],
+    },
+    {
+        "id": "asset-royal-blush-evening-palace",
+        "name": "Royal Blush Evening Palace",
+        "filename": "royal-blush-evening-palace.png",
+        "tags": ["hindu", "indian", "wedding", "dreamwedds-royal-blush", "sunset", "palace", "background"],
+    },
+    {
+        "id": "asset-royal-blush-floral-overlay",
+        "name": "Royal Blush Floral Overlay",
+        "filename": "royal-blush-floral-overlay.png",
+        "tags": ["hindu", "indian", "wedding", "dreamwedds-royal-blush", "floral", "gold", "overlay", "transparent"],
+    },
+]
 DEFAULT_TEMPLATE_SCREENS = [
     {'id': 'opening', 'role': 'first', 'label': 'Opening'},
     {'id': 'message', 'role': 'center', 'label': 'Message'},
@@ -2198,10 +2218,10 @@ async def seed_default_templates():
         await db.templates.insert_one(doc)
 
 
-async def seed_bundled_template_assets():
+async def _seed_template_asset_definitions(definitions):
     """Register project-owned artwork without overwriting later admin edits."""
     now = datetime.now(timezone.utc).isoformat()
-    for definition in BUNDLED_TEMPLATE_ASSETS:
+    for definition in definitions:
         asset_id = definition["id"]
         path = TEMPLATE_ASSETS_DIR / definition["filename"]
         if not path.is_file():
@@ -2245,6 +2265,20 @@ async def seed_bundled_template_assets():
             "created_at": now,
             "updated_at": now,
         })
+
+
+async def seed_bundled_template_assets():
+    await _seed_template_asset_definitions(BUNDLED_TEMPLATE_ASSETS)
+
+
+async def migrate_royal_blush_asset_library():
+    """Publish Royal Blush Hindu artwork into old and new production DBs.
+
+    Idempotent and checksum-aware: first deploy inserts the records; later asset
+    revisions update only immutable file metadata and preserve admin-managed
+    names, tags, and publication status.
+    """
+    await _seed_template_asset_definitions(ROYAL_BLUSH_MIGRATION_ASSETS)
 
 
 async def seed_default_categories():
@@ -4399,6 +4433,7 @@ async def initialize_storage():
         await migrate_heartfelt_rename()
         await seed_default_templates()
         await seed_bundled_template_assets()
+        await migrate_royal_blush_asset_library()
         await seed_default_categories()
         await migrate_category_types()
         await migrate_message_maxlength_120()
@@ -4443,6 +4478,7 @@ async def initialize_storage():
         await migrate_heartfelt_rename()
         await seed_default_templates()
         await seed_bundled_template_assets()
+        await migrate_royal_blush_asset_library()
         await seed_default_categories()
         await migrate_category_types()
         await migrate_message_maxlength_120()

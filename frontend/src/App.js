@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
+import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowRight,
   CalendarHeart,
@@ -369,6 +369,10 @@ const pageMeta = {
     title: "Create Your Wedding Invitation Video | Invita Videos",
     description:
       "Choose a design, add your wedding details, photos and music, and create a share-ready invitation video.",
+  },
+  "/login": {
+    title: "Sign In | Invita Videos",
+    description: "Sign in to create and manage your personalised invitation videos.",
   },
   "/about": {
     title: "About Invita Videos | Wedding Stories in Motion",
@@ -1535,21 +1539,59 @@ function AdminPageFrame({ eyebrow, title, description, children }) {
 }
 
 function AdminGate({ children }) {
-  const { user } = useAuth();
+  const { user, credential } = useAuth();
+  const location = useLocation();
+
+  if (!user || !credential || isTokenExpired(credential)) {
+    return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}${location.hash}` }} />;
+  }
+
   return isAdminUser(user) ? children : <NotFoundPage />;
 }
 
 function RequireUserGate({ children }) {
-  const { user } = useAuth();
-  if (user) return children;
+  const { user, credential } = useAuth();
+  const location = useLocation();
+
+  if (user && credential && !isTokenExpired(credential)) return children;
+
+  return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}${location.hash}` }} />;
+}
+
+function getSafeReturnPath(locationState) {
+  const from = locationState?.from;
+  return typeof from === "string" && from.startsWith("/") && !from.startsWith("//") && from !== "/login"
+    ? from
+    : "/";
+}
+
+function LoginPage() {
+  const { user, credential } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const returnPath = getSafeReturnPath(location.state);
+
+  if (user && credential && !isTokenExpired(credential)) {
+    return <Navigate to={returnPath} replace />;
+  }
+
   return (
     <MarketingLayout>
       <main className="px-6 py-16 lg:px-10">
         <section className="mx-auto max-w-lg rounded-3xl border border-[#ECD5E2] bg-white p-8 text-center shadow-[0_14px_46px_rgba(81,25,62,0.05)]">
-          <div className="section-label text-[#9B256D]">Sign in required</div>
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#FFF0F7] text-[#A4176D]">
+            <KeyRound className="h-6 w-6" aria-hidden="true" />
+          </div>
+          <div className="section-label mt-6 text-[#9B256D]">Sign in required</div>
           <h1 className="mt-2 font-heading text-3xl font-extrabold text-[#32113A]">Sign in to continue</h1>
-          <p className="mt-3 text-sm leading-6 text-neutral-600">Sign in with Google to see your videos and purchase history.</p>
-          <div className="mt-6 flex justify-center"><GoogleSignInButton className="min-h-[40px]" text="continue_with" /></div>
+          <p className="mt-3 text-sm leading-6 text-neutral-600">Use your Google account to securely continue to the requested page.</p>
+          <div className="mt-6 flex justify-center">
+            <GoogleSignInButton
+              className="min-h-[40px]"
+              text="continue_with"
+              onSuccess={() => navigate(returnPath, { replace: true })}
+            />
+          </div>
         </section>
       </main>
     </MarketingLayout>
@@ -3544,7 +3586,8 @@ function App() {
         <Toaster position="top-right" richColors />
         <Routes>
           <Route path="/" element={<LandingPage />} />
-          <Route path="/create-video" element={<CreateVideoPage />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/create-video" element={<RequireUserGate><CreateVideoPage /></RequireUserGate>} />
           <Route path="/about" element={<AboutPage />} />
           <Route path="/contact" element={<ContactPage />} />
           <Route path="/privacy" element={<PrivacyPage />} />

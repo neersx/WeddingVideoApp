@@ -90,6 +90,9 @@ backend/template-assets/*
 !backend/template-assets/garden-vows-mobile-long.png
 !backend/template-assets/emerald-nikah-mobile-long.png
 !backend/template-assets/moonlit-noor-mobile-long.png
+!backend/template-assets/royal-blush-palace-arch.png
+!backend/template-assets/royal-blush-evening-palace.png
+!backend/template-assets/royal-blush-floral-overlay.png
 
 # Mobile development
 android-sdk/render-service/node_modules/.remotion/chrome-headless-shell/linux-arm64/chrome-headless-shell-linux-arm64/headless_shell

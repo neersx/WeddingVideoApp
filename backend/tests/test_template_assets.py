@@ -28,6 +28,25 @@ class TemplateClassificationTests(unittest.TestCase):
 
 
 class TemplateThemeResolutionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_royal_blush_asset_migration_is_idempotent_and_published(self):
+        memory_db = server._InMemoryDB()
+        with patch.object(server, "db", memory_db):
+            await server.migrate_royal_blush_asset_library()
+            await server.migrate_royal_blush_asset_library()
+
+        assets = await memory_db.media_assets.find().to_list(10)
+        self.assertEqual(len(assets), 3)
+        self.assertEqual(
+            {asset["_id"] for asset in assets},
+            {
+                "asset-royal-blush-palace-arch",
+                "asset-royal-blush-evening-palace",
+                "asset-royal-blush-floral-overlay",
+            },
+        )
+        self.assertTrue(all(asset["status"] == "published" for asset in assets))
+        self.assertTrue(all("dreamwedds-royal-blush" in asset["tags"] for asset in assets))
+
     async def test_bundled_backgrounds_are_seeded_as_published_assets(self):
         memory_db = server._InMemoryDB()
         await memory_db.media_assets.insert_one({
