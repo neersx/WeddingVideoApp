@@ -2850,7 +2850,7 @@ async def get_music(music_id: str):
     path = MUSIC_DIR / track["filename"]
     if not path.exists():
         raise HTTPException(status_code=404, detail="Track file missing")
-    return FileResponse(path, media_type="audio/mpeg", filename=track["filename"])
+    return FileResponse(path, media_type="audio/mpeg", filename=track["filename"], content_disposition_type="inline")
 
 
 @api_router.post("/admin/music")
@@ -2882,8 +2882,6 @@ async def admin_upload_music(
         assigned_template = await db.templates.find_one({"_id": templateId})
         if not assigned_template:
             raise HTTPException(status_code=404, detail="Template not found")
-        if assigned_template.get("category") not in track_categories:
-            raise HTTPException(status_code=400, detail="Music categories must include the assigned template category")
     music_id = f"{safe_id}-{uuid.uuid4().hex[:8]}"
     stored_filename = f"{music_id}.mp3"
     (MUSIC_DIR / stored_filename).write_bytes(data)
@@ -3113,9 +3111,8 @@ async def admin_update_template(
         music_track = await find_music_track(updates["defaultMusicId"])
         if not music_track:
             raise HTTPException(status_code=400, detail="Unknown default music track")
-        music_categories = music_track.get("categories", [])
-        if music_categories and category not in music_categories:
-            raise HTTPException(status_code=400, detail="Default music is not linked to this template category")
+        if music_track.get("isCustomUrl"):
+            raise HTTPException(status_code=400, detail="A template default needs an uploaded or bundled music file")
     await db.templates.update_one({"_id": template_id}, {"$set": updates})
     updated = await db.templates.find_one({"_id": template_id})
     return (await _attach_template_render_counts([_serialize_template(updated)]))[0]

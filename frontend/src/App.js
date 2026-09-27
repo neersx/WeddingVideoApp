@@ -1517,6 +1517,7 @@ function AboutPage() {
 const ADMIN_TABS = [
   ["/admin", "Dashboard"],
   ["/admin/templates", "Templates"],
+  ["/admin/music", "Music"],
   ["/admin/template-assets", "Template assets"],
   ["/admin/template-settings", "Template settings"],
   ["/admin/credit-packs", "Credit packs"],
@@ -2730,7 +2731,7 @@ function AdminEditTemplateModal({ template, credential, musicTracks, onClose, on
               <label className="text-xs font-semibold text-neutral-500">Sort order<input type="number" className={`${inputClass} mt-1`} value={draft.sortOrder} onChange={(event) => update("sortOrder", event.target.value)} /></label>
               <label className="text-xs font-semibold text-neutral-500">Category<input className={`${inputClass} mt-1`} value={draft.category} onChange={(event) => update("category", event.target.value)} list="template-category-options" /></label>
               <label className="text-xs font-semibold text-neutral-500">Primary category ID<input className={`${inputClass} mt-1`} value={draft.primaryCategoryId} onChange={(event) => update("primaryCategoryId", event.target.value)} /></label>
-              <label className="text-xs font-semibold text-neutral-500 lg:col-span-2">Default music<select className={`${inputClass} mt-1`} value={draft.defaultMusicId} onChange={(event) => update("defaultMusicId", event.target.value)}><option value="">No default music</option>{musicTracks.map((track) => <option key={track.id} value={track.id}>{track.title}</option>)}</select></label>
+              <label className="text-xs font-semibold text-neutral-500 lg:col-span-2">Default music<select className={`${inputClass} mt-1`} value={draft.defaultMusicId} onChange={(event) => update("defaultMusicId", event.target.value)}><option value="">No default music</option>{musicTracks.filter((track) => !track.isCustomUrl).map((track) => <option key={track.id} value={track.id}>{track.title}</option>)}</select></label>
               <label className="text-xs font-semibold text-neutral-500 sm:col-span-2 lg:col-span-4">Description<textarea rows={3} className={`${inputClass} mt-1 resize-y`} value={draft.desc} onChange={(event) => update("desc", event.target.value)} /></label>
               <label className="inline-flex items-center gap-2 text-sm font-semibold text-[#32113A]"><input type="checkbox" checked={draft.isActive} onChange={(event) => update("isActive", event.target.checked)} className="h-4 w-4 accent-[#B31571]" />Active in creator</label>
             </div>
@@ -3083,15 +3084,127 @@ function AdminTemplateAssetsPage() {
   </AdminPageFrame>;
 }
 
+function AdminMusicPage() {
+  const { user, credential } = useAuth();
+  const [templates, setTemplates] = useState([]);
+  const [musicTracks, setMusicTracks] = useState([]);
+  const [musicUpload, setMusicUpload] = useState({ file: null, title: "", mood: "", credit: "", duration: 30, categories: "", templateId: "" });
+  const [uploadingMusic, setUploadingMusic] = useState(false);
+  const [savingMusicId, setSavingMusicId] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const loadMusic = useCallback(async () => {
+    if (!credential || !isAdminUser(user)) return;
+    setLoading(true);
+    try {
+      const [templatesResponse, musicResponse] = await Promise.all([
+        axios.get(`${API}/admin/templates`, { headers: { Authorization: `Bearer ${credential}` } }),
+        axios.get(`${API}/music`),
+      ]);
+      setTemplates(templatesResponse.data);
+      setMusicTracks(musicResponse.data);
+    } catch (error) {
+      toast.error(error?.response?.data?.detail || "Failed to load music library");
+    } finally {
+      setLoading(false);
+    }
+  }, [credential, user]);
+
+  useEffect(() => { loadMusic(); }, [loadMusic]);
+
+  const uploadMusic = async (event) => {
+    event.preventDefault();
+    if (!musicUpload.file || !musicUpload.title.trim()) {
+      toast.error("Choose an MP3 file and enter a title");
+      return;
+    }
+    setUploadingMusic(true);
+    try {
+      const form = new FormData();
+      form.append("file", musicUpload.file);
+      form.append("title", musicUpload.title);
+      form.append("mood", musicUpload.mood);
+      form.append("credit", musicUpload.credit);
+      form.append("duration", String(musicUpload.duration || 30));
+      form.append("categories", musicUpload.categories);
+      form.append("templateId", musicUpload.templateId);
+      await axios.post(`${API}/admin/music`, form, {
+        headers: { Authorization: `Bearer ${credential}` },
+      });
+      toast.success(musicUpload.templateId ? "Music uploaded and assigned to the template" : "Music uploaded");
+      setMusicUpload({ file: null, title: "", mood: "", credit: "", duration: 30, categories: "", templateId: "" });
+      await loadMusic();
+    } catch (error) {
+      toast.error(error?.response?.data?.detail || "Failed to upload music");
+    } finally {
+      setUploadingMusic(false);
+    }
+  };
+
+  const saveMusicCategories = async (track) => {
+    const categories = String(track.categories || "").split(",").map((item) => item.trim()).filter(Boolean);
+    if (!categories.length) {
+      toast.error("Add at least one category");
+      return;
+    }
+    setSavingMusicId(track.id);
+    try {
+      const response = await axios.patch(`${API}/admin/music/${track.id}`, { categories }, { headers: { Authorization: `Bearer ${credential}` } });
+      setMusicTracks((current) => current.map((item) => item.id === track.id ? response.data : item));
+      toast.success(`${track.title} categories saved`);
+    } catch (error) {
+      toast.error(error?.response?.data?.detail || "Failed to save music categories");
+    } finally {
+      setSavingMusicId("");
+    }
+  };
+
+  if (!isAdminUser(user)) return <NotFoundPage />;
+
+  return <AdminPageFrame eyebrow="Music" title="Music library" description="Upload tracks, assign template soundtracks, manage categories, and preview songs.">
+    <div className="mt-6 flex justify-end"><button type="button" onClick={loadMusic} disabled={loading} className="rounded-full border border-[#D8B7CB] bg-white px-5 py-2.5 text-sm font-semibold text-[#32113A] disabled:opacity-60">{loading ? "Loading…" : "Refresh music"}</button></div>
+    <form onSubmit={uploadMusic} className="mt-6 rounded-3xl border border-[#ECD5E2] bg-white p-6 shadow-[0_14px_46px_rgba(81,25,62,0.05)]">
+      <div className="section-label text-left text-[#9B256D]">Music library</div>
+      <h2 className="mt-2 font-heading text-2xl font-extrabold text-[#32113A]">Upload MP3 and assign it</h2>
+      <p className="mt-1 text-sm text-neutral-500">The uploaded track will be available in the creator and can become a template’s default soundtrack.</p>
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <input type="file" accept="audio/mpeg,.mp3" onChange={(event) => setMusicUpload((current) => ({ ...current, file: event.target.files?.[0] || null }))} className="rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm text-[#32113A] file:mr-3 file:rounded-full file:border-0 file:bg-[#F8EAF2] file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-[#8D1B63]" />
+        <input value={musicUpload.title} onChange={(event) => setMusicUpload((current) => ({ ...current, title: event.target.value }))} placeholder="Track title" className="rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B22176]" />
+        <input value={musicUpload.mood} onChange={(event) => setMusicUpload((current) => ({ ...current, mood: event.target.value }))} placeholder="Mood (e.g. Cinematic · Warm)" className="rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B22176]" />
+        <input value={musicUpload.credit} onChange={(event) => setMusicUpload((current) => ({ ...current, credit: event.target.value }))} placeholder="Credit / artist" className="rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B22176]" />
+        <input type="number" min="1" max="900" value={musicUpload.duration} onChange={(event) => setMusicUpload((current) => ({ ...current, duration: event.target.value }))} placeholder="Duration (seconds)" className="rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B22176]" />
+        <input value={musicUpload.categories} onChange={(event) => setMusicUpload((current) => ({ ...current, categories: event.target.value }))} placeholder="Categories: Wedding, Birthday" className="rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B22176]" />
+        <select value={musicUpload.templateId} onChange={(event) => setMusicUpload((current) => ({ ...current, templateId: event.target.value }))} className="rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B22176]">
+          <option value="">Do not assign yet</option>
+          {templates.map((template) => <option key={template.id} value={template.id}>Assign to {template.name}</option>)}
+        </select>
+      </div>
+      <button type="submit" disabled={uploadingMusic} className="mt-4 rounded-full bg-[#32113A] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#52184D] disabled:cursor-not-allowed disabled:opacity-60">{uploadingMusic ? "Uploading..." : "Upload MP3"}</button>
+    </form>
+
+    <div className="mt-6 rounded-3xl border border-[#ECD5E2] bg-white p-6 shadow-[0_14px_46px_rgba(81,25,62,0.05)]">
+      <div className="section-label text-left text-[#9B256D]">Existing songs</div>
+      <div className="mt-4 space-y-3">
+        {musicTracks.map((track) => (
+          <div key={track.id} className="grid gap-3 rounded-2xl border border-[#F0DDE7] bg-[#FFFDFD] p-4 lg:grid-cols-[1.2fr_1fr_auto] lg:items-center">
+            <div><div className="font-semibold text-[#32113A]">{track.title}</div><div className="text-xs text-neutral-500">{track.mood} · {track.credit}</div>{track.url && !track.isCustomUrl ? <audio controls preload="none" src={`${BACKEND_URL}${track.url}`} aria-label={`Preview ${track.title}`} className="mt-3 w-full max-w-sm" /> : <div className="mt-2 text-xs text-neutral-400">No audio file to preview</div>}</div>
+            <input value={musicCategoryList(track.categories).join(", ")} onChange={(event) => setMusicTracks((current) => current.map((item) => item.id === track.id ? { ...item, categories: event.target.value } : item))} placeholder="Wedding, Engagement" className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B22176]" />
+            <button type="button" onClick={() => saveMusicCategories(track)} disabled={savingMusicId === track.id} className="rounded-full bg-[#F8EAF2] px-4 py-2 text-sm font-semibold text-[#8D1B63] transition hover:bg-[#F1D7E5] disabled:opacity-60">{savingMusicId === track.id ? "Saving..." : "Save categories"}</button>
+          </div>
+        ))}
+        {!loading && musicTracks.length === 0 && <p className="text-sm text-neutral-500">No tracks found.</p>}
+      </div>
+    </div>
+
+  </AdminPageFrame>;
+}
+
 function AdminTemplatesPage() {
   const { user, credential } = useAuth();
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState("");
   const [musicTracks, setMusicTracks] = useState([]);
-  const [musicUpload, setMusicUpload] = useState({ file: null, title: "", mood: "", credit: "", duration: 30, categories: "", templateId: "" });
-  const [uploadingMusic, setUploadingMusic] = useState(false);
-  const [savingMusicId, setSavingMusicId] = useState("");
   const [assetTemplateId, setAssetTemplateId] = useState("");
   const [editingTemplate, setEditingTemplate] = useState(null);
 
@@ -3154,53 +3267,6 @@ function AdminTemplatesPage() {
     }
   };
 
-  const uploadMusic = async (event) => {
-    event.preventDefault();
-    if (!musicUpload.file || !musicUpload.title.trim()) {
-      toast.error("Choose an MP3 file and enter a title");
-      return;
-    }
-    setUploadingMusic(true);
-    try {
-      const form = new FormData();
-      form.append("file", musicUpload.file);
-      form.append("title", musicUpload.title);
-      form.append("mood", musicUpload.mood);
-      form.append("credit", musicUpload.credit);
-      form.append("duration", String(musicUpload.duration || 30));
-      form.append("categories", musicUpload.categories);
-      form.append("templateId", musicUpload.templateId);
-      await axios.post(`${API}/admin/music`, form, {
-        headers: { Authorization: `Bearer ${credential}` },
-      });
-      toast.success(musicUpload.templateId ? "Music uploaded and assigned to the template" : "Music uploaded");
-      setMusicUpload({ file: null, title: "", mood: "", credit: "", duration: 30, categories: "", templateId: "" });
-      await loadTemplates();
-    } catch (error) {
-      toast.error(error?.response?.data?.detail || "Failed to upload music");
-    } finally {
-      setUploadingMusic(false);
-    }
-  };
-
-  const saveMusicCategories = async (track) => {
-    const categories = String(track.categories || "").split(",").map((item) => item.trim()).filter(Boolean);
-    if (!categories.length) {
-      toast.error("Add at least one category");
-      return;
-    }
-    setSavingMusicId(track.id);
-    try {
-      const response = await axios.patch(`${API}/admin/music/${track.id}`, { categories }, { headers: { Authorization: `Bearer ${credential}` } });
-      setMusicTracks((current) => current.map((item) => item.id === track.id ? response.data : item));
-      toast.success(`${track.title} categories saved`);
-    } catch (error) {
-      toast.error(error?.response?.data?.detail || "Failed to save music categories");
-    } finally {
-      setSavingMusicId("");
-    }
-  };
-
   const categories = [...new Set(templates.map((template) => template.category || "Wedding"))].sort();
   const activeTemplateCount = templates.filter((template) => template.isActive !== false).length;
   const totalTemplateRenders = templates.reduce((sum, template) => sum + Number(template.renderCount || 0), 0);
@@ -3218,7 +3284,7 @@ function AdminTemplatesPage() {
                 Manage template library.
               </h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-neutral-600">
-                Review each template’s visual identity, usage, duration and image limits, then manage its category, soundtrack, ordering and availability.
+                Review each template’s visual identity, usage, duration and image limits, then manage its category, default soundtrack, ordering and availability.
               </p>
             </div>
             <button
@@ -3268,38 +3334,6 @@ function AdminTemplatesPage() {
                       </span>
                     ))}
                   </div>
-                </div>
-              </div>
-
-              <form onSubmit={uploadMusic} className="mt-6 rounded-3xl border border-[#ECD5E2] bg-white p-6 shadow-[0_14px_46px_rgba(81,25,62,0.05)]">
-                <div className="section-label text-left text-[#9B256D]">Music library</div>
-                <h2 className="mt-2 font-heading text-2xl font-extrabold text-[#32113A]">Upload MP3 and assign it</h2>
-                <p className="mt-1 text-sm text-neutral-500">The uploaded track will be available in the creator and can become a template’s default soundtrack.</p>
-                <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  <input type="file" accept="audio/mpeg,.mp3" onChange={(event) => setMusicUpload((current) => ({ ...current, file: event.target.files?.[0] || null }))} className="rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm text-[#32113A] file:mr-3 file:rounded-full file:border-0 file:bg-[#F8EAF2] file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-[#8D1B63]" />
-                  <input value={musicUpload.title} onChange={(event) => setMusicUpload((current) => ({ ...current, title: event.target.value }))} placeholder="Track title" className="rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B22176]" />
-                  <input value={musicUpload.mood} onChange={(event) => setMusicUpload((current) => ({ ...current, mood: event.target.value }))} placeholder="Mood (e.g. Cinematic · Warm)" className="rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B22176]" />
-                  <input value={musicUpload.credit} onChange={(event) => setMusicUpload((current) => ({ ...current, credit: event.target.value }))} placeholder="Credit / artist" className="rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B22176]" />
-                  <input type="number" min="1" max="900" value={musicUpload.duration} onChange={(event) => setMusicUpload((current) => ({ ...current, duration: event.target.value }))} placeholder="Duration (seconds)" className="rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B22176]" />
-                  <input value={musicUpload.categories} onChange={(event) => setMusicUpload((current) => ({ ...current, categories: event.target.value }))} placeholder="Categories: Wedding, Birthday" className="rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B22176]" />
-                  <select value={musicUpload.templateId} onChange={(event) => setMusicUpload((current) => ({ ...current, templateId: event.target.value }))} className="rounded-xl border border-black/10 bg-[#FFFCFD] px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B22176]">
-                    <option value="">Do not assign yet</option>
-                    {templates.map((template) => <option key={template.id} value={template.id}>Assign to {template.name}</option>)}
-                  </select>
-                </div>
-                <button type="submit" disabled={uploadingMusic} className="mt-4 rounded-full bg-[#32113A] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#52184D] disabled:cursor-not-allowed disabled:opacity-60">{uploadingMusic ? "Uploading..." : "Upload MP3"}</button>
-              </form>
-
-              <div className="mt-6 rounded-3xl border border-[#ECD5E2] bg-white p-6 shadow-[0_14px_46px_rgba(81,25,62,0.05)]">
-                <div className="section-label text-left text-[#9B256D]">Existing songs</div>
-                <div className="mt-4 space-y-3">
-                  {musicTracks.map((track) => (
-                    <div key={track.id} className="grid gap-3 rounded-2xl border border-[#F0DDE7] bg-[#FFFDFD] p-4 lg:grid-cols-[1.2fr_1fr_auto] lg:items-center">
-                      <div><div className="font-semibold text-[#32113A]">{track.title}</div><div className="text-xs text-neutral-500">{track.mood} · {track.credit}</div></div>
-                      <input value={musicCategoryList(track.categories).join(", ")} onChange={(event) => setMusicTracks((current) => current.map((item) => item.id === track.id ? { ...item, categories: event.target.value } : item))} placeholder="Wedding, Engagement" className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm text-[#32113A] outline-none focus:border-[#B22176]" />
-                      <button type="button" onClick={() => saveMusicCategories(track)} disabled={savingMusicId === track.id} className="rounded-full bg-[#F8EAF2] px-4 py-2 text-sm font-semibold text-[#8D1B63] transition hover:bg-[#F1D7E5] disabled:opacity-60">{savingMusicId === track.id ? "Saving..." : "Save categories"}</button>
-                    </div>
-                  ))}
                 </div>
               </div>
 
@@ -3355,7 +3389,7 @@ function AdminTemplatesPage() {
                             <td className="px-4 py-4">
                               <select value={templateItem.defaultMusicId || ""} onChange={(event) => updateLocalTemplate(templateItem.id, "defaultMusicId", event.target.value || null)} className="w-full rounded-lg border border-black/10 bg-[#FFFCFD] px-2.5 py-2 text-xs text-[#32113A] outline-none focus:border-[#B22176] focus:ring-2 focus:ring-[#EFCBDD]">
                                 <option value="">No default music</option>
-                                {musicTracks.filter((track) => { const trackCategories = musicCategoryList(track.categories); return !trackCategories.length || trackCategories.includes(templateItem.category || "Wedding"); }).map((track) => <option key={track.id} value={track.id}>{track.title}</option>)}
+                                {musicTracks.filter((track) => !track.isCustomUrl).map((track) => <option key={track.id} value={track.id}>{track.title}</option>)}
                               </select>
                             </td>
                             <td className="px-4 py-4"><div className="flex flex-wrap gap-1">{durations.length ? durations.map((seconds) => <span key={seconds} className="rounded-md bg-[#F6EEF2] px-2 py-1 text-[10px] font-semibold text-[#7E294F]">{seconds}s</span>) : <span className="text-neutral-400">—</span>}</div></td>
@@ -3595,6 +3629,7 @@ function App() {
           <Route path="/my-orders" element={<RequireUserGate><MyOrdersPage /></RequireUserGate>} />
           <Route path="/admin" element={<AdminGate><AdminDashboardPage /></AdminGate>} />
           <Route path="/admin/templates" element={<AdminGate><AdminTemplatesPage /></AdminGate>} />
+          <Route path="/admin/music" element={<AdminGate><AdminMusicPage /></AdminGate>} />
           <Route path="/admin/template-assets" element={<AdminGate><AdminTemplateAssetsPage /></AdminGate>} />
           <Route path="/admin/categories" element={<AdminGate><AdminCategoryFormsPage /></AdminGate>} />
           <Route path="/admin/template-settings" element={<AdminGate><AdminTemplateSettingsPage /></AdminGate>} />
