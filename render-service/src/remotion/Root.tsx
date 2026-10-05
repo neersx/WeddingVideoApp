@@ -72,7 +72,7 @@ export const Root: React.FC = () => (
       height={1920}
       fps={FPS}
       durationInFrames={30 * FPS}
-      defaultProps={defaultDreamWeddsProps}
+      defaultProps={{...defaultProps, schedule: []}}
       calculateMetadata={meta}
     />
     <Composition

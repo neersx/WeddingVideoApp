@@ -4,7 +4,9 @@ export type DreamWeddsPerson = {name: string; imageUrl?: string};
 
 export type DreamWeddsDetails = {
   source: 'dreamwedds';
-  culture: 'indian' | 'christian' | 'buddhist' | 'muslim';
+  culture: string;
+  tradition?: string;
+  videoStyle?: string;
   template: string;
   weddingId?: string | number | null;
   title: string;

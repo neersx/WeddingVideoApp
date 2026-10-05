@@ -7,7 +7,8 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 
 _CULTURE_ALIASES = {
-    "": "indian", "hindu": "indian", "india": "indian", "indian": "indian",
+    "": "neutral", "neutral": "neutral",
+    "english": "english", "british": "english", "english-christian": "english", "hindu": "indian", "india": "indian", "indian": "indian",
     "christian": "christian", "christianity": "christian",
     "buddhist": "buddhist", "buddhism": "buddhist",
     "muslim": "muslim", "islam": "muslim", "islamic": "muslim",
@@ -16,7 +17,8 @@ _CULTURE_ALIASES = {
 # This is the partner allow-list. Add a key only when the matching Remotion
 # composition has been implemented and registered.
 _TEMPLATE_REGISTRY = {
-    ("indian", "royal-blush"): "dreamwedds-royal-blush",
+    **{(culture, "royal-blush"): "dreamwedds-royal-blush" for culture in
+       ("indian", "english", "christian", "buddhist", "muslim", "neutral")},
     ("muslim", "emerald-nikah"): "dreamwedds-emerald-nikah",
 }
 
@@ -78,16 +80,16 @@ def _format_date(value: Any) -> str:
 def _culture(value: Any) -> str:
     normalized = _clean(value).lower().replace("_", "-")
     culture = _CULTURE_ALIASES.get(normalized)
-    if not culture:
-        raise ValueError(f"Unsupported weddingCulture '{value}'.")
-    return culture
+    # Unknown cultures still use the reusable invitation with its neutral preset.
+    return culture or normalized or "neutral"
 
 
 def _template_id(culture: str, value: Any) -> str:
     requested = _clean(value).lower().replace("_", "-").replace(" ", "-") or "royal-blush"
     requested = requested.removeprefix("dreamwedds-")
     requested = _TEMPLATE_ALIASES.get((culture, requested), requested)
-    composition = _TEMPLATE_REGISTRY.get((culture, requested))
+    composition = ("dreamwedds-royal-blush" if requested == "royal-blush"
+                   else _TEMPLATE_REGISTRY.get((culture, requested)))
     if not composition:
         available = sorted(key for item_culture, key in _TEMPLATE_REGISTRY if item_culture == culture)
         raise ValueError(
@@ -104,7 +106,9 @@ def normalize_dreamwedds_request(payload: Mapping[str, Any]) -> Dict[str, Any]:
     if not isinstance(wedding, Mapping) or not wedding:
         raise ValueError("A DreamWedds wedding payload is required.")
 
-    culture = _culture(payload.get("weddingCulture") or wedding.get("weddingCulture") or "indian")
+    culture = _culture(payload.get("weddingCulture") or wedding.get("weddingCulture") or "")
+    tradition = _clean(payload.get("weddingTradition") or wedding.get("weddingTradition") or wedding.get("weddingStyle"))
+    video_style = _clean(payload.get("videoStyle") or wedding.get("videoStyle"))
     # Raw wedding JSON already has a `template` object describing its website
     # theme (for example Miraya). That is not a video-template selector. Only a
     # wrapper's string `template`, or an explicit `videoTemplate`, may select a
@@ -150,7 +154,7 @@ def normalize_dreamwedds_request(payload: Mapping[str, Any]) -> Dict[str, Any]:
     wedding_date = _clean(primary_event.get("eventDate") or wedding.get("weddingDate"))
     venue_name, venue_city = _clean(venue.get("name")), _clean(venue.get("city"))
     normalized_details = {
-        "source": "dreamwedds", "culture": culture, "template": template,
+        "source": "dreamwedds", "culture": culture, "tradition": tradition, "videoStyle": video_style, "template": template,
         "weddingId": wedding.get("id"), "title": title,
         "bride": {"name": bride_name, "imageUrl": _clean(bride.get("imageUrl"))},
         "groom": {"name": groom_name, "imageUrl": _clean(groom.get("imageUrl"))},
@@ -184,6 +188,7 @@ def normalize_dreamwedds_request(payload: Mapping[str, Any]) -> Dict[str, Any]:
         "fields": {
             "partnerOne": bride_name, "partnerTwo": groom_name, "eventDate": wedding_date,
             "venueName": venue_name, "city": venue_city, "dreamwedds": normalized_details,
+            "weddingCulture": culture, "weddingTradition": tradition, "videoStyle": video_style,
         },
         "eventDate": wedding_date, "venue": {"name": venue_name, "city": venue_city},
         "message": "Together with their families, they invite you to celebrate their wedding.",

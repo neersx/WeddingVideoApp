@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "start": "tsx src/index.ts",
-    "studio": "remotion studio src/remotion/index.ts"
+    "studio": "remotion studio src/remotion/index.ts",
+    "test:styles": "node --import tsx --test src/templates/dreamwedds/styles.test.ts"
   },
   "dependencies": {
     "@remotion/bundler": "4.0.290",
