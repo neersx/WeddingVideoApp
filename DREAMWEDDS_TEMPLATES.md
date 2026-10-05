@@ -88,3 +88,34 @@ to 58 seconds for eight images.
 
 Do not add placeholder registry entries. A pair becomes discoverable only when
 its composition is renderable.
+
+## Render diagnostics
+
+Backend and render-service logs are written to stdout/stderr and collected by
+whichever process manager runs them (terminal, Docker logs, or systemd journal).
+Restart both services after updating the code.
+
+The backend logs `render.dispatch` with the exact outgoing JSON payload and sends
+its render ID in `X-Render-Id`. The worker logs `render.received` with the received
+payload and `render.input` with the resolved composition and input props. Search
+for the same `renderId` across both services; `jobId` identifies the worker job.
+Worker events are one JSON object per line with a UTC timestamp.
+
+Failures include worker stage (`bundle`, `input_props`, `select_composition`, or
+`render_media`), progress, error message and stack. Backend logs cover rejected
+requests, polling connection/HTTP errors, timeouts, downloads, saving the video,
+and credit settlement. Existing backend error records and failed-job status
+remain available. `render.completed` marks successful completion in each service.
+
+Payload logs include wedding details and media URLs; authorization headers are
+not included. These logs do not create a separate log file or retention policy.
+
+Render failures are also saved through the backend's existing `error_logs`
+collection and shown under **Admin Portal → Error Logs → Rendering**. Open a row
+to inspect render/worker IDs, template, stage, progress and the worker stack trace.
+Polling outages create one warning per consecutive outage, followed by a separate
+error if the render ultimately fails or times out. These records use the existing
+error-log retention and resolve controls. MongoDB persistence requires
+`STORAGE_BACKEND=mongodb`; development memory storage is cleared on restart.
+Worker diagnostics arrive through the backend's job polling; direct worker calls
+outside the backend flow only produce worker logs.

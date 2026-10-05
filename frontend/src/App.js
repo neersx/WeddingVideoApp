@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowRight,
@@ -2576,7 +2576,7 @@ function AdminErrorLogsPage() {
               <td className="px-4 py-3">
                 <span className={`rounded-full px-3 py-1 text-xs font-semibold ${item.severity === "error" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"}`}>{item.severity}</span>
               </td>
-              <td className="px-4 py-3 max-w-xs truncate text-neutral-700">{item.message}</td>
+              <td className="px-4 py-3 max-w-xs truncate text-neutral-700">{item.message}{item.category === "rendering" && item.context?.renderId && <div className="mt-1 truncate font-mono text-xs text-neutral-500">{item.context.renderId} · {item.context.stage || "render"}</div>}</td>
               <td className="px-4 py-3 text-xs text-neutral-500">{item.userEmail || "—"}</td>
               <td className="px-4 py-3 text-xs text-neutral-500">{item.source || "—"}</td>
               <td className="px-4 py-3 text-xs text-neutral-500">{item.path || "—"}{item.statusCode ? ` · ${item.statusCode}` : ""}</td>
@@ -2607,7 +2607,20 @@ function AdminErrorLogsPage() {
             <DialogDescription className="pt-2 leading-6 text-neutral-600">{viewing?.message}</DialogDescription>
           </DialogHeader>
         </div>
-        <div className="space-y-4 px-6 pb-6 pt-4 text-sm">
+        <div className="max-h-[70vh] overflow-y-auto space-y-4 px-6 pb-6 pt-4 text-sm">
+          {viewing?.category === "rendering" && viewing?.context && (
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-xl border border-[#ECD5E2] p-3 text-xs">
+              {[["Render ID", viewing.context.renderId], ["Worker job ID", viewing.context.jobId],
+                ["Stage", viewing.context.stage], ["Template", viewing.context.template],
+                ["Progress", typeof viewing.context.progress === "number" && viewing.context.progress >= 0 ? `${Math.round(viewing.context.progress * 100)}%` : null]]
+                .map(([label, value]) => <Fragment key={label}><dt className="font-semibold text-neutral-500">{label}</dt><dd className="break-all font-mono">{value || "—"}</dd></Fragment>)}
+            </dl>
+          )}
+          {viewing?.context?.stack && (
+            <div><div className="mb-1 text-xs font-semibold text-neutral-500">Stack trace</div>
+              <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-xl border border-[#ECD5E2] bg-[#FFF8FB] p-3 text-xs text-neutral-700">{viewing.context.stack}</pre>
+            </div>
+          )}
           {viewing?.detail && (
             <div>
               <div className="mb-1 text-xs font-semibold text-neutral-500">Detail</div>

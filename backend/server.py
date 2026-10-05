@@ -3746,40 +3746,69 @@ async def _run_render_job(job_id: str, payload: dict, user_id: Optional[str] = N
     once in the `finally` block below, based on the render doc's final status
     — capture on "done", release (refund) otherwise — regardless of which of
     the several return points below the job exits through."""
+    internal_id = None
+    stage = "dispatch"
+    last_progress = 0.0
+
+    async def record_render_error(message, *, detail=None, status_code=None,
+                                  severity="error", worker_error=None, source="backend"):
+        diagnostics = worker_error if isinstance(worker_error, dict) else {}
+        await log_error(
+            "rendering", message, detail=detail, status_code=status_code,
+            severity=severity, source=source,
+            path=f"/api/renders/{job_id}",
+            context={
+                "renderId": job_id, "jobId": internal_id,
+                "stage": diagnostics.get("stage") or stage,
+                "template": payload.get("template"), "category": payload.get("category"),
+                "progress": last_progress,
+                "userId": _redact_sub(user_id) if user_id else None,
+                "stack": str(diagnostics.get("stack") or "")[:16000] or None,
+            },
+        )
     try:
         current_db = db
+        logger.info("render.dispatch %s", json.dumps({"renderId": job_id, "endpoint": f"{RENDER_SERVICE_URL}/render-async", "payload": payload}, default=str))
         async with httpx.AsyncClient(timeout=httpx.Timeout(30, connect=10)) as hc:
-            start = await hc.post(f"{RENDER_SERVICE_URL}/render-async", json=payload)
+            start = await hc.post(f"{RENDER_SERVICE_URL}/render-async", json=payload, headers={"X-Render-Id": job_id})
         if start.status_code != 200:
-            detail = start.json().get('error', 'render service rejected job') if start.headers.get('content-type', '').startswith('application/json') else 'render service rejected job'
+            detail = start.text[:4000] or 'render service rejected job'
+            logger.error('render.rejected renderId=%s status=%s response=%s', job_id, start.status_code, detail)
             await current_db.renders.update_one({"_id": job_id}, {"$set": {"status": "failed", "error": detail}})
-            await log_error(
-                "rendering", "Render service rejected job", detail=detail, status_code=start.status_code,
-                context={"renderId": job_id, "userId": _redact_sub(user_id) if user_id else None},
-            )
+            await record_render_error("Render service rejected job", detail=detail, status_code=start.status_code, source="render-service")
             return
         internal_id = start.json()["jobId"]
+        logger.info("render.accepted renderId=%s jobId=%s", job_id, internal_id)
+        stage = "poll"
         await current_db.renders.update_one({"_id": job_id}, {"$set": {"status": "rendering", "internal_id": internal_id}})
 
         # Poll every 2s, up to 15 min.
         deadline = asyncio.get_event_loop().time() + 15 * 60
         last_progress = -1.0
+        poll_error_logged = False
         async with httpx.AsyncClient(timeout=httpx.Timeout(20, connect=5)) as hc:
             while True:
                 if asyncio.get_event_loop().time() > deadline:
+                    logger.error("render.timeout renderId=%s jobId=%s", job_id, internal_id)
                     await current_db.renders.update_one({"_id": job_id}, {"$set": {"status": "failed", "error": "timeout"}})
-                    await log_error(
-                        "rendering", "Render job timed out after 15 minutes",
-                        context={"renderId": job_id, "userId": _redact_sub(user_id) if user_id else None},
-                    )
+                    await record_render_error("Render job timed out after 15 minutes")
                     return
                 await asyncio.sleep(2)
                 try:
                     poll = await hc.get(f"{RENDER_SERVICE_URL}/jobs/{internal_id}")
                 except httpx.HTTPError:
+                    logger.warning("render.poll_error renderId=%s jobId=%s", job_id, internal_id, exc_info=True)
+                    if not poll_error_logged:
+                        await record_render_error("Render service polling connection failed; retrying", detail=traceback.format_exc(), severity="warning")
+                        poll_error_logged = True
                     continue
                 if poll.status_code != 200:
+                    logger.warning("render.poll_rejected renderId=%s jobId=%s status=%s response=%s", job_id, internal_id, poll.status_code, poll.text[:4000])
+                    if not poll_error_logged:
+                        await record_render_error("Render service polling request rejected; retrying", detail=poll.text[:2000], status_code=poll.status_code, severity="warning")
+                        poll_error_logged = True
                     continue
+                poll_error_logged = False
                 data = poll.json()
                 progress = float(data.get("progress") or 0)
                 status = data.get("status")
@@ -3790,16 +3819,15 @@ async def _run_render_job(job_id: str, payload: dict, user_id: Optional[str] = N
                         {"$set": {"status": status, "progress": progress}},
                     )
                 if status == "done":
+                    stage = "download"
                     # download the mp4
                     dl = await hc.get(f"{RENDER_SERVICE_URL}/jobs/{internal_id}/video", timeout=httpx.Timeout(120, connect=10))
                     if dl.status_code != 200:
+                        logger.error("render.download_failed renderId=%s jobId=%s status=%s response=%s", job_id, internal_id, dl.status_code, dl.text[:4000])
                         await current_db.renders.update_one({"_id": job_id}, {"$set": {"status": "failed", "error": "download failed"}})
-                        await log_error(
-                            "rendering", "Failed to download finished video from render service",
-                            status_code=dl.status_code,
-                            context={"renderId": job_id, "userId": _redact_sub(user_id) if user_id else None},
-                        )
+                        await record_render_error("Failed to download finished video from render service", status_code=dl.status_code, detail=dl.text[:2000])
                         return
+                    stage = "save_video"
                     out_path = RENDERS_DIR / f"{job_id}.mp4"
                     out_path.write_bytes(dl.content)
                     finished_at = datetime.now(timezone.utc)
@@ -3816,33 +3844,36 @@ async def _run_render_job(job_id: str, payload: dict, user_id: Optional[str] = N
                             "fileRemoved": False,
                         }},
                     )
+                    logger.info("render.completed renderId=%s jobId=%s sizeBytes=%s", job_id, internal_id, len(dl.content))
                     return
                 if status == "failed":
                     render_error = data.get("error") or "render failed"
+                    logger.error("render.failed renderId=%s jobId=%s error=%s", job_id, internal_id, render_error)
                     await current_db.renders.update_one(
                         {"_id": job_id},
                         {"$set": {"status": "failed", "error": render_error}},
                     )
-                    await log_error(
-                        "rendering", "Render service reported job failure", detail=render_error,
-                        context={"renderId": job_id, "userId": _redact_sub(user_id) if user_id else None},
-                    )
+                    await record_render_error("Render service reported job failure", detail=render_error, worker_error=data.get("errorDetails"), source="render-service")
                     return
     except Exception as e:  # noqa: BLE001
-        logger.exception("render job crashed")
+        logger.exception("render.crashed renderId=%s jobId=%s stage=%s", job_id, internal_id, stage)
+        await record_render_error("Render job crashed with an unhandled exception", detail=str(e),
+                                  worker_error={"stage": stage, "stack": traceback.format_exc()})
         await db.renders.update_one({"_id": job_id}, {"$set": {"status": "failed", "error": str(e)}})
-        await log_error(
-            "rendering", "Render job crashed with an unhandled exception", detail=traceback.format_exc(),
-            context={"renderId": job_id, "userId": _redact_sub(user_id) if user_id else None},
-        )
     finally:
         if credit_cost > 0 and user_id:
             final_doc = await db.renders.find_one({"_id": job_id})
             final_status = (final_doc or {}).get("status")
-            if final_status == "done":
-                await wallet.capture(db, user_id, job_id)
-            else:
-                await wallet.release(db, user_id, job_id)
+            try:
+                if final_status == "done":
+                    await wallet.capture(db, user_id, job_id)
+                else:
+                    await wallet.release(db, user_id, job_id)
+            except Exception:
+                logger.exception("render.credit_settlement_failed renderId=%s jobId=%s status=%s", job_id, internal_id, final_status)
+                stage = "credit_settlement"
+                await record_render_error("Render credit settlement failed", detail=traceback.format_exc())
+                raise
 
 
 async def _cleanup_expired_renders():
@@ -4414,6 +4445,8 @@ async def log_unhandled_exception(request: Request, exc: Exception):
         status_code=500,
         path=request.url.path,
         error_id=error_id,
+        source="backend",
+        context={"method": request.method, "stack": "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))[:16000]},
     )
     return JSONResponse(
         status_code=500,

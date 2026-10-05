@@ -19,6 +19,13 @@ const RENDER_CONCURRENCY = process.env.RENDER_CONCURRENCY ? Number(process.env.R
 const X264_PRESET = (process.env.RENDER_X264_PRESET || 'veryfast') as any;
 const X264_PRESETS = new Set(['ultrafast', 'superfast', 'veryfast', 'faster', 'fast', 'medium', 'slow', 'slower', 'veryslow']);
 
+const logEvent = (event: string, details: Record<string, unknown> = {}, error = false) => {
+  const line = JSON.stringify({timestamp: new Date().toISOString(), service: 'render-service', event, ...details});
+  if (error) console.error(line); else console.log(line);
+};
+const errorDetails = (err: unknown) => err instanceof Error
+  ? {message: err.message, stack: err.stack} : {message: String(err)};
+
 const app = express();
 app.use(express.json({limit: '10mb'}));
 
@@ -34,12 +41,17 @@ const bundling = bundle({
   return url;
 });
 
+// Observe startup failures without replacing the rejected promise awaited by jobs.
+void bundling.catch((err) => logEvent('bundle.failed', {error: errorDetails(err)}, true));
+
 type JobStatus = 'queued' | 'rendering' | 'done' | 'failed';
 type Job = {
   id: string;
+  renderId?: string;
   status: JobStatus;
   progress: number;
   error?: string;
+  errorDetails?: {message: string; stack?: string; stage: string};
   outputPath?: string;
   createdAt: number;
   finishedAt?: number;
@@ -108,8 +120,11 @@ const hasRenderableSubject = (body: any) =>
 const runRender = async (job: Job, body: any) => {
   const outPath = path.join(os.tmpdir(), `render-${job.id}.mp4`);
   job.outputPath = outPath;
+  let stage = 'bundle';
+  logEvent('render.started', {jobId: job.id, renderId: job.renderId});
   try {
     const url = await bundling;
+    stage = 'input_props';
     const {compositionId, inputProps} = buildInputProps(body);
     const requestedPreset = String(inputProps.qualityProfile?.x264Preset || '');
     const renderPreset = (X264_PRESETS.has(requestedPreset) ? requestedPreset : X264_PRESET) as any;
@@ -117,7 +132,10 @@ const runRender = async (job: Job, body: any) => {
     const requestedJpegQuality = Number(inputProps.qualityProfile?.jpegQuality);
     console.log(`[job ${job.id}] ${compositionId} for ${inputProps.couple.partnerOne} & ${inputProps.couple.partnerTwo} (concurrency=${RENDER_CONCURRENCY ?? 'auto'}, preset=${renderPreset}, theme=v${inputProps.templateVersion})`);
     job.status = 'rendering';
+    logEvent('render.input', {jobId: job.id, renderId: job.renderId, compositionId, inputProps});
+    stage = 'select_composition';
     const composition = await selectComposition({serveUrl: url, id: compositionId, inputProps});
+    stage = 'render_media';
     await renderMedia({
       composition,
       serveUrl: url,
@@ -139,11 +157,12 @@ const runRender = async (job: Job, body: any) => {
     job.status = 'done';
     job.progress = 1;
     job.finishedAt = Date.now();
-    console.log(`[job ${job.id}] done`);
+    logEvent('render.completed', {jobId: job.id, renderId: job.renderId, elapsedMs: job.finishedAt - job.createdAt});
   } catch (err: any) {
-    console.error(`[job ${job.id}] failed:`, err);
+    logEvent('render.failed', {jobId: job.id, renderId: job.renderId, stage, progress: job.progress, error: errorDetails(err)}, true);
     job.status = 'failed';
     job.error = err?.message || 'render failed';
+    job.errorDetails = {...errorDetails(err), stage};
     job.finishedAt = Date.now();
   }
 };
@@ -166,10 +185,13 @@ app.get('/health', (_req, res) => {
 // Legacy synchronous endpoint - kept for backwards compatibility.
 app.post('/render', async (req, res) => {
   const body = req.body || {};
+  const renderId = req.get('X-Render-Id');
+  logEvent('render.received', {endpoint: req.path, renderId, payload: body});
   if (!hasRenderableSubject(body)) {
+    logEvent('render.rejected', {endpoint: req.path, renderId, error: 'couple names or a fields payload are required'}, true);
     return res.status(400).json({error: 'couple names or a fields payload are required'});
   }
-  const job: Job = {id: crypto.randomBytes(8).toString('hex'), status: 'queued', progress: 0, createdAt: Date.now()};
+  const job: Job = {renderId, id: crypto.randomBytes(8).toString('hex'), status: 'queued', progress: 0, createdAt: Date.now()};
   jobs.set(job.id, job);
   await runRender(job, body);
   if (job.status === 'failed' || !job.outputPath) {
@@ -185,13 +207,16 @@ app.post('/render', async (req, res) => {
 // Async: start job, return id immediately.
 app.post('/render-async', (req, res) => {
   const body = req.body || {};
+  const renderId = req.get('X-Render-Id');
+  logEvent('render.received', {endpoint: req.path, renderId, payload: body});
   if (!hasRenderableSubject(body)) {
+    logEvent('render.rejected', {endpoint: req.path, renderId, error: 'couple names or a fields payload are required'}, true);
     return res.status(400).json({error: 'couple names or a fields payload are required'});
   }
-  const job: Job = {id: crypto.randomBytes(8).toString('hex'), status: 'queued', progress: 0, createdAt: Date.now()};
+  const job: Job = {renderId, id: crypto.randomBytes(8).toString('hex'), status: 'queued', progress: 0, createdAt: Date.now()};
   jobs.set(job.id, job);
   // fire and forget
-  runRender(job, body).catch((e) => console.error(`[job ${job.id}] unexpected:`, e));
+  runRender(job, body).catch((e) => logEvent('render.unexpected_error', {jobId: job.id, renderId, error: errorDetails(e)}, true));
   res.json({jobId: job.id, status: job.status});
 });
 
@@ -203,6 +228,7 @@ app.get('/jobs/:id', (req, res) => {
     status: job.status,
     progress: job.progress,
     error: job.error || null,
+    errorDetails: job.errorDetails || null,
   });
 });
 
@@ -216,6 +242,11 @@ app.get('/jobs/:id/video', (req, res) => {
   res.setHeader('Content-Type', 'video/mp4');
   res.setHeader('Content-Length', stat.size);
   fs.createReadStream(job.outputPath).pipe(res);
+});
+
+app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  logEvent('request.failed', {endpoint: req.path, renderId: req.get('X-Render-Id'), error: errorDetails(err)}, true);
+  res.status(err.status || 500).json({error: err.status === 400 ? 'Invalid JSON request' : 'Render service request failed'});
 });
 
 app.listen(PORT, '0.0.0.0', () => console.log(`render-service listening on ${PORT}`));
